@@ -19,7 +19,7 @@ def _candidate_with_coords() -> dict:
                 "transitLeg": True,
                 "duration": 1607,
                 "start": {"scheduledTime": "2026-10-22T17:09:00+05:30"},
-                "end": {"scheduledTime": "2026-10-22T17:35:47+05:30"},
+                "end": {"scheduledTime": "2026-10-22T17:28:47+05:30"},
                 "from": {
                     "name": "Badarpur Border (T)",
                     "lat": 28.49313,
@@ -27,10 +27,10 @@ def _candidate_with_coords() -> dict:
                     "stop": {"gtfsId": "DTC:2640"},
                 },
                 "to": {
-                    "name": "Ambedkar Nagar Depot",
-                    "lat": 28.51518,
-                    "lon": 77.22819,
-                    "stop": {"gtfsId": "DTC:7963"},
+                    "name": "Hamdard Nagar / Sangam Vihar",
+                    "lat": 28.511924,
+                    "lon": 77.249214,
+                    "stop": {"gtfsId": "DTC:2300"},
                 },
                 "route": {"gtfsId": "DTC:2171", "shortName": "717AUP"},
                 "trip": {"gtfsId": "DTC:2171_17_09_490"},
@@ -40,13 +40,13 @@ def _candidate_with_coords() -> dict:
                 "mode": "BUS",
                 "transitLeg": True,
                 "duration": 751,
-                "start": {"scheduledTime": "2026-10-22T18:00:04+05:30"},
+                "start": {"scheduledTime": "2026-10-22T17:32:42+05:30"},
                 "end": {"scheduledTime": "2026-10-22T18:22:35+05:30"},
                 "from": {
-                    "name": "Ambedkar Nagar Depot",
-                    "lat": 28.51518,
-                    "lon": 77.22819,
-                    "stop": {"gtfsId": "DTC:7963"},
+                    "name": "Hamdard Nagar / Sangam Vihar",
+                    "lat": 28.511924,
+                    "lon": 77.249214,
+                    "stop": {"gtfsId": "DTC:2300"},
                 },
                 "to": {
                     "name": "Hauz Khas",
@@ -54,8 +54,8 @@ def _candidate_with_coords() -> dict:
                     "lon": 77.2060,
                     "stop": {"gtfsId": "DTC:2559"},
                 },
-                "route": {"gtfsId": "DTC:3064", "shortName": "D-7702UP"},
-                "trip": {"gtfsId": "DTC:3064_17_55"},
+                "route": {"gtfsId": "DTC:1416", "shortName": "OMS(+)BURARI-DHAULAKUAN"},
+                "trip": {"gtfsId": "DTC:1416_15_08"},
                 "legGeometry": {"points": "encoded-d7702"},
             },
         ],
@@ -117,7 +117,7 @@ def _make_client(tmp_path: Path) -> TestClient:
 4730,ISBT Maharana Pratap Bus Terminal,28.6681691,77.2285861
 2559,Nehru Place,28.5485761,77.2491332
 2640,Badarpur Border (T),28.49313,77.30373
-7963,Ambedkar Nagar Depot,28.51518,77.22819
+2300,Hamdard Nagar / Sangam Vihar,28.511924,77.249214
 """,
         encoding="utf-8",
     )
@@ -167,8 +167,9 @@ def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Pat
     assert stages[3]["missed_by_s"] > 0
 
     delays = [s["observed_delay_s"] for s in stages]
-    assert delays == sorted(delays)
-    assert delays[0] < delays[1] < delays[2] < delays[3]
+    # The first three stages grow monotonically; the observed final stop can recover slightly.
+    assert delays[0] < delays[1] < delays[2]
+    assert delays[3] > delays[0]
 
 
 def test_replay_demo_uses_real_oct22_parquet_when_available() -> None:
@@ -182,13 +183,14 @@ def test_replay_demo_uses_real_oct22_parquet_when_available() -> None:
     assert body["connecting_fixture_source"].endswith("day=2026-10-22.parquet")
     transfer = body["transfer_stop"]
     assert transfer["actual_outcome"] == "missed"
-    assert transfer["actual_delay_s"] == 2308
-    assert transfer["missed_by_s"] == 579
+    assert transfer["actual_delay_s"] == 2070
+    assert transfer["missed_by_s"] == 1663
     assert transfer["actual_arrival_observed"] is True
     assert transfer["connecting_observed"] is True
-    assert transfer["connecting_vehicle_id"] == "DL1PD8627"
-    assert transfer["connecting_observed_depart"].endswith("18:04:36+05:30")
-    assert transfer["connecting_scheduled_depart"].endswith("18:00:04+05:30")
+    assert transfer["connecting_vehicle_id"] == "DL51EV4293"
+    assert transfer["connecting_observed_depart"].endswith("17:35:34+05:30")
+    assert transfer["connecting_scheduled_depart"].endswith("17:32:42+05:30")
+    assert [stage["observed_delay_s"] for stage in body["stages"]] == [165, 1768, 2133, 2070]
 
 
 def test_latest_ui_action_wins_when_responses_finish_out_of_order() -> None:

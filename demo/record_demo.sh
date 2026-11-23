@@ -106,18 +106,18 @@ curl -sf -X POST "${API_URL}/live/pause?reason=demo_stale_abstention" >/dev/null
 printf '[demo] Segment 2: Marginal-transfer replay demo (4 stages)\n'
 ab click "#replay-demo-btn"
 ab wait --text "Marginal-Transfer Replay Demo"
-ab wait --text "Ambedkar Nagar Depot"
+ab wait --text "Hamdard Nagar / Sangam Vihar"
 ab wait 3500
 
 printf '[demo]   Stage 1: Growing delay at Badarpur M B Road / Rajiv Gandhi Stadium\n'
 ab click "#stage-tabs button:nth-child(2)"
 ab wait 3500
 
-printf '[demo]   Stage 2: Advice flip at Lal Kuan\n'
+printf '[demo]   Stage 2: Advice flip at Tuglaqabad MB Road / Okhla more\n'
 ab click "#stage-tabs button:nth-child(3)"
 ab wait 4000
 
-printf '[demo]   Stage 3: Observed Oct 22 outcome reveal (missed by 9m 39s)\n'
+printf '[demo]   Stage 3: Observed Oct 22 outcome reveal (missed by 27m 43s)\n'
 ab click "#stage-tabs button:nth-child(4)"
 ab wait 4000
 

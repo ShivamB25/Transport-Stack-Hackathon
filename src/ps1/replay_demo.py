@@ -18,6 +18,7 @@ DEMO_VEHICLE_ID = "DL1PD7867"
 DEMO_ROUTE_ID = 2171
 DEMO_ROUTE_NAME = "717AUP"
 DEMO_DEPART_ISO = "2026-10-22T17:07:00+05:30"
+DEMO_DIRECT_DEPART_ISO = "2026-10-22T17:35:00+05:30"
 DEMO_ORIGIN = {
     "name": "Badarpur Border (T)",
     "stop_id": "2640",
@@ -29,12 +30,14 @@ DEMO_DESTINATION = {
     "lat": 28.5494,
     "lng": 77.2060,
 }
-DEMO_TRANSFER_STOP_SEQ = 15
-DEMO_TRANSFER_STOP_ID = "7963"
-DEMO_TRANSFER_STOP_NAME = "Ambedkar Nagar Depot"
-DEMO_CONNECTING_ROUTE = "D-7702UP"
-DEMO_CONNECTING_ROUTE_ID = 3064
-DEMO_CONNECTING_VEHICLE_ID = "DL1PD8627"
+DEMO_TRANSFER_STOP_SEQ = 11
+DEMO_TRANSFER_STOP_ID = "2300"
+DEMO_TRANSFER_STOP_NAME = "Hamdard Nagar / Sangam Vihar"
+DEMO_TRANSFER_STOP_LAT = 28.5119241399251
+DEMO_TRANSFER_STOP_LNG = 77.24921369736265
+DEMO_CONNECTING_ROUTE = "OMS(+)BURARI-DHAULAKUAN"
+DEMO_CONNECTING_ROUTE_ID = 1416
+DEMO_CONNECTING_VEHICLE_ID = "DL51EV4293"
 DEMO_DIRECT_ROUTE = "774UP"
 
 # Fallback passage snapshots from real Oct 22 2026 run 2171_17_09_490 (used only if parquet absent in unit tests)
@@ -62,37 +65,37 @@ _FALLBACK_PASSAGES: list[dict[str, Any]] = [
         "schedule_error_s": 1768,
     },
     {
-        "stop_sequence": 4,
-        "stop_id": "2821",
-        "stop_name": "Lal Kuan",
-        "stop_lat": 28.50230367708503,
-        "stop_lng": 77.28455007065351,
+        "stop_sequence": 6,
+        "stop_id": "2474",
+        "stop_name": "Tuglaqabad MB Road / Okhla more",
+        "stop_lat": 28.505533,
+        "stop_lng": 77.276483,
         "observed": True,
-        "ts": 1792671694,
-        "scheduled_ts": 1792669595,
-        "schedule_error_s": 2099,
+        "ts": 1792671902,
+        "scheduled_ts": 1792669769,
+        "schedule_error_s": 2133,
     },
     {
-        "stop_sequence": 15,
-        "stop_id": "7963",
-        "stop_name": "Ambedkar Nagar Depot",
-        "stop_lat": 28.515185,
-        "stop_lng": 77.228193,
+        "stop_sequence": 11,
+        "stop_id": "2300",
+        "stop_name": "Hamdard Nagar / Sangam Vihar",
+        "stop_lat": 28.5119241399251,
+        "stop_lng": 77.24921369736265,
         "observed": True,
-        "ts": 1792673055,
-        "scheduled_ts": 1792670747,
-        "schedule_error_s": 2308,
+        "ts": 1792672397,
+        "scheduled_ts": 1792670327,
+        "schedule_error_s": 2070,
     },
 ]
 
 _FALLBACK_CONNECTING_PASSAGE: dict[str, Any] = {
     "vehicle_id": DEMO_CONNECTING_VEHICLE_ID,
-    "run_id": "3064_17_55",
+    "run_id": "1416_15_08",
     "observed": True,
-    "ts": 1792672476,
-    "lat": 28.5151176452637,
-    "lng": 77.2283477783203,
-    "distance_m": 16.875743994761454,
+    "ts": 1792670734,
+    "lat": 28.5120754241943,
+    "lng": 77.2491607666016,
+    "distance_m": 17.599111181044133,
 }
 
 
@@ -169,9 +172,9 @@ def _load_oct22_connecting_passage(
             LIMIT 1
             """,
             [
-                28.515185,
-                28.515185,
-                77.228193,
+                DEMO_TRANSFER_STOP_LAT,
+                DEMO_TRANSFER_STOP_LAT,
+                DEMO_TRANSFER_STOP_LNG,
                 str(parquet_path),
                 DEMO_CONNECTING_ROUTE_ID,
                 DEMO_CONNECTING_VEHICLE_ID,
@@ -197,7 +200,9 @@ def _load_oct22_connecting_passage(
     )
 
 
-def _extract_geometries(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+def _extract_geometries(
+    candidates: list[dict[str, Any]], direct_candidates: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     transfer_cand: dict[str, Any] | None = None
     direct_cand: dict[str, Any] | None = None
     for cand in candidates:
@@ -212,6 +217,11 @@ def _extract_geometries(candidates: list[dict[str, Any]]) -> dict[str, Any]:
             direct_cand = cand
     if transfer_cand is None and candidates:
         transfer_cand = candidates[0]
+    for cand in direct_candidates or []:
+        transit = [leg for leg in cand.get("legs") or [] if leg.get("transitLeg")]
+        if len(transit) == 1:
+            direct_cand = cand
+            break
     if direct_cand is None and len(candidates) > 1:
         direct_cand = candidates[-1]
 
@@ -241,9 +251,9 @@ def _extract_geometries(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         return result
 
     transfer_scheduled_s = 3793
-    transfer_gap_s = 1457
-    connect_sched_iso = "2026-10-22T18:00:04+05:30"
-    transfer_route_summary = "717AUP -> D-7702UP -> 413DOWN"
+    transfer_gap_s = 235
+    connect_sched_iso = "2026-10-22T17:32:42+05:30"
+    transfer_route_summary = "717AUP -> OMS(+)BURARI-DHAULAKUAN -> 502DOWN"
     if transfer_cand:
         t_legs = [leg for leg in transfer_cand.get("legs") or [] if leg.get("transitLeg")]
         if transfer_cand.get("duration"):
@@ -339,7 +349,16 @@ async def build_marginal_transfer_demo(
     except OTPClientError:
         candidates = []
 
-    geom = _extract_geometries(candidates)
+    try:
+        direct_candidates = await otp_client.plan(
+            (DEMO_ORIGIN["lat"], DEMO_ORIGIN["lng"]),
+            (DEMO_DESTINATION["lat"], DEMO_DESTINATION["lng"]),
+            datetime.fromisoformat(DEMO_DIRECT_DEPART_ISO),
+        )
+    except OTPClientError:
+        direct_candidates = []
+
+    geom = _extract_geometries(candidates, direct_candidates)
     transfer_sched_s = geom["transfer_scheduled_s"]
     direct_sched_s = geom["direct_scheduled_s"]
     transfer_gap_s = geom["transfer_gap_s"]
@@ -351,7 +370,7 @@ async def build_marginal_transfer_demo(
 
     p_start = by_seq.get(0, _FALLBACK_PASSAGES[0])
     p_mid = by_seq.get(1, _FALLBACK_PASSAGES[1])
-    p_late = by_seq.get(4, _FALLBACK_PASSAGES[2])
+    p_late = by_seq.get(6, _FALLBACK_PASSAGES[2])
     p_xfer = by_seq.get(DEMO_TRANSFER_STOP_SEQ, _FALLBACK_PASSAGES[3])
 
     # Compare two directly observed passages at the same transfer stop, never schedule with observation.
@@ -372,8 +391,8 @@ async def build_marginal_transfer_demo(
 
     stage_specs = [
         ("initial", "1. Timetable recommends transfer", p_start, 15, False, False),
-        ("delay_growing", "2. First bus falls behind schedule", p_mid, 14, False, False),
-        ("advice_flip", "3. Advice flips to direct bus", p_late, 11, True, False),
+        ("delay_growing", "2. First bus falls behind schedule", p_mid, 10, False, False),
+        ("advice_flip", "3. Advice flips to direct bus", p_late, 7, True, False),
         ("outcome_reveal", "4. Actual Oct 22 outcome revealed", p_xfer, 0, True, True),
     ]
 
