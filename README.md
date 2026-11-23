@@ -61,6 +61,21 @@ radius, minimum-distance observations, and time-ordered anchors; gaps use
 schedule-proportional interpolation. Runs with fewer than two anchors or an
 observed span over six hours are excluded and counted in the report.
 
+## 717A baseline evaluation
+
+The frozen protocol is in `docs/eval-protocol.md`. Regenerate timetable (rung 0),
+previous-run persistence (rung 1), and historical hourly medians (rung 1h) for
+717A UP/DOWN on October 22, 27, and 28:
+
+```bash
+PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate
+```
+
+The command writes `reports/eval-baselines.csv` and `reports/eval-baselines.md`
+with paired MAE, median AE, p90 AE, share over 60 seconds, and observed versus
+interpolated coverage. It exits nonzero if the strict October 22 persistence gate
+fails in either direction; the reports remain available for inspection.
+
 ## Checks
 
 ```bash
