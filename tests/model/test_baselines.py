@@ -10,6 +10,7 @@ from ps1.evaluate import (
     ROUTES,
     TRAIN_DAYS,
     persistence_gate,
+    select_stratum,
     summarize,
     validate_day_partitions,
 )
@@ -154,7 +155,38 @@ def test_metric_values_and_coverage_columns() -> None:
     assert row["interpolated_queries"] == 1
     assert row["observed_coverage_pct"] == 50
     assert row["interpolated_coverage_pct"] == 50
+    assert row["stratum"] == "all-stop"
     assert set(METRIC_FIELDS) == set(row)
+
+
+def test_observed_only_stratum_excludes_interpolated_targets() -> None:
+    queries = [
+        query(stretch("a", 100, 200, 10)),
+        query(stretch("b", 300, 400, 70, to_observed=False)),
+    ]
+    selected = select_stratum(queries, "observed-only")
+    assert selected == queries[:1]
+    row = summarize(
+        "2026-10-22",
+        2171,
+        "0",
+        selected,
+        [Prediction(0)],
+        stratum="observed-only",
+    )
+    assert row["queries"] == 1
+    assert row["mae_s"] == 10
+    assert row["observed_coverage_pct"] == 100
+    assert row["interpolated_queries"] == 0
+    with pytest.raises(ValueError, match="directly observed"):
+        summarize(
+            "2026-10-22",
+            2171,
+            "0",
+            queries,
+            [Prediction(0), Prediction(0)],
+            stratum="observed-only",
+        )
 
 
 def test_gate_is_strict_and_independent_by_direction() -> None:
@@ -165,8 +197,38 @@ def test_gate_is_strict_and_independent_by_direction() -> None:
         ("DOWN", 2170, "0", 50),
         ("DOWN", 2170, "1", 50),
     ]:
-        rows.append({"day": "2026-10-22", "direction": direction, "route_id": route_id, "rung": rung, "mae_s": mae})
+        rows.append(
+            {
+                "day": "2026-10-22",
+                "direction": direction,
+                "route_id": route_id,
+                "rung": rung,
+                "stratum": "observed-only",
+                "mae_s": mae,
+            }
+        )
     assert persistence_gate(rows) == {"UP": True, "DOWN": False}
+
+
+def test_gate_ignores_all_stop_metrics() -> None:
+    rows = []
+    for direction, route_id in (("UP", 2171), ("DOWN", 2170)):
+        for stratum, timetable_mae, persistence_mae in (
+            ("all-stop", 100, 1),
+            ("observed-only", 50, 60 if direction == "UP" else 49),
+        ):
+            for rung, mae in (("0", timetable_mae), ("1", persistence_mae)):
+                rows.append(
+                    {
+                        "day": "2026-10-22",
+                        "direction": direction,
+                        "route_id": route_id,
+                        "rung": rung,
+                        "stratum": stratum,
+                        "mae_s": mae,
+                    }
+                )
+    assert persistence_gate(rows) == {"UP": False, "DOWN": True}
 
 
 def test_frozen_partitions_are_disjoint_whole_days() -> None:

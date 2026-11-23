@@ -73,8 +73,10 @@ PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate
 
 The command writes `reports/eval-baselines.csv` and `reports/eval-baselines.md`
 with paired MAE, median AE, p90 AE, share over 60 seconds, and observed versus
-interpolated coverage. It exits nonzero if the strict October 22 persistence gate
-fails in either direction; the reports remain available for inspection.
+interpolated coverage for both observed-only and all-stop strata. All-stop metrics
+include timetable-derived interpolated targets and carry a circularity caveat. The
+strict October 22 persistence gate uses observed-only targets only and exits nonzero
+if persistence fails in either direction; the reports remain available for inspection.
 
 ## Checks
 

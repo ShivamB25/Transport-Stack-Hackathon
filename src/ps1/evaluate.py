@@ -23,11 +23,13 @@ TRAIN_DAYS = tuple(
 HOLDOUT_DAYS = tuple(f"2026-10-{day:02d}" for day in (22, 27, 28))
 ROUTES = {2170: "DOWN", 2171: "UP"}
 RUNGS = ("0", "1", "1h")
+STRATA = ("all-stop", "observed-only")
 METRIC_FIELDS = (
     "day",
     "direction",
     "route_id",
     "rung",
+    "stratum",
     "queries",
     "mae_s",
     "median_ae_s",
@@ -57,16 +59,34 @@ def _rounded(value: float) -> float:
     return round(float(value), 6)
 
 
+def select_stratum(
+    queries: Sequence[ReplayQuery], stratum: str
+) -> list[ReplayQuery]:
+    """Select target ground truth without changing the paired query protocol."""
+    if stratum not in STRATA:
+        raise ValueError(f"unknown evaluation stratum: {stratum}")
+    if stratum == "observed-only":
+        return [query for query in queries if query.stretch.target_observed]
+    return list(queries)
+
+
 def summarize(
     day: str,
     route_id: int,
     rung: str,
     queries: Sequence[ReplayQuery],
     predictions: Sequence[Prediction],
+    stratum: str = "all-stop",
 ) -> dict[str, object]:
     """Compute paired point accuracy and target-provenance coverage."""
     if len(queries) != len(predictions) or not queries:
         raise ValueError("queries and predictions must have the same nonzero length")
+    if stratum not in STRATA:
+        raise ValueError(f"unknown evaluation stratum: {stratum}")
+    if stratum == "observed-only" and not all(
+        query.stretch.target_observed for query in queries
+    ):
+        raise ValueError("observed-only metrics require directly observed target endpoints")
     actual = np.array([query.stretch.error_s for query in queries], dtype=float)
     predicted = np.array([prediction.error_s for prediction in predictions], dtype=float)
     absolute = np.abs(predicted - actual)
@@ -77,6 +97,7 @@ def summarize(
         "direction": ROUTES[route_id],
         "route_id": route_id,
         "rung": rung,
+        "stratum": stratum,
         "queries": len(queries),
         "mae_s": _rounded(np.mean(absolute)),
         "median_ae_s": _rounded(np.median(absolute)),
@@ -100,7 +121,9 @@ def persistence_gate(rows: Sequence[dict[str, object]]) -> dict[str, bool]:
         scoped = {
             str(row["rung"]): row
             for row in rows
-            if row["day"] == "2026-10-22" and row["direction"] == direction
+            if row["day"] == "2026-10-22"
+            and row["direction"] == direction
+            and row["stratum"] == "observed-only"
         }
         result[direction] = float(scoped["1"]["mae_s"]) < float(scoped["0"]["mae_s"])
     return result
@@ -120,31 +143,50 @@ def write_reports(rows: Sequence[dict[str, object]], output_dir: Path) -> None:
         "",
         (
             "Protocol: [docs/eval-protocol.md](../docs/eval-protocol.md). "
-            "All rungs use the same causal persistence-eligible queries within each group."
+            "All rungs use the same causal persistence-eligible queries within each stratum and group."
         ),
         "",
-        "| Day | Direction | Rung | Queries | MAE s | Median AE s | p90 AE s | >60 s % | Observed % | Interpolated/partial % | History fallbacks |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        (
+            "**Ground-truth caveat:** all-stop metrics include schedule-interpolated "
+            "pseudo-ground-truth derived from the timetable. This is circular and biases "
+            "comparisons toward rung 0. Only observed-only metrics, whose target stretch "
+            "endpoints are both directly observed, are used for the persistence gate."
+        ),
+        "",
+        "| Day | Direction | Rung | Stratum | Queries | MAE s | Median AE s | p90 AE s | >60 s % | Observed % | Interpolated/partial % | History fallbacks |",
+        "|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
-            f"| {row['day']} | {row['direction']} | {row['rung']} | {row['queries']} | "
-            f"{row['mae_s']:.3f} | {row['median_ae_s']:.3f} | {row['p90_ae_s']:.3f} | "
+            f"| {row['day']} | {row['direction']} | {row['rung']} | {row['stratum']} | "
+            f"{row['queries']} | {row['mae_s']:.3f} | {row['median_ae_s']:.3f} | {row['p90_ae_s']:.3f} | "
             f"{row['share_gt_60_pct']:.3f} | {row['observed_coverage_pct']:.3f} | "
             f"{row['interpolated_coverage_pct']:.3f} | {row['history_fallback_queries']} |"
         )
-    lines.extend(["", "## October 22 persistence gate", ""])
+    lines.extend(["", "## October 22 observed-only persistence gate", ""])
     for direction in ("UP", "DOWN"):
         scoped = {
             str(row["rung"]): row
             for row in rows
-            if row["day"] == "2026-10-22" and row["direction"] == direction
+            if row["day"] == "2026-10-22"
+            and row["direction"] == direction
+            and row["stratum"] == "observed-only"
         }
         comparison = "PASS" if gate[direction] else "FAIL"
         lines.append(
             f"- {direction}: **{comparison}** — rung 1 MAE {scoped['1']['mae_s']:.3f} s "
             f"vs rung 0 MAE {scoped['0']['mae_s']:.3f} s; "
-            f"{scoped['0']['queries']} paired queries in each rung."
+            f"{scoped['0']['queries']} observed-only paired queries in each rung."
+        )
+    if not all(gate.values()):
+        lines.extend(
+            [
+                "",
+                (
+                    "**Negative result:** persistence did not beat the timetable in both "
+                    "directions on directly observed ground truth. No held-out tuning was applied."
+                ),
+            ]
         )
     lines.extend(
         [
@@ -167,17 +209,32 @@ def run_evaluation(data_dir: Path, output_dir: Path) -> dict[str, bool]:
         training_stretches.extend(build_stretch_errors(passages))
     models = {rung: BaselineModel(rung).fit(training_stretches) for rung in RUNGS}
 
-    rows = []
+    holdout_queries = {}
     for day in HOLDOUT_DAYS:
         passages = load_passages(data_dir / "passages" / f"day={day}.parquet")
-        queries = build_replay_queries(build_stretch_errors(passages))
-        for route_id in sorted(ROUTES):
-            scoped = [query for query in queries if query.stretch.route_id == route_id]
-            if not scoped:
-                raise ValueError(f"no paired replay queries for {day} route {route_id}")
-            for rung in RUNGS:
-                predictions = [models[rung].predict(query) for query in scoped]
-                rows.append(summarize(day, route_id, rung, scoped, predictions))
+        holdout_queries[day] = build_replay_queries(build_stretch_errors(passages))
+
+    rows = []
+    for stratum in STRATA:
+        for day in HOLDOUT_DAYS:
+            for route_id in sorted(ROUTES):
+                route_queries = [
+                    query
+                    for query in holdout_queries[day]
+                    if query.stretch.route_id == route_id
+                ]
+                scoped = select_stratum(route_queries, stratum)
+                if not scoped:
+                    raise ValueError(
+                        f"no {stratum} paired replay queries for {day} route {route_id}"
+                    )
+                for rung in RUNGS:
+                    predictions = [models[rung].predict(query) for query in scoped]
+                    rows.append(
+                        summarize(
+                            day, route_id, rung, scoped, predictions, stratum=stratum
+                        )
+                    )
     write_reports(rows, output_dir)
     return persistence_gate(rows)
 
