@@ -41,6 +41,26 @@ rewrites `STATUS.md`):
 PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.acquire
 ```
 
+## 717A stop passages
+
+Reconstruct the training days (October 5–8 and 13–15) and held-out days
+(October 22, 27, and 28). October 7 is training-only because its feed is truncated.
+
+```bash
+PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.stop_passages
+```
+
+Use `--day 2026-10-22` for one day and `--overwrite` to replace existing outputs.
+The command reads `$PS1_DATA_DIR/gps/day=YYYY-MM-DD.parquet` and the static GTFS,
+then writes DuckDB-queryable Parquet to
+`$PS1_DATA_DIR/passages/day=YYYY-MM-DD.parquet` plus
+`reports/coverage-717a.md`. Each row includes the run key, stop sequence,
+observed/interpolated source, epoch timestamp, scheduled timestamp, and schedule
+error. GPS trip IDs are run labels only, not GTFS join keys. Matching uses a 60 m
+radius, minimum-distance observations, and time-ordered anchors; gaps use
+schedule-proportional interpolation. Runs with fewer than two anchors or an
+observed span over six hours are excluded and counted in the report.
+
 ## Checks
 
 ```bash
