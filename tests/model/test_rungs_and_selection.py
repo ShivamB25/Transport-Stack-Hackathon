@@ -299,3 +299,49 @@ def test_saved_rung4_predictions_audit_ordering_and_coverage() -> None:
         assert math.isclose(cov, row["interval_coverage_pct"], abs_tol=1e-4)
         assert math.isclose(mean_w, row["mean_interval_width_s"], abs_tol=1e-4)
         assert math.isclose(med_w, row["median_interval_width_s"], abs_tol=1e-4)
+
+
+def test_saved_pooled_interval_width_and_artifact_cutoffs() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    selection_path = repo_root / "reports" / "selection.json"
+    model_dir = Path("/home/factory-user/ps1-scratch/data/model")
+    pred_path = model_dir / "eval-predictions-rung4.parquet"
+    if not selection_path.exists() or not pred_path.exists():
+        pytest.skip("regenerated selection and saved predictions not present")
+
+    decision = json.loads(selection_path.read_text(encoding="utf-8"))
+    pooled = decision["pooled_interval_metrics"]
+    con = duckdb.connect()
+    try:
+        count, coverage, mean_width, median_width = con.execute(
+            """
+            SELECT count(*),
+                   100.0 * avg(CASE WHEN covered THEN 1.0 ELSE 0.0 END),
+                   avg(width_s),
+                   quantile_cont(width_s, 0.5)
+            FROM read_parquet(?)
+            WHERE target_observed
+            """,
+            [str(pred_path)],
+        ).fetchone()
+    finally:
+        con.close()
+    assert count == pooled["queries"]
+    assert math.isclose(coverage, pooled["interval_coverage_pct"], abs_tol=1e-4)
+    assert math.isclose(mean_width, pooled["mean_interval_width_s"], abs_tol=1e-4)
+    assert math.isclose(median_width, pooled["median_interval_width_s"], abs_tol=1e-4)
+
+    artifact = load_model_artifact(model_dir)
+    assert artifact is not None
+    metadata = artifact.metadata
+    assert metadata["training_cutoff_day"] == "2026-10-14"
+    assert metadata["calibration_cutoff_day"] == "2026-10-15"
+    assert metadata["data_cutoff_day"] == "2026-10-15"
+    assert metadata["eligible_from_ts"] > max(
+        metadata["latest_training_available_at"],
+        metadata["latest_calibration_available_at"],
+    )
+    assert not artifact.is_eligible_as_of(metadata["eligible_from_ts"] - 1)
+    assert artifact.is_eligible_as_of(metadata["eligible_from_ts"])
+    october_22 = int(datetime(2026, 10, 22, 8, 0, tzinfo=IST).timestamp())
+    assert artifact.is_eligible_as_of(october_22)

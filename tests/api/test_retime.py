@@ -152,6 +152,7 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
             "scheduled_ts": p.scheduled_ts,
             "schedule_error_s": p.effective_schedule_error_s,
             "distance_m": p.distance_m,
+            "available_at": p.source_available_at,
         }
         for p in eval_p
     ]

@@ -73,7 +73,7 @@ The version 1.0 all-stop results exposed circular ground truth: rung 0 had media
 Every metric is now reported for two strata:
 
 - **observed-only:** only queries whose target stretch upstream and downstream endpoints are both directly observed, never interpolated;
-- **all-stop:** the complete version 1.0 paired query set, including interpolated/partial targets.
+- **all-stop:** the complete causal paired query set, including interpolated/partial targets.
 
 The all-stop rows remain available with this circularity caveat and are not valid for the persistence gate. No model, fallback, or hyperparameter may be tuned on held-out days in response to these results.
 

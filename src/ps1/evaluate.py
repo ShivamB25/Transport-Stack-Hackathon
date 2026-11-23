@@ -232,7 +232,8 @@ def write_reports(rows: Sequence[dict[str, object]], output_dir: Path) -> None:
         "",
         (
             "Protocol: [docs/eval-protocol.md](../docs/eval-protocol.md). "
-            "All rungs use the same causal persistence-eligible queries within each stratum and group."
+            "All rungs use the same causal persistence-eligible queries within each stratum and group. "
+            "Every source passage has event time and available_at strictly before the query."
         ),
         "",
         (
@@ -319,7 +320,8 @@ def write_full_reports(
         (
             "Protocol: [docs/eval-protocol.md](../docs/eval-protocol.md). "
             "All rungs (0, 1, 1h, 2, 3, 4) are scored on identical causal persistence-eligible "
-            "queries within each stratum, day, and direction."
+            "queries within each stratum, day, and direction. Every source passage has event "
+            "time and available_at strictly before the query."
         ),
         "",
         "## Whole-day partitions",
