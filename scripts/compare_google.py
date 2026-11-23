@@ -838,7 +838,7 @@ def render_markdown_report(
     lines.extend(["", "## Missing / Error / Non-Bus-Only Rows", ""])
     if not missing_rows:
         lines.append(
-            "All **90 / 90** planned OD × time slots returned both a model-timed itinerary from our API and at least "
+            f"All **{len(rows)} / {len(rows)}** planned OD × time slots returned both a model-timed itinerary from our API and at least "
             "one strictly bus-only itinerary from Google Routes API (0 missing or error rows)."
         )
     else:
@@ -960,6 +960,41 @@ def _unavailable_google_response(
     }
 
 
+def _freeze_google_response(google_res: dict[str, Any]) -> dict[str, Any]:
+    """Keep only renderer inputs, excluding volatile accounting and unused route details."""
+    parsed = google_res.get("parsed") or {}
+    best = parsed.get("best_bus_route")
+    best_keys = ("duration_s", "distance_m", "route_names", "transfers", "vehicle_types")
+    frozen = {
+        key: google_res[key]
+        for key in (
+            "cache_key",
+            "cache_path",
+            "from_cache",
+            "fetched_at",
+            "http_status",
+            "error",
+            "unavailable_reason",
+            "request",
+            "field_mask",
+        )
+        if key in google_res
+    }
+    frozen["parsed"] = {
+        key: parsed.get(key)
+        for key in (
+            "raw_route_count",
+            "bus_only_count",
+            "excluded_non_bus_count",
+            "excluded_vehicle_types",
+        )
+    }
+    frozen["parsed"]["best_bus_route"] = (
+        {key: best.get(key) for key in best_keys} if best is not None else None
+    )
+    return frozen
+
+
 def collect_comparison_inputs(
     *,
     target_date: date,
@@ -1015,7 +1050,7 @@ def collect_comparison_inputs(
                         "slot": asdict(slot),
                         "departure_time": depart.isoformat(),
                         "our": our_res,
-                        "google": google_res,
+                        "google": _freeze_google_response(google_res),
                     }
                 )
 
@@ -1062,7 +1097,7 @@ def _write_comparison_outputs(
 ) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
     with (report_dir / "google-comparator.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(CSV_COLUMNS))
+        writer = csv.DictWriter(handle, fieldnames=list(CSV_COLUMNS), lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row.get(key) for key in CSV_COLUMNS})

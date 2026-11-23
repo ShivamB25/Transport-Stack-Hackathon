@@ -314,23 +314,24 @@ The complete 72-row table (including all-stop rows and history fallback counts) 
 
 **Comparator only, not ground truth:** Google Routes API reflects Google's schedule/traffic model on upcoming departures (past October dates return `routes: []`), not observed Delhi GPS arrivals. Ground-truth accuracy is measured strictly against observed October 2026 stop passages above.
 
-- **Corpus:** 30 Delhi OD pairs × 3 slots (`08:30`, `14:00`, `18:30` IST on upcoming Tuesday `2026-11-24`) = **90/90 slots compared** (`0` missing/error, `3` non-bus `SUBWAY` itineraries filtered out so all 90 comparisons are strictly bus-only, `languageCode="en"`).
-- **Mission-wide call budget:** **`92 / 300`** (`2` probe calls + `90` cached comparator calls; `208` remaining).
+- **Corpus:** 30 Delhi OD pairs × 3 slots (`08:30`, `14:00`, `18:30` IST on upcoming Tuesday `2026-11-24`) = **90 planned slots, 41 compared, 49 abstentions retained**. The fixed planner reported `insufficient_data` where no candidate had supported route-level observations; those rows are not omitted. Three non-bus `SUBWAY` alternatives were filtered out, every numeric comparison is strictly bus-only, and `languageCode="en"`.
+- **Mission-wide call budget:** **`92 / 300`** (`2` probe calls + `90` cached comparator calls; `208` remaining). Regeneration used 90/90 cache hits and zero Google calls.
 
 | Slice | Planned | Compared | Mean Ours | Mean Google | Mean Diff (Ours − Google) | Median Diff | Mean Abs Diff | Google in Our [p10, p90] |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| **All OD × Time Slots** | 90 | 90 | 49.9 min | 47.9 min | +123 s (+2.0 m) | +126 s | 371 s (6.2 m) | 96.7% |
-| 08:30 IST (Morning Peak) | 30 | 30 | 45.8 min | 47.8 min | -121 s (-2.0 m) | -102 s | 310 s (5.2 m) | 96.7% |
-| 14:00 IST (Midday) | 30 | 30 | 48.7 min | 47.9 min | +44 s (+0.7 m) | +66 s | 258 s (4.3 m) | 100.0% |
-| 18:30 IST (Evening Peak) | 30 | 30 | 55.4 min | 48.0 min | +445 s (+7.4 m) | +376 s | 546 s (9.1 m) | 93.3% |
+| **All OD × Time Slots** | 90 | 41 | 63.1 min | 56.0 min | +428 s (+7.1 m) | +484 s | 624 s (10.4 m) | 97.6% |
+| 08:30 IST (Morning Peak) | 30 | 14 | 56.1 min | 54.8 min | +78 s (+1.3 m) | +134 s | 397 s (6.6 m) | 92.9% |
+| 14:00 IST (Midday) | 30 | 13 | 61.9 min | 56.0 min | +354 s (+5.9 m) | +459 s | 492 s (8.2 m) | 100.0% |
+| 18:30 IST (Evening Peak) | 30 | 14 | 71.1 min | 57.0 min | +846 s (+14.1 m) | +748 s | 972 s (16.2 m) | 100.0% |
 
-Regenerate `reports/google-comparator.{md,csv}` and `reports/google-manifest.json` from the local disk cache with **0 additional Google API calls** (requires OTP on 3102 and FastAPI on 3100):
+Regenerate `reports/google-comparator.{md,csv}` and `reports/google-manifest.json` exclusively from committed `reports/google-comparator-inputs.json`. This makes **0 planner calls and 0 Google API calls**, and repeated renders are byte-identical:
 
 ```bash
 cd /home/factory-user/repos/Transport-Stack-Hackathon && \
-  /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py \
-  --date 2026-11-24 --cache-only
+  /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --render-only
 ```
+
+Fresh collection is a separate operation that replaces the frozen inputs. With OTP on 3102 and FastAPI on 3100, use `--date 2026-11-24 --cache-only` to query the planner while prohibiting Google network calls.
 
 ---
 

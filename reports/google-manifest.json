@@ -1,5 +1,4 @@
 {
-  "generated_at": "2026-11-23T19:43:05Z",
   "target_date_ist": "2026-11-24",
   "target_weekday": "Tuesday",
   "matching_october_weekday_note": "Upcoming matching weekday used because Google Routes TRANSIT returns zero routes for past/October 2026 dates (verified in feasibility probe).",
@@ -18,7 +17,7 @@
   ],
   "bus_only_filter_applied": true,
   "cache_dir": "/home/factory-user/ps1-scratch/data/google/responses",
-  "call_counter_path": "/home/factory-user/ps1-scratch/data/google/call_counter.json",
+  "call_counter_path": "/home/factory-user/ps1-scratch/google-mission-call-ledger.json",
   "scratch_manifest_path": "/home/factory-user/ps1-scratch/data/google/manifest.json",
   "call_accounting": {
     "hard_cap": 300,
@@ -30,12 +29,15 @@
     "cache_hits_this_run": 90,
     "network_calls_this_run": 0
   },
+  "generated_at": "2026-11-23T21:16:26Z",
+  "rendered_from_frozen_inputs": true,
+  "frozen_inputs_path": "/home/factory-user/repos/Transport-Stack-Hackathon/reports/google-comparator-inputs.json",
   "corpus_summary": {
     "od_pair_count": 30,
     "time_slots_per_pair": 3,
     "planned_slots": 90,
-    "compared_rows": 90,
-    "missing_or_error_rows": 0,
+    "compared_rows": 41,
+    "missing_or_error_rows": 49,
     "google_non_bus_itineraries_filtered": 3
   },
   "entries": [
@@ -75,9 +77,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_01",
@@ -635,9 +637,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_06",
@@ -1155,9 +1157,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_10",
@@ -1437,9 +1439,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": "filtered 1 non-bus Google itinerary(ies) (SUBWAY)"
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations.; filtered 1 non-bus Google itinerary(ies) (SUBWAY)"
     },
     {
       "od_id": "od_12",
@@ -1477,9 +1479,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_13",
@@ -1641,9 +1643,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_14",
@@ -1681,9 +1683,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_14",
@@ -1721,9 +1723,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_15",
@@ -1761,9 +1763,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_15",
@@ -1801,9 +1803,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_15",
@@ -1841,9 +1843,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_16",
@@ -1881,9 +1883,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_16",
@@ -1921,9 +1923,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_16",
@@ -1961,9 +1963,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_17",
@@ -2041,9 +2043,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_17",
@@ -2121,9 +2123,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_18",
@@ -2161,9 +2163,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_18",
@@ -2201,9 +2203,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_19",
@@ -2241,9 +2243,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_19",
@@ -2281,9 +2283,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_19",
@@ -2321,9 +2323,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_20",
@@ -2361,9 +2363,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_20",
@@ -2401,9 +2403,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_20",
@@ -2441,9 +2443,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_21",
@@ -2481,9 +2483,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_21",
@@ -2521,9 +2523,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_21",
@@ -2561,9 +2563,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_22",
@@ -2721,9 +2723,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_23",
@@ -2761,9 +2763,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_23",
@@ -2801,9 +2803,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_24",
@@ -2841,9 +2843,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_24",
@@ -2881,9 +2883,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_24",
@@ -2921,9 +2923,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_25",
@@ -2961,9 +2963,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_25",
@@ -3001,9 +3003,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_25",
@@ -3041,9 +3043,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_26",
@@ -3081,9 +3083,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_26",
@@ -3121,9 +3123,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_26",
@@ -3161,9 +3163,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_27",
@@ -3241,9 +3243,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_27",
@@ -3321,9 +3323,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_28",
@@ -3361,9 +3363,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_28",
@@ -3401,9 +3403,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_29",
@@ -3441,9 +3443,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_29",
@@ -3481,9 +3483,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_29",
@@ -3521,9 +3523,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_30",
@@ -3561,9 +3563,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_30",
@@ -3601,9 +3603,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
     {
       "od_id": "od_30",
@@ -3641,9 +3643,9 @@
       "google_vehicle_types_compared": [
         "BUS"
       ],
-      "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_status": "insufficient_data",
+      "row_status": "our_insufficient_data",
+      "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     }
   ]
 }
