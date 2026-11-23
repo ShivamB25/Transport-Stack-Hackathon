@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Record demo/demo.webm with agent-browser showing:
 #   1. Live journey query (Kashmere Gate ISBT -> Nehru Place, Tue 08:30 IST)
-#   2. Complete 4-stage marginal-transfer replay journey (Oct 22 run 2171_17_37:
-#      initial timetable recommendation -> growing delay -> advice flip -> actual missed outcome)
+#   2. Complete 4-stage marginal-transfer replay journey (Oct 22 run 2171_17_09_490:
+#      initial timetable recommendation -> growing delay -> advice flip -> observed missed outcome)
 #   3. Explicit stale-feed abstention ("Not enough data") and live recovery
 #
 # Prerequisites:
@@ -73,6 +73,10 @@ live_json="$(curl -sf "${API_URL}/live/status")"
 actual_threshold="$(printf '%s' "$live_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["stale_threshold_seconds"])')"
 is_fresh="$(printf '%s' "$live_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["is_fresh"])')"
 printf '[demo] Live status: is_fresh=%s stale_threshold_seconds=%s\n' "$is_fresh" "$actual_threshold"
+if ! python3 -c 'import sys; raise SystemExit(float(sys.argv[1]) != float(sys.argv[2]))' "$actual_threshold" "$STALE_THRESHOLD_S"; then
+  printf '[demo] API threshold %ss does not match required demo override %ss; aborting.\n' "$actual_threshold" "$STALE_THRESHOLD_S" >&2
+  exit 1
+fi
 if [[ "$is_fresh" != "True" ]]; then
   printf '[demo] Live feed is not fresh before recording; aborting.\n' >&2
   exit 1
@@ -105,15 +109,15 @@ ab wait --text "Marginal-Transfer Replay Demo"
 ab wait --text "Ambedkar Nagar Depot"
 ab wait 3500
 
-printf '[demo]   Stage 1: Growing delay at Pul Pehladpur\n'
+printf '[demo]   Stage 1: Growing delay at Badarpur M B Road / Rajiv Gandhi Stadium\n'
 ab click "#stage-tabs button:nth-child(2)"
 ab wait 3500
 
-printf '[demo]   Stage 2: Advice flip at Surajkund Crossing\n'
+printf '[demo]   Stage 2: Advice flip at Lal Kuan\n'
 ab click "#stage-tabs button:nth-child(3)"
 ab wait 4000
 
-printf '[demo]   Stage 3: Actual Oct 22 outcome reveal (missed connection)\n'
+printf '[demo]   Stage 3: Observed Oct 22 outcome reveal (missed by 9m 39s)\n'
 ab click "#stage-tabs button:nth-child(4)"
 ab wait 4000
 

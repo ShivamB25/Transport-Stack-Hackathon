@@ -2,6 +2,7 @@ duckdb==2.0.1
 py7zr==1.1.4
 httpx==0.28.1
 fastapi==0.165.0
+pydantic==2.14.4
 uvicorn==0.54.0
 lightgbm==4.7.0
 scikit-learn==1.9.1

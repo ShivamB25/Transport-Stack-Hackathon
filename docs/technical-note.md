@@ -18,7 +18,7 @@ Raw October 2026 SQLite days are range-extracted one day at a time (`src/ps1/ext
 
 1. Parse `ts = TRY_CAST(timestamp AS BIGINT)` (Unix epoch seconds UTC); drop unparseable rows.
 2. Filter null coordinates and coordinates outside the Delhi bounding box (`27.5–29.0 N`, `76.7–77.6 E`).
-3. Deduplicate on `(vehicle_id, ts, lat, lng)`, keeping one row per group.
+3. Deduplicate on `(vehicle_id, ts, lat, lng)`, keeping the first source row by SQLite `rowid`.
 4. Cast `route_id` from `REAL` to `INTEGER` (`NULL` if unparseable; retained for spatial accounting, excluded from route-level modelling).
 
 Across all 31 October days (`reports/data-quality.md`), cleaning reduces **912,877,061 raw rows** to **560,357,771 clean rows** (38.62% removed overall; 33.74%–43.65% per day, all inside the 30–45% tolerance). On an instrumented run of `2026-10-15`, 37.490% of raw rows were exact `(vehicle_id, ts, lat, lng)` re-emissions and 0.084% were out-of-bbox/invalid timestamps. Every clean daily Parquet file has **0 duplicate groups**, **0 bbox violations**, and **0 fractional `route_id` values**. Two source anomalies are preserved and documented rather than hidden: `2026-10-07` ends at `19:53:23 IST` (training-only, never an evaluation day) and `2026-10-08` starts at `02:02:10 IST` (genuine overnight source gap).
@@ -37,17 +37,17 @@ For each `(vehicle_id, run_id)` ping sequence sorted by timestamp:
 1. **Minimum-distance matching (`DEFAULT_RADIUS_M = 60.0` m):** compute great-circle Haversine distances from all pings in the run to every pattern stop. For each stop that has at least one ping within 60 m, select the ping with the minimum distance (earliest ping breaks exact ties).
 2. **Monotonic time-ordered anchor chain:** run dynamic programming (`drop_time_order_breaking_anchors`) to keep the maximum-cardinality subsequence of anchors that is strictly increasing in `stop_index` and nondecreasing in timestamp `ts`, breaking length ties by minimum total match distance. This removes GPS loops, layover spillovers, and stray reverse matches.
 3. **Run quality filter:** discard candidate runs with fewer than 2 surviving anchors or an observed anchor span exceeding 6 hours (`MAX_OBSERVED_SPAN_S = 21600`).
-4. **Gap interpolation and endpoint extrapolation:** for stops between consecutive anchors `(left, right)`, interpolate timestamps proportionally to scheduled travel time (`gap_pace = (right.ts - left.ts) / (right.schedule_s - left.schedule_s)`). Stops before the first anchor or after the last anchor are extrapolated at the scheduled rate (`1.0 s/s`). Every emitted stop row carries an explicit `source` (`observed` or `interpolated`), boolean `observed`, reconstructed `ts`, `scheduled_ts`, `schedule_error_s = ts - scheduled_ts`, and `distance_m` (`NULL` for interpolated rows).
+4. **Gap interpolation and endpoint extrapolation:** for stops between consecutive anchors `(left, right)`, interpolate timestamps proportionally to scheduled travel time (`gap_pace = (right.ts - left.ts) / (right.schedule_s - left.schedule_s)`). Stops before the first anchor or after the last anchor are extrapolated at the scheduled rate (`1.0 s/s`). Every emitted stop row carries an explicit `source` (`observed` or `interpolated`), boolean `observed`, reconstructed `ts`, source-availability epoch `available_at`, `scheduled_ts`, `schedule_error_s = ts - scheduled_ts`, and `distance_m` (`NULL` for interpolated rows). Observed passages are available at their own ping time; interpolated passages become available only at the later anchor.
 
-Recomputed coverage on GTFS feed v32 (`reports/coverage-717a.md`, across the 10 scoped training + held-out days: 1,267 UP trips, 1,281 DOWN trips):
+Recomputed coverage on GTFS feed v32 (`reports/coverage-717a.md`, across the 10 scoped training + held-out days: 1,264 UP trips, 1,282 DOWN trips):
 
 | Slice | Direction | Trips | Pattern Stops | Observed | Interpolated | Observed Coverage |
 |---|---|---:|---:|---:|---:|---:|
-| All 10 scoped days | `DOWN` (`2170`) | 1,281 | 58,926 | 29,940 | 28,986 | **50.81%** |
-| All 10 scoped days | `UP` (`2171`) | 1,267 | 65,884 | 31,932 | 33,952 | **48.47%** |
-| Held-out `2026-10-22` | `DOWN` / `UP` | 145 / 131 | 6,670 / 6,812 | 2,617 / 2,888 | 4,053 / 3,924 | **39.24%** / **42.40%** |
-| Held-out `2026-10-27` | `DOWN` / `UP` | 125 / 126 | 5,750 / 6,552 | 2,931 / 3,016 | 2,819 / 3,536 | **50.97%** / **46.03%** |
-| Held-out `2026-10-28` | `DOWN` / `UP` | 134 / 143 | 6,164 / 7,436 | 2,544 / 2,548 | 3,620 / 4,888 | **41.27%** / **34.27%** |
+| All 10 scoped days | `DOWN` (`2170`) | 1,282 | 58,972 | 29,931 | 29,041 | **50.75%** |
+| All 10 scoped days | `UP` (`2171`) | 1,264 | 65,728 | 31,909 | 33,819 | **48.55%** |
+| Held-out `2026-10-22` | `DOWN` / `UP` | 146 / 131 | 6,716 / 6,812 | 2,619 / 2,887 | 4,097 / 3,925 | **39.00%** / **42.38%** |
+| Held-out `2026-10-27` | `DOWN` / `UP` | 125 / 125 | 5,750 / 6,500 | 2,932 / 3,012 | 2,818 / 3,488 | **50.99%** / **46.34%** |
+| Held-out `2026-10-28` | `DOWN` / `UP` | 134 / 144 | 6,164 / 7,488 | 2,542 / 2,546 | 3,622 / 4,942 | **41.24%** / **34.00%** |
 
 These recomputed figures are broadly consistent with the historical older-feed reference (~46% UP, 42–48% DOWN) while reflecting day-to-day variation on feed v32. Zero monotonicity violations and exact `observed + interpolated == stops` reconciliation hold across all reconstructed trips.
 
@@ -64,16 +64,16 @@ Rather than predicting full-trip durations from noisy origin-to-destination endp
 - `actual_duration_s` = `to.ts - from.ts`;
 - `error_s` = `actual_duration_s - scheduled_duration_s` (prediction target, in seconds).
 
-Every query is constructed in a **strictly time-ordered replay**: at `query_ts`, only passages whose timestamps are strictly earlier than `query_ts` (and training days strictly prior to the evaluated day) are visible. In particular, a previous bus's stretch error is eligible only once **both** its upstream and downstream passages have completed before `query_ts`. `features.py` raises `CausalityViolationError` if any future timestamp enters feature construction, verified by automated future-data rejection tests in `tests/model/`.
+Every query is constructed in a **strictly time-ordered replay**: at `query_ts`, only passages whose event timestamp and `available_at` are strictly earlier than `query_ts` (and training days strictly prior to the evaluated day) are visible. In particular, a previous bus's stretch error is eligible only once **both** its upstream and downstream passages have completed and become available before `query_ts`. `features.py` raises `CausalityViolationError` if any future timestamp or availability epoch enters feature construction, verified by automated future-data rejection tests in `tests/model/`.
 
 ### Whole-day partitions (zero random row splits)
 
 Every training, calibration, and evaluation partition is a disjoint set of whole days (`docs/eval-protocol.md`, `reports/eval-full.md`):
 
 - **Training days (rungs 1h, 2, 3):** `2026-10-05`, `06`, `07` (training-only), `08`, `13`, `14`, `15`.
-- **Rung 4 LightGBM fit days:** `2026-10-05`, `06`, `07`, `08`, `13`, `14` (32,526 observed queries).
-- **Rung 4 split-conformal calibration day:** `2026-10-15` (4,694 observed queries; strictly later than fit days, never touches held-out days).
-- **Held-out evaluation days:** `2026-10-22`, `2026-10-27`, `2026-10-28` (13,316 observed-only paired queries across 6 day × direction groups).
+- **Rung 4 LightGBM fit days:** `2026-10-05`, `06`, `07`, `08`, `13`, `14` (32,419 observed queries).
+- **Rung 4 split-conformal calibration day:** `2026-10-15` (4,693 observed queries; strictly later than fit days, never touches held-out days).
+- **Held-out evaluation days:** `2026-10-22`, `2026-10-27`, `2026-10-28` (13,299 observed-only paired queries across 6 day × direction groups).
 - **Excluded holidays:** `2026-10-02`, `2026-10-20`, `2026-10-26`.
 
 ### Model ladder (Rungs 0–4) and conformal calibration
@@ -86,7 +86,7 @@ All rungs share one fit/predict interface (`src/ps1/model.py`) and are scored on
 - **Rung 2 (+ Day-type):** hierarchical observed-target median table (`HistoricalMedianTable`) backing off cleanly across `(stretch, day_of_week, hour) -> (stretch, coarse_day_type, hour) -> (stretch, hour) -> stretch -> (route, hour) -> 0` (requiring `min_day_type_samples = 3`).
 - **Rung 3 (+ This bus's last delay):** Rung 2 baseline plus a `HuberRegressor` adjustment fitted on leave-one-day-out (LODO) residuals using this vehicle's own causal prior stretch error, last stop delay, and recent pace delta.
 - **Rung 4 (Quantile LightGBM + split-conformal CQR):** three gradient-boosted quantile models (`alpha = 0.10, 0.50, 0.90`, `n_estimators = 220`, `num_leaves = 31`, `learning_rate = 0.05`) trained on 28 strictly causal features: 24 base numeric features (remaining stops/distance, stretch distance, scheduled duration, ping age, upstream observed flag, recent vehicle progress ratio and speed, last stop delay, last stretch error, previous run error/age/observed flag, recent 30-minute same-direction speed and pace ratio, headway, hour/minute/cyclical time-of-day, day of week, weekend indicator, route ID, stop sequence) plus 4 LODO hierarchical historical median features (`hist_dow_hour_median_s`, `hist_hour_median_s`, `hist_stretch_median_s`, `prev_minus_hist_s`).
-  - Raw quantile outputs are sorted to guarantee `p10 <= p50 <= p90`, then expanded symmetrically by the split-conformal CQR offset `q_conf = 2.366 s` computed on `2026-10-15` for nominal 80% coverage (`alpha = 0.20`). On the calibration day, conformalization raises coverage from **76.118% raw** to **80.038% calibrated** (mean width 143.577 s, median width 80.892 s). Across all 38,265 held-out predictions saved at `$PS1_DATA_DIR/model/eval-predictions-rung4.parquet`, there are **0 quantile-ordering violations**.
+  - Raw quantile outputs are sorted to guarantee `p10 <= p50 <= p90`, then expanded symmetrically by the split-conformal CQR offset `q_conf = 2.381 s` computed on `2026-10-15` for nominal 80% coverage (`alpha = 0.20`). On the calibration day, conformalization raises coverage from **75.900% raw** to **80.055% calibrated** (mean width 143.964 s, median width 81.460 s). Across all 38,282 all-stop held-out predictions saved at `$PS1_DATA_DIR/model/eval-predictions-rung4.parquet`, there are **0 quantile-ordering violations**.
 
 ### Door-to-door journey re-timing and joint scenarios
 
@@ -121,7 +121,11 @@ The background poller (`src/ps1/live_poller.py`) fetches `VehiclePositions.pb` f
 
 ### Replay mode (`mode = "replay"`, October 2026 departures)
 
-Replay mode reads strictly causal October observations (`to_ts <= depart_ts` and `available_at < depart_ts`) from `$PS1_DATA_DIR/passages/` and **never contacts the live feed** (`feed_summary.live_feed_contacted = false`). On covered routes (`2170`/`2171`), same-day causal passages populate `previous_error_s`, `recent_same_direction_speed_mps`, `headway_s`, `last_stop_delay_s`, and `last_stretch_error_s` for Rung 4 (`source = "replay"`, `timing_source = "model_replay"`). Without same-day observations, a covered route uses its historical model inputs and is labelled `historical_fallback`; uncovered routes fall back through same-day persistence -> historical ratio -> timetable. Response metadata names only passage files actually loaded. If no reconstructed observation exists before the request cutoff, replay returns `replay_data_unavailable` with null observation timestamps and age rather than presenting the request time as fresh data.
+Replay mode reads strictly causal October observations (`to_ts <= depart_ts` and `available_at < depart_ts`) from `$PS1_DATA_DIR/passages/` and **never contacts the live feed** (`feed_summary.live_feed_contacted = false`). On covered routes (`2170`/`2171`), same-day causal passages populate `previous_error_s`, `recent_same_direction_speed_mps`, `headway_s`, `last_stop_delay_s`, and `last_stretch_error_s` for Rung 4 (`source = "replay"`, `timing_source = "model_replay"`). Uncovered routes fall back through same-day persistence -> historical ratio -> timetable. Response metadata names only passage files actually loaded. If no reconstructed observation exists before the request cutoff, replay returns `replay_data_unavailable` with null observation timestamps and age rather than presenting the request time as fresh data.
+
+**Response mode and per-leg provenance are independent.** `mode = "replay"` identifies the request context; it does not imply that every ride is backed by same-day GPS. A covered route without same-day observations, or with a model artifact that is not eligible as of the request cutoff, uses historical model inputs and is labelled `source = "historical"`, `timing_source = "historical_fallback"`. If that history is unavailable, the ride is `source = "timetable"`, `timing_source = "timetable_fallback"`. Boarding-wait provenance is likewise reported separately from ride provenance.
+
+The scripted marginal-transfer demo uses two observed passages at Ambedkar Nagar Depot on October 22. The 717AUP run `2171_17_09_490` (vehicle `DL1PD7867`) had scheduled arrival 17:35:47 IST and observed arrival **18:14:15 IST**. The matched D-7702UP vehicle `DL1PD8627` (GPS run label `3064_17_55`) had scheduled departure 18:00:04 IST and a minimum-distance, 16.9 m observed stop passage at **18:04:36 IST**. The actual outcome is therefore a missed connection by **579 s (9m 39s)**. The demo never substitutes the connecting timetable departure for an observed outcome; its scheduled 1,457 s transfer gap is displayed separately.
 
 ---
 
@@ -129,7 +133,7 @@ Replay mode reads strictly causal October observations (`to_ts <= depart_ts` and
 
 ### Why the timetable is too weak — and why `all-stop` targets are circular
 
-Beating the static GTFS timetable (Rung 0) is necessary, not sufficient: static timetables ignore day-to-day traffic regimes, incidents, and corridor slowdowns. Even more importantly, evaluating on `all-stop` reconstructed passages introduces **circular ground truth**: roughly 57%–73% of stretches on held-out days have at least one schedule-interpolated endpoint whose timestamp was computed from the timetable itself. As seen in `reports/eval-full.md`, Rung 0 gets a **0.000 s median absolute error** on four of the six `all-stop` groups (e.g., Oct 22 DOWN MAE 42.649 s for Rung 0 vs 50.483 s for Rung 1) purely because the timetable is being scored against its own interpolations.
+Beating the static GTFS timetable (Rung 0) is necessary, not sufficient: static timetables ignore day-to-day traffic regimes, incidents, and corridor slowdowns. Even more importantly, evaluating on `all-stop` reconstructed passages introduces **circular ground truth**: roughly 57%–73% of stretches on held-out days have at least one schedule-interpolated endpoint whose timestamp was computed from the timetable itself. As seen in `reports/eval-full.md`, Rung 0 gets a **0.000 s median absolute error** on three of the six `all-stop` groups (e.g., Oct 22 DOWN MAE 42.646 s for Rung 0 vs 56.976 s for Rung 1) purely because the timetable is being scored against its own interpolations.
 
 Amendment 1.1 of `docs/eval-protocol.md` therefore reports both strata for transparency while restricting the baseline gate and model-selection rule **exclusively to the `observed-only` stratum**, where both the upstream and downstream stop passages of the target stretch are directly observed within 60 m.
 
@@ -138,9 +142,9 @@ Amendment 1.1 of `docs/eval-protocol.md` therefore reports both strata for trans
 Previous-run persistence (Rung 1) requires zero offline training, adapts immediately to live incidents and congestion waves, and already beats the static timetable on every single held-out day and direction on real observed ground truth:
 
 - **October 22 strict persistence gate (`observed-only`, paired queries, `reports/eval-baselines.md`):**
-  - `717A UP` (`2171`, 2,400 queries): Rung 1 MAE **84.795 s** vs Rung 0 **95.737 s** (**PASS**, `-10.942 s`, `-11.4%`).
-  - `717A DOWN` (`2170`, 2,195 queries): Rung 1 MAE **93.364 s** vs Rung 0 **101.726 s** (**PASS**, `-8.362 s`, `-8.2%`).
-- Across all three held-out days (Oct 22, 27, 28; 13,316 observed-only queries), Rung 1 reduces MAE from **87.245 s** (Rung 0) to **77.329 s** (`-9.917 s`, `-11.4%`).
+  - `717A UP` (`2171`, 2,397 queries): Rung 1 MAE **79.532 s** vs Rung 0 **95.608 s** (**PASS**, `-16.076 s`, `-16.8%`).
+  - `717A DOWN` (`2170`, 2,193 queries): Rung 1 MAE **87.258 s** vs Rung 0 **101.801 s** (**PASS**, `-14.543 s`, `-14.3%`).
+- Across all three held-out days (Oct 22, 27, 28; 13,299 observed-only queries), Rung 1 reduces MAE from **87.273 s** (Rung 0) to **72.949 s** (`-14.323 s`, `-16.4%`).
 
 *(Note on feed v32 vs historical reference: the older-feed historical reference numbers of 41 s vs 59 s MAE were measured on an earlier GTFS snapshot; per our protocol, absolute differences on feed v32 are reported transparently rather than tuned away, and the strict direction-by-direction MAE comparison on observed-only ground truth is the binding gate.)*
 
@@ -148,29 +152,29 @@ Any higher-complexity model only earns its operational maintenance cost if it be
 
 ### Full held-out model-selection comparison (`reports/selection.json`, `reports/eval-full.md`)
 
-**Declared selection rule:** *Ship the highest rung in ladder order (`0 < 1 < 1h < 2 < 3 < 4`) whose held-out `observed-only` query-weighted MAE is strictly lower than Rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship Rung 1.*
+**Declared selection rule:** *Ship the highest shippable rung in `(4, 3, 2)` whose held-out `observed-only` query-weighted MAE is strictly lower than Rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship Rung 1. Rung 1h is report-only and cannot be selected.*
 
-| Rung | Model | Observed Queries | Overall MAE (s) | Delta vs Rung 1 (s) | Coverage Matches Rung 1 | Groups Beating Rung 1 | p10–p90 Coverage | Mean Width (s) | Median Width (s) |
+| Rung | Model | Observed Queries | Overall MAE (s) | Delta vs Rung 1 (s) | Coverage Matches Rung 1 | Groups Beating Rung 1 | p10–p90 Coverage | Mean Width (s) | Pooled Median Width (s) |
 |---:|---|---:|---:|---:|---|---:|---:|---:|---:|
-| `0` | Timetable | 13,316 | 87.245 | +9.917 | yes | 0/6 | — | — | — |
-| `1` | Persistence (bar) | 13,316 | 77.329 | 0.000 | yes | 0/6 | — | — | — |
-| `1h` | Stretch-hour median | 13,316 | 74.527 | -2.802 | yes | 6/6 | — | — | — |
-| `2` | + Day-type (observed targets) | 13,316 | 69.532 | -7.797 | yes | 6/6 | — | — | — |
-| `3` | + This bus's causal last delay | 13,316 | 69.486 | -7.843 | yes | 6/6 | — | — | — |
-| **`4`** | **Quantile LightGBM + CQR (shipped)** | **13,316** | **61.736** | **-15.593** | **yes** | **6/6** | **79.010%** | **143.998** | **81.434** |
+| `0` | Timetable | 13,299 | 87.273 | +14.323 | yes | 0/6 | — | — | — |
+| `1` | Persistence (bar) | 13,299 | 72.949 | 0.000 | yes | 0/6 | — | — | — |
+| `1h` | Stretch-hour median (report-only) | 13,299 | 74.525 | +1.576 | yes | 2/6 | — | — | — |
+| `2` | + Day-type (observed targets) | 13,299 | 69.498 | -3.452 | yes | 6/6 | — | — | — |
+| `3` | + This bus's causal last delay | 13,299 | 69.555 | -3.394 | yes | 5/6 | — | — | — |
+| **`4`** | **Quantile LightGBM + CQR (shipped)** | **13,299** | **60.352** | **-12.597** | **yes** | **6/6** | **79.232%** | **144.417** | **81.510** |
 
 Per-day, per-direction `observed-only` MAE (seconds) and Rung 4 interval performance:
 
 | Day | Direction | Queries | Rung 0 | Rung 1 | Rung 1h | Rung 2 | Rung 3 | Rung 4 | Rung 4 Cov % | Rung 4 Mean / Med Width (s) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `2026-10-22` | `DOWN` (`2170`) | 2,195 | 101.726 | 93.364 | 92.013 | 83.127 | 82.893 | **77.657** | 76.492% | 141.536 / 85.396 |
-| `2026-10-22` | `UP` (`2171`) | 2,400 | 95.737 | 84.795 | 80.873 | 79.574 | 79.531 | **67.689** | 79.500% | 156.013 / 79.487 |
-| `2026-10-27` | `DOWN` (`2170`) | 2,375 | 75.542 | 63.651 | 63.525 | 57.516 | 57.460 | **50.817** | 78.821% | 130.751 / 81.317 |
-| `2026-10-27` | `UP` (`2171`) | 2,371 | 73.799 | 63.314 | 59.716 | 55.843 | 55.899 | **48.297** | 81.991% | 137.712 / 75.378 |
-| `2026-10-28` | `DOWN` (`2170`) | 2,049 | 70.615 | 62.899 | 59.280 | 54.123 | 54.122 | **47.476** | 79.161% | 137.563 / 83.277 |
-| `2026-10-28` | `UP` (`2171`) | 1,926 | 108.839 | 99.221 | 94.714 | 89.584 | 89.590 | **81.354** | 77.674% | 162.752 / 84.986 |
+| `2026-10-22` | `DOWN` (`2170`) | 2,193 | 101.801 | 87.258 | 92.108 | 83.199 | 83.258 | **76.059** | 76.790% | 145.375 / 86.361 |
+| `2026-10-22` | `UP` (`2171`) | 2,397 | 95.608 | 79.532 | 80.703 | 79.477 | 79.559 | **66.078** | 80.225% | 156.820 / 80.370 |
+| `2026-10-27` | `DOWN` (`2170`) | 2,372 | 75.619 | 61.017 | 63.577 | 57.603 | 57.613 | **49.884** | 79.595% | 131.133 / 81.518 |
+| `2026-10-27` | `UP` (`2171`) | 2,368 | 73.865 | 60.782 | 59.691 | 55.859 | 55.909 | **47.639** | 80.997% | 135.464 / 74.076 |
+| `2026-10-28` | `DOWN` (`2170`) | 2,047 | 70.603 | 60.184 | 59.278 | 53.989 | 54.031 | **46.904** | 79.043% | 135.652 / 83.000 |
+| `2026-10-28` | `UP` (`2171`) | 1,922 | 108.954 | 91.727 | 94.787 | 89.418 | 89.531 | **78.195** | 78.356% | 164.614 / 85.570 |
 
-**Ship decision (`reports/selection.json`):** **`selected_rung = "4"`**. Rung 4 beats persistence by **15.593 s** overall (**-20.2%** relative to Rung 1, and **-29.2%** relative to the Rung 0 timetable), wins on **6/6** held-out day × direction groups at identical coverage, and achieves **79.010%** held-out empirical coverage on its nominal 80% conformal `[p10, p90]` intervals.
+**Ship decision (`reports/selection.json`):** **`selected_rung = "4"`**. Rung 4 beats persistence by **12.597 s** overall (**-17.3%** relative to Rung 1, and **-30.8%** relative to the Rung 0 timetable), wins on **6/6** held-out day × direction groups at identical coverage, and achieves **79.232%** held-out empirical coverage on its nominal 80% conformal `[p10, p90]` intervals.
 
 ---
 

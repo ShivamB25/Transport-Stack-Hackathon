@@ -64,6 +64,7 @@ All runtime and library versions used to build, evaluate, and serve PS1 are pinn
 | `py7zr` | `1.1.4` | `requirements.txt` |
 | `httpx` | `0.28.1` | `requirements.txt` |
 | `fastapi` | `0.165.0` | `requirements.txt` |
+| `pydantic` | `2.14.4` | `requirements.txt` |
 | `uvicorn` | `0.54.0` | `requirements.txt` |
 | `lightgbm` | `4.7.0` | `requirements.txt` |
 | `scikit-learn` | `1.9.1` | `requirements.txt` |
@@ -191,14 +192,14 @@ lsof -ti :3100 | xargs -r kill
   ```bash
   curl -s 'http://localhost:3100/journeys?from=28.6675,77.2282&to=28.5494,77.2510&depart=2026-10-22T08:30:00%2B05:30&mode=replay'
   ```
-- **Marginal-transfer replay scenario API** (4-stage real Oct 22 run `2171_17_37` on 717AUP):
+- **Marginal-transfer replay scenario API** (4-stage real Oct 22 run `2171_17_09_490` on 717AUP):
   ```bash
   curl -s 'http://localhost:3100/replay/demo'
   ```
 
 ### Stale-feed abstention threshold (`600 s` default vs `45 s` override)
 
-- **Production default:** `PS1_LIVE_STALE_THRESHOLD_S=600` (10 minutes). A fresh protobuf header is not sufficient: each entity timestamp must also be within the effective threshold before it contributes to route timing or `fresh_vehicle_count`. `GET /journeys` returns `status: "insufficient_data"` and `options: []` for a stale header (`stale_feed`), too few fresh vehicles (`insufficient_coverage`), no snapshot (`feed_unavailable`), or no route-supported candidate (`insufficient_route_coverage`). Sparse fallback legs remain visible inside a journey supported on another route. The UI suppresses options and displays the red **Not enough data** panel. Poller state, logs, and `/live/status` expose only fixed error categories, never raw transport exception text.
+- **Production default:** `PS1_LIVE_STALE_THRESHOLD_S=600` (10 minutes). A fresh protobuf header is not sufficient: each entity timestamp must also be within the effective threshold before it contributes to route timing or `fresh_vehicle_count`. `GET /journeys` returns `status: "insufficient_data"` and `options: []` for a stale header (`stale_feed`), too few fresh vehicles (`insufficient_coverage`), no snapshot (`feed_unavailable`), or no route-supported candidate (`insufficient_route_coverage`). Sparse fallback legs remain visible inside a journey supported on another route. The UI suppresses options, displays the red **Not enough data** panel, and labels the badge for the actual reason (stale feed, unavailable feed, insufficient fleet/route coverage, or unavailable replay data). Replay requests without any reconstructed observation before the cutoff return `replay_data_unavailable`. Poller state, logs, and `/live/status` expose only fixed error categories, never raw transport exception text.
 - **Fast abstention testing / demo override (`PS1_LIVE_STALE_THRESHOLD_S=45`):**
   ```bash
   PS1_LIVE_STALE_THRESHOLD_S=45 \
@@ -244,67 +245,67 @@ cd /home/factory-user/repos/Transport-Stack-Hackathon && \
 
 - **October 2026 GPS acquisition:** 31/31 days complete (`912,877,061` raw rows → `560,357,771` clean rows, `38.62%` removed, `0` duplicate groups, `0` bbox violations, `0` fractional `route_id`).
 - **717A geometric stop passages (10 scoped days, GTFS v32):**
-  - `DOWN` (`2170`, 46 stops): `1,281` trips, `58,926` stops (`29,940` observed / `28,986` interpolated = **50.81%** observed coverage).
-  - `UP` (`2171`, 52 stops): `1,267` trips, `65,884` stops (`31,932` observed / `33,952` interpolated = **48.47%** observed coverage).
+  - `DOWN` (`2170`, 46 stops): `1,282` trips, `58,972` stops (`29,931` observed / `29,041` interpolated = **50.75%** observed coverage).
+  - `UP` (`2171`, 52 stops): `1,264` trips, `65,728` stops (`31,909` observed / `33,819` interpolated = **48.55%** observed coverage).
 
 ### Held-out model ladder & selection (`reports/eval-full.md`, `reports/selection.json`)
 
-- **Whole-day splits:** Training `2026-10-05, 06, 07, 08, 13, 14, 15` (Rung 4 fit: `05–08, 13–14` [32,526 observed queries]; split-conformal CQR calibration: `2026-10-15` [4,694 observed queries, `q_conf = 2.366 s`, calibration coverage `76.118% raw -> 80.038% calibrated`]). Held out: `2026-10-22, 27, 28` (`13,316` observed-only queries). Excluded holidays: `2026-10-02, 20, 26`.
-- **October 22 strict persistence gate (`observed-only`):** `UP` PASS (`84.795 s` vs `95.737 s`, 2,400 queries); `DOWN` PASS (`93.364 s` vs `101.726 s`, 2,195 queries).
-- **Selected rung:** **`4`** (`61.736 s` MAE vs Rung 1 persistence `77.329 s`; delta **`-15.593 s`**, beating Rung 1 on `6/6` groups at identical coverage).
+- **Whole-day splits:** Training `2026-10-05, 06, 07, 08, 13, 14, 15` (Rung 4 fit: `05–08, 13–14` [32,419 observed queries]; split-conformal CQR calibration: `2026-10-15` [4,693 observed queries, `q_conf = 2.381 s`, calibration coverage `75.900% raw -> 80.055% calibrated`]). Held out: `2026-10-22, 27, 28` (`13,299` observed-only queries). Excluded holidays: `2026-10-02, 20, 26`.
+- **October 22 strict persistence gate (`observed-only`):** `UP` PASS (`79.532 s` vs `95.608 s`, 2,397 queries); `DOWN` PASS (`87.258 s` vs `101.801 s`, 2,193 queries).
+- **Selected rung:** **`4`** (`60.352 s` MAE vs Rung 1 persistence `72.949 s`; delta **`-12.597 s`**, beating Rung 1 on `6/6` groups at identical coverage).
 - **Ground-truth caveat:** `all-stop` rows (reported in full in `reports/eval-full.md` and `reports/eval-baselines.md`) include timetable-interpolated pseudo-ground-truth which biases toward Rung 0 (median AE `0.000 s` on 4/6 groups). The persistence gate and model-selection rule use `observed-only` exclusively.
 
-#### Model selection summary (`observed-only`, 13,316 paired queries)
+#### Model selection summary (`observed-only`, 13,299 paired queries)
 
-| Rung | Observed queries | Overall MAE s | Delta vs rung 1 s | Coverage matches rung 1 | Groups beating rung 1 | Interval cov % | Mean width s | Median width s |
+| Rung | Observed queries | Overall MAE s | Delta vs rung 1 s | Coverage matches rung 1 | Groups beating rung 1 | Interval cov % | Mean width s | Pooled median width s |
 |---:|---:|---:|---:|---|---:|---:|---:|---:|
-| 0 | 13316 | 87.245 | +9.917 | yes | 0/6 | - | - | - |
-| 1 | 13316 | 77.329 | +0.000 | yes | 0/6 | - | - | - |
-| 1h | 13316 | 74.527 | -2.802 | yes | 6/6 | - | - | - |
-| 2 | 13316 | 69.532 | -7.797 | yes | 6/6 | - | - | - |
-| 3 | 13316 | 69.486 | -7.843 | yes | 6/6 | - | - | - |
-| **4** | **13316** | **61.736** | **-15.593** | **yes** | **6/6** | **79.010** | **143.998** | **81.434** |
+| 0 | 13299 | 87.273 | +14.323 | yes | 0/6 | - | - | - |
+| 1 | 13299 | 72.949 | +0.000 | yes | 0/6 | - | - | - |
+| 1h | 13299 | 74.525 | +1.576 | yes | 2/6 | - | - | - |
+| 2 | 13299 | 69.498 | -3.452 | yes | 6/6 | - | - | - |
+| 3 | 13299 | 69.555 | -3.394 | yes | 5/6 | - | - | - |
+| **4** | **13299** | **60.352** | **-12.597** | **yes** | **6/6** | **79.232** | **144.417** | **81.510** |
 
 #### Per-day, per-direction `observed-only` metrics (`reports/eval-full.md`)
 
 | Day | Direction | Rung | Queries | MAE s | Median AE s | p90 AE s | >60 s % | Observed % | Interp % | Interval cov % | Mean width s | Median width s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2026-10-22 | DOWN | 0 | 2195 | 101.726 | 34.000 | 187.200 | 29.248 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | DOWN | 1 | 2195 | 93.364 | 29.000 | 170.200 | 27.380 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | DOWN | 1h | 2195 | 92.013 | 24.000 | 167.600 | 24.328 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | DOWN | 2 | 2195 | 83.127 | 22.000 | 160.300 | 23.189 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | DOWN | 3 | 2195 | 82.893 | 22.301 | 159.622 | 23.098 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | DOWN | 4 | 2195 | 77.657 | 20.180 | 145.240 | 20.182 | 100.000 | 0.000 | 76.492 | 141.536 | 85.396 |
-| 2026-10-22 | UP | 0 | 2400 | 95.737 | 32.000 | 190.200 | 27.042 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | UP | 1 | 2400 | 84.795 | 25.000 | 168.100 | 24.917 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | UP | 1h | 2400 | 80.873 | 22.000 | 155.050 | 21.792 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | UP | 2 | 2400 | 79.574 | 22.000 | 158.150 | 23.125 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | UP | 3 | 2400 | 79.531 | 21.804 | 156.929 | 23.083 | 100.000 | 0.000 | - | - | - |
-| 2026-10-22 | UP | 4 | 2400 | 67.689 | 18.416 | 118.477 | 19.750 | 100.000 | 0.000 | 79.500 | 156.013 | 79.487 |
-| 2026-10-27 | DOWN | 0 | 2375 | 75.542 | 34.000 | 156.600 | 29.305 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | DOWN | 1 | 2375 | 63.651 | 28.000 | 133.000 | 24.968 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | DOWN | 1h | 2375 | 63.525 | 24.000 | 135.200 | 21.642 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | DOWN | 2 | 2375 | 57.516 | 22.000 | 115.500 | 19.158 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | DOWN | 3 | 2375 | 57.460 | 21.850 | 114.421 | 18.947 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | DOWN | 4 | 2375 | 50.817 | 19.885 | 96.186 | 17.095 | 100.000 | 0.000 | 78.821 | 130.751 | 81.317 |
-| 2026-10-27 | UP | 0 | 2371 | 73.799 | 30.000 | 150.000 | 25.053 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | UP | 1 | 2371 | 63.314 | 23.000 | 131.000 | 22.311 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | UP | 1h | 2371 | 59.716 | 22.000 | 120.000 | 19.654 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | UP | 2 | 2371 | 55.843 | 21.500 | 122.000 | 19.781 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | UP | 3 | 2371 | 55.899 | 20.930 | 121.345 | 19.739 | 100.000 | 0.000 | - | - | - |
-| 2026-10-27 | UP | 4 | 2371 | 48.297 | 18.240 | 89.118 | 16.407 | 100.000 | 0.000 | 81.991 | 137.712 | 75.378 |
-| 2026-10-28 | DOWN | 0 | 2049 | 70.615 | 34.000 | 159.400 | 29.527 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | DOWN | 1 | 2049 | 62.899 | 30.000 | 134.200 | 25.866 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | DOWN | 1h | 2049 | 59.280 | 22.000 | 132.600 | 22.401 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | DOWN | 2 | 2049 | 54.123 | 22.000 | 121.000 | 22.157 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | DOWN | 3 | 2049 | 54.122 | 22.038 | 120.564 | 22.108 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | DOWN | 4 | 2049 | 47.476 | 19.834 | 97.614 | 18.204 | 100.000 | 0.000 | 79.161 | 137.563 | 83.277 |
-| 2026-10-28 | UP | 0 | 1926 | 108.839 | 33.000 | 224.000 | 31.049 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | UP | 1 | 1926 | 99.221 | 27.000 | 195.000 | 28.401 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | UP | 1h | 1926 | 94.714 | 22.000 | 188.500 | 26.272 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | UP | 2 | 1926 | 89.584 | 22.000 | 170.250 | 26.064 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | UP | 3 | 1926 | 89.590 | 23.011 | 167.451 | 25.857 | 100.000 | 0.000 | - | - | - |
-| 2026-10-28 | UP | 4 | 1926 | 81.354 | 20.094 | 148.155 | 23.468 | 100.000 | 0.000 | 77.674 | 162.752 | 84.986 |
+| 2026-10-22 | DOWN | 0 | 2193 | 101.801 | 34.000 | 187.600 | 29.275 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | DOWN | 1 | 2193 | 87.258 | 28.000 | 160.600 | 26.448 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | DOWN | 1h | 2193 | 92.108 | 24.000 | 167.800 | 24.350 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | DOWN | 2 | 2193 | 83.199 | 22.000 | 160.400 | 23.210 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | DOWN | 3 | 2193 | 83.258 | 22.233 | 160.583 | 23.073 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | DOWN | 4 | 2193 | 76.059 | 19.962 | 141.349 | 19.836 | 100.000 | 0.000 | 76.790 | 145.375 | 86.361 |
+| 2026-10-22 | UP | 0 | 2397 | 95.608 | 32.000 | 190.000 | 26.950 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | UP | 1 | 2397 | 79.532 | 23.000 | 155.000 | 23.780 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | UP | 1h | 2397 | 80.703 | 22.000 | 154.700 | 21.610 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | UP | 2 | 2397 | 79.477 | 22.000 | 156.200 | 23.029 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | UP | 3 | 2397 | 79.559 | 21.750 | 158.501 | 23.071 | 100.000 | 0.000 | - | - | - |
+| 2026-10-22 | UP | 4 | 2397 | 66.078 | 18.378 | 113.831 | 19.691 | 100.000 | 0.000 | 80.225 | 156.820 | 80.370 |
+| 2026-10-27 | DOWN | 0 | 2372 | 75.619 | 34.000 | 156.900 | 29.384 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | DOWN | 1 | 2372 | 61.017 | 27.000 | 124.900 | 24.157 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | DOWN | 1h | 2372 | 63.577 | 24.000 | 134.000 | 21.838 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | DOWN | 2 | 2372 | 57.603 | 22.000 | 115.500 | 19.266 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | DOWN | 3 | 2372 | 57.613 | 21.983 | 114.898 | 18.971 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | DOWN | 4 | 2372 | 49.884 | 19.286 | 96.162 | 16.610 | 100.000 | 0.000 | 79.595 | 131.133 | 81.518 |
+| 2026-10-27 | UP | 0 | 2368 | 73.865 | 30.000 | 150.000 | 25.084 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | UP | 1 | 2368 | 60.782 | 22.000 | 121.000 | 21.579 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | UP | 1h | 2368 | 59.691 | 22.000 | 120.000 | 19.679 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | UP | 2 | 2368 | 55.859 | 21.500 | 122.000 | 19.848 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | UP | 3 | 2368 | 55.909 | 21.141 | 122.141 | 19.806 | 100.000 | 0.000 | - | - | - |
+| 2026-10-27 | UP | 4 | 2368 | 47.639 | 17.580 | 87.544 | 15.921 | 100.000 | 0.000 | 80.997 | 135.464 | 74.076 |
+| 2026-10-28 | DOWN | 0 | 2047 | 70.603 | 34.000 | 159.800 | 29.507 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | DOWN | 1 | 2047 | 60.184 | 30.000 | 127.000 | 25.647 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | DOWN | 1h | 2047 | 59.278 | 22.000 | 132.000 | 22.423 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | DOWN | 2 | 2047 | 53.989 | 22.000 | 121.000 | 22.032 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | DOWN | 3 | 2047 | 54.031 | 22.098 | 120.518 | 21.983 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | DOWN | 4 | 2047 | 46.904 | 19.617 | 96.314 | 17.831 | 100.000 | 0.000 | 79.043 | 135.652 | 83.000 |
+| 2026-10-28 | UP | 0 | 1922 | 108.954 | 33.000 | 224.000 | 31.061 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | UP | 1 | 1922 | 91.727 | 26.000 | 179.000 | 27.107 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | UP | 1h | 1922 | 94.787 | 22.000 | 189.700 | 26.223 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | UP | 2 | 1922 | 89.418 | 22.000 | 169.100 | 26.015 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | UP | 3 | 1922 | 89.531 | 22.651 | 165.129 | 25.963 | 100.000 | 0.000 | - | - | - |
+| 2026-10-28 | UP | 4 | 1922 | 78.195 | 20.093 | 139.894 | 22.893 | 100.000 | 0.000 | 78.356 | 164.614 | 85.570 |
 
 The complete 72-row table (including all-stop rows and history fallback counts) is in [`reports/eval-full.md`](reports/eval-full.md) and [`reports/eval-full.csv`](reports/eval-full.csv).
 
@@ -340,7 +341,7 @@ Fresh collection is a separate operation that replaces the frozen inputs. With O
 `demo/demo.webm` was recorded with `agent-browser` via [`demo/record_demo.sh`](demo/record_demo.sh) and captures:
 
 1. **Live journey planning:** Kashmere Gate ISBT → Nehru Place (Tue 08:30 IST) with the green `live` badge, arrival windows, per-leg provenance, and Leaflet route rendering.
-2. **Complete 4-stage marginal-transfer replay journey:** real October 22, 2026 run `2171_17_37` (bus `DL1PD5280`, route `717AUP`, Badarpur Border (T) → Hauz Khas): initial timetable transfer recommendation (`717AUP -> D-7702UP`) → growing delay at Pul Pehladpur (`+211 s`) → advice flip at Surajkund Crossing (`+613 s`, 95% miss risk, recommends direct `774UP`) → actual Oct 22 outcome reveal (**MISSED by 7m 33s** at Ambedkar Nagar Depot).
+2. **Complete 4-stage marginal-transfer replay journey:** real October 22, 2026 run `2171_17_09_490` (bus `DL1PD7867`, route `717AUP`, Badarpur Border (T) → Hauz Khas): initial timetable transfer recommendation (`717AUP -> D-7702UP`) → growing delay at Badarpur M B Road / Rajiv Gandhi Stadium (`+1,768 s`) → advice flip at Lal Kuan (`+2,099 s`, recommends direct `774UP`) → observed Oct 22 outcome at Ambedkar Nagar Depot. The first bus had an observed arrival at **18:14:15 IST**; connecting bus `DL1PD8627` (run `3064_17_55`) had an observed departure at **18:04:36 IST**, so the connection was **MISSED by 9m 39s**. Scheduled times remain separate: scheduled first-bus arrival 17:35:47 and scheduled connecting departure 18:00:04.
 3. **Explicit stale-feed abstention and recovery:** API started with `PS1_LIVE_STALE_THRESHOLD_S=45` (overriding the 600 s default), `POST /live/pause` invoked, waited until live feed age exceeded `45 s`, UI submitted live query and displayed **`Not enough data`** with stale-feed age/threshold and suppressed options, then `POST /live/resume` restored fresh `VehiclePositions` and clicking **Retry live query** recovered the live recommendations.
 
 Re-record the demo (requires OTP running on 3102 and API running on 3100 with `PS1_LIVE_STALE_THRESHOLD_S=45`):
