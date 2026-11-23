@@ -142,6 +142,7 @@ class RetimeModel:
         self.stretch_typical_scheduled: dict[tuple[int, str, str], float] = {}
         self._live_stats_mtime: float | None = None
         self._live_stats_cache: dict[int, dict[str, Any]] = {}
+        self._loaded_passage_files: list[Path] = []
         loaded = load_model_artifact(self.model_dir)
         self._artifact: LoadedModelArtifact | None = (
             loaded if loaded is not None and loaded.rung == self.selected_rung else None
@@ -162,7 +163,7 @@ class RetimeModel:
         return getattr(self, "_live_stats_cache", {}).get(route_id)
 
     def replay_reference_info(self, depart: datetime) -> dict[str, Any]:
-        """Summarize causal October observations visible at a replay departure."""
+        """Summarize only reconstructed observations actually loaded before the cutoff."""
         depart = depart.astimezone(IST)
         depart_ts = int(depart.timestamp())
         day_str = depart.date().isoformat()
@@ -170,43 +171,55 @@ class RetimeModel:
         same_day = [r for r in visible if r.stretch.day == day_str]
         observed_same_day = [r for r in same_day if r.stretch.target_observed]
         candidate_pool = observed_same_day or same_day or visible
-        latest_ts = max((r.stretch.available_at for r in candidate_pool), default=None)
-        if latest_ts is None:
-            latest_stop = max(
-                (
-                    row.source_available_at
-                    for rows in self.stop_events.values()
-                    for row in rows
-                    if row.ts < depart_ts and row.source_available_at < depart_ts
-                ),
-                default=None,
-            )
-            latest_ts = latest_stop
-        passage_file = self.data_dir / "passages" / f"day={day_str}.parquet"
-        gps_file = self.data_dir / "gps" / f"day={day_str}.parquet"
-        fixture_path = (
-            str(passage_file)
-            if passage_file.exists()
-            else (str(gps_file) if gps_file.exists() else str(self.data_dir / "passages"))
+        latest_record = max(candidate_pool, key=lambda r: r.stretch.available_at, default=None)
+        latest_stop = max(
+            (
+                row
+                for rows in self.stop_events.values()
+                for row in rows
+                if row.ts < depart_ts and row.source_available_at < depart_ts
+            ),
+            key=lambda row: row.source_available_at,
+            default=None,
         )
-        if latest_ts is None:
-            return {
-                "reference_timestamp": depart.isoformat(),
-                "feed_timestamp": depart.isoformat(),
-                "feed_age_seconds": 0.0,
-                "visible_observations": 0,
-                "same_day_observations": 0,
-                "observed_same_day_stretches": 0,
-                "fixture_path": fixture_path,
-            }
-        ref_iso = datetime.fromtimestamp(latest_ts, IST).isoformat()
-        return {
-            "reference_timestamp": ref_iso,
-            "feed_timestamp": ref_iso,
-            "feed_age_seconds": round(max(0.0, float(depart_ts - latest_ts)), 2),
+        candidates = [
+            candidate
+            for candidate in (
+                (latest_record.stretch.available_at, latest_record.stretch.day)
+                if latest_record is not None
+                else None,
+                (latest_stop.source_available_at, latest_stop.day) if latest_stop is not None else None,
+            )
+            if candidate is not None
+        ]
+        loaded_files = [str(path) for path in getattr(self, "_loaded_passage_files", [])]
+        base = {
             "visible_observations": len(visible),
             "same_day_observations": len(same_day),
             "observed_same_day_stretches": len(observed_same_day),
+            "loaded_passage_files": loaded_files,
+        }
+        if not candidates:
+            return {
+                **base,
+                "reference_timestamp": None,
+                "feed_timestamp": None,
+                "feed_age_seconds": None,
+                "replay_data_available": False,
+                "same_day_data_available": False,
+                "fixture_path": None,
+            }
+        latest_ts, latest_day = max(candidates)
+        expected_name = f"day={latest_day}.parquet"
+        fixture_path = next((path for path in loaded_files if Path(path).name == expected_name), None)
+        ref_iso = datetime.fromtimestamp(latest_ts, IST).isoformat()
+        return {
+            **base,
+            "reference_timestamp": ref_iso,
+            "feed_timestamp": ref_iso,
+            "feed_age_seconds": round(max(0.0, float(depart_ts - latest_ts)), 2),
+            "replay_data_available": True,
+            "same_day_data_available": bool(same_day),
             "fixture_path": fixture_path,
         }
 
@@ -214,6 +227,7 @@ class RetimeModel:
         files = sorted((self.data_dir / "passages").glob("*.parquet"))
         if not files:
             return
+        self._loaded_passage_files = files
         passages = load_passages(self.data_dir / "passages" / "*.parquet")
         self.route_geometries = build_route_geometry(passages)
         route_stops: dict[int, tuple[str, dict[int, str]]] = {}
@@ -773,7 +787,12 @@ class RetimeModel:
                 f"causal October replay rung 1 route-level persistence "
                 f"({len(same_day_route)} same-day route-{route_id} observed stretches){fallback_suffix}"
             )
-        elif mode == "live" and live_fresh >= 1 and live_stat is not None:
+        elif (
+            mode == "live"
+            and live_fresh >= 1
+            and live_stat is not None
+            and float(live_stat.get("median_speed_mps", 0.0)) > 0.5
+        ):
             reference = hist_reference
             base_ratio = (
                 median(max(0.35, min(3.0, row.ratio)) for row in reference)
@@ -781,11 +800,8 @@ class RetimeModel:
                 else 1.0
             )
             median_speed = float(live_stat.get("median_speed_mps", 0.0))
-            if median_speed > 0.5:
-                live_factor = max(0.75, min(1.50, 5.5 / median_speed))
-                blended_factor = 0.65 + 0.35 * live_factor
-            else:
-                blended_factor = 1.0
+            live_factor = max(0.75, min(1.50, 5.5 / median_speed))
+            blended_factor = 0.65 + 0.35 * live_factor
             duration = max(1.0, scheduled * base_ratio * blended_factor)
             source = "live"
             timing_source = "model_live"
@@ -813,9 +829,14 @@ class RetimeModel:
                 else 0.0
             )
             if mode == "live":
+                live_note = (
+                    f"live VehiclePositions have no usable speed ({live_fresh} fresh vehicles)"
+                    if live_fresh >= 1 and live_stat is not None
+                    else f"sparse live observations (0 fresh vehicles on route {route_id})"
+                )
                 coverage_note = (
-                    f"sparse live observations (0 fresh vehicles on route {route_id}); "
-                    f"historical {hist_level} fallback (n={len(reference)}){fallback_suffix}"
+                    f"{live_note}; historical {hist_level} fallback "
+                    f"(n={len(reference)}){fallback_suffix}"
                 )
             else:
                 coverage_note = (
@@ -829,8 +850,13 @@ class RetimeModel:
             timing_source = "timetable_fallback"
             observation_count = 0
             coverage = 0.0
+            live_note = (
+                f"live VehiclePositions have no usable speed ({live_fresh} fresh vehicles); "
+                if mode == "live" and live_fresh >= 1 and live_stat is not None
+                else ""
+            )
             coverage_note = (
-                f"no live or historical observations for route {route_id} "
+                f"{live_note}no usable live-speed or historical ride observations for route {route_id} "
                 f"at hour {depart.hour:02d}; timetable fallback{fallback_suffix}"
             )
 

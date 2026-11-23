@@ -18,7 +18,7 @@ Real-time bus travel-time modeling and journey planning for Delhi DTC buses usin
   - `model.py`: Model ladder rungs `0` (timetable), `1` (persistence), `1h` (historical median), `2` (+ day-type), `3` (+ vehicle last observed delay), `4` (LightGBM quantile p10/p50/p90 + split-conformal calibration), artifact persistence, and as-of eligibility metadata/checks.
   - `evaluate.py`: Frozen whole-day evaluation runner emitting `reports/eval-baselines.{csv,md}` and `reports/eval-full.{csv,md}`.
   - `selection.py`: Ship-decision rule (`reports/selection.json`) picking the highest shippable rung `4`/`3`/`2` beating rung 1 on held-out observed-only MAE at matching coverage, otherwise rung 1; rung `1h` is report-only.
-  - `live_poller.py`: Polls live Delhi GTFS-RT `VehiclePositions.pb`, writes snapshots/route stats under `data/live/`, tracks feed age.
+  - `live_poller.py`: Polls live Delhi GTFS-RT `VehiclePositions.pb`, writes snapshots/route stats under `data/live/`, gates entities by their own timestamps, and persists only sanitized error categories.
   - `otp_client.py`: GraphQL `planConnection` client for OTP 2.8.1 (`/otp/gtfs/v1`).
   - `retime.py`: Re-times OTP candidate transit legs using the selected model artifact and fallback chain, computes waits, joint-scenario transfer risk, and door-to-door `[p10, p90]` windows.
   - `replay_demo.py`: Scripted October 22 marginal-transfer replay scenario for the UI demo.
@@ -76,7 +76,7 @@ Run from repo root `/home/factory-user/repos/Transport-Stack-Hackathon`:
 - **Evaluation & splits:** Whole-day splits only (train: Oct 5–8, 13–15; held-out: Oct 22, 27, 28; holidays Oct 2/20/26 excluded from normal-day training; Oct 7 never an eval day). Gate and model selection run on the `observed-only` stratum; never sum per-leg p90s into end-to-end p90s.
 - **No GPS↔GTFS trip_id join:** Stop matching is strictly geometric; never join GPS `trip_id` to GTFS `trip_id`, and never fuzzy-match stop names city-wide.
 - **Google comparator:** Hard cap of 300 calls mission-wide; cache every response under `data/google/`; never query past/October departure times (Google returns zero transit routes); always `languageCode="en"` and post-filter strictly bus-only itineraries. Google is a comparator, not ground truth.
-- **Honesty, provenance & abstention:** Always label `mode` (`live` vs `replay`) separately from per-leg provenance (`model_live`, `model_replay`, `historical_fallback`, `timetable_fallback`) and observed coverage. Abstain visibly (`status="insufficient_data"`) when GPS data is stale or coverage is insufficient. Never print or log API keys.
+- **Honesty, provenance & abstention:** Always label `mode` (`live` vs `replay`) separately from per-leg ride/wait provenance (`model_live`, `model_replay`, `historical_fallback`, `timetable_fallback`) and observed coverage. Live entities older than the effective freshness threshold cannot drive timing. Abstain visibly (`status="insufficient_data"`) for stale/insufficient GPS, no supported candidate route, or no reconstructed replay observations as of the cutoff; never synthesize a fresh replay timestamp. Poller errors use fixed categories only. Never print or log API keys.
 - **Commit cadence:** Commit and push to `origin/main` after each passing coherent sub-step; keep repo `AGENTS.md` updated in the same commit.
 
 ## Known Data Gaps & Archive Conventions

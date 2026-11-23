@@ -105,7 +105,7 @@ OpenTripPlanner 2.8.1 (unmodified core, GraphQL `planConnection` on port 3102) g
 
 ### Live mode (`mode = "live"`)
 
-The background poller (`src/ps1/live_poller.py`) fetches `VehiclePositions.pb` from `dts-backend.transportstack.in` every 25 seconds (matching the feed's 20–30 s cadence), filters stale retained entities older than `PS1_LIVE_ENTITY_MAX_AGE_S` (default 900 s), and writes per-route aggregates to `$PS1_DATA_DIR/live/route_stats.json` (`vehicle_count`, `fresh_vehicle_count`, `median_speed_mps`, `observed_coverage`).
+The background poller (`src/ps1/live_poller.py`) fetches `VehiclePositions.pb` from `dts-backend.transportstack.in` every 25 seconds (matching the feed's 20–30 s cadence) and writes per-route aggregates to `$PS1_DATA_DIR/live/route_stats.json` (`vehicle_count`, `fresh_vehicle_count`, `median_speed_mps`, `observed_coverage`). Freshness is measured from each entity timestamp at poll time, not from the protobuf header. The effective entity limit is `min(PS1_LIVE_ENTITY_MAX_AGE_S, PS1_LIVE_STALE_THRESHOLD_S)` (600 s with stock settings), so retained 11–15-minute-old positions cannot drive live timing. Transport failures are persisted and exposed only as fixed error categories; raw exception text is never written to poller state, `poller.log`, or `/live/status`.
 
 - **Covered corridor routes (`2170`, `2171` — 717A, shipped Rung 4 artifact):**
   - The leg is decomposed into its constituent pattern stretches. When `fresh_vehicle_count >= 1` on the route, live observations populate the causal speed/pace/headway features (`recent_same_direction_speed_mps = median_speed_mps`, `recent_same_direction_pace_ratio = clip(5.5 / median_speed_mps, 0.5, 2.5)`, `headway_s = clip(3600 / fresh_vehicle_count, 120, 1800)`), which the Rung 4 LightGBM boosters combine nonlinearly with the fitted `HistoricalMedianTable` (`dow_hour`, `hour`, `stretch` medians) and time-of-day features. Label: `source = "live"`, `timing_source = "model_live"`.
@@ -116,12 +116,12 @@ The background poller (`src/ps1/live_poller.py`) fetches `VehiclePositions.pb` f
     $$\text{blended\_factor} = 0.65 + 0.35 \cdot \operatorname{clip}\!\left(\frac{5.5}{\text{median\_speed\_mps}},\, 0.75,\, 1.50\right)$$
     $$\text{duration} = \text{scheduled} \times \text{base\_ratio} \times \text{blended\_factor}$$
     Label: `source = "live"`, `timing_source = "model_live"`, with `coverage_note` explicitly naming both the fresh vehicle count/speed and that the route is outside Rung 4 model scope.
-  - When `fresh_vehicle_count == 0`, the leg falls back to `scheduled * base_ratio` (`source = "historical"`, `timing_source = "historical_fallback"`).
-  - When neither live nor historical data exists for that route and hour, the leg falls back to `scheduled` (`source = "timetable"`, `timing_source = "timetable_fallback"`).
+  - When `fresh_vehicle_count == 0` **or the fresh positions have no usable speed**, the ride falls back to `scheduled * base_ratio` (`source = "historical"`, `timing_source = "historical_fallback"`). Live fleet headway may still independently label the boarding wait `model_live`.
+  - When neither usable live speed nor historical data exists for that route and hour, the ride falls back to `scheduled` (`source = "timetable"`, `timing_source = "timetable_fallback"`), never `model_live`.
 
 ### Replay mode (`mode = "replay"`, October 2026 departures)
 
-Replay mode reads strictly causal October observations (`to_ts <= depart_ts`) from `$PS1_DATA_DIR/passages/` and **never contacts the live feed** (`feed_summary.live_feed_contacted = false`). On covered routes (`2170`/`2171`), same-day causal passages populate `previous_error_s`, `recent_same_direction_speed_mps`, `headway_s`, `last_stop_delay_s`, and `last_stretch_error_s` for Rung 4 (`source = "replay"`, `timing_source = "model_replay"`). On uncovered routes, replay falls back through same-day persistence -> historical ratio -> timetable.
+Replay mode reads strictly causal October observations (`to_ts <= depart_ts` and `available_at < depart_ts`) from `$PS1_DATA_DIR/passages/` and **never contacts the live feed** (`feed_summary.live_feed_contacted = false`). On covered routes (`2170`/`2171`), same-day causal passages populate `previous_error_s`, `recent_same_direction_speed_mps`, `headway_s`, `last_stop_delay_s`, and `last_stretch_error_s` for Rung 4 (`source = "replay"`, `timing_source = "model_replay"`). Without same-day observations, a covered route uses its historical model inputs and is labelled `historical_fallback`; uncovered routes fall back through same-day persistence -> historical ratio -> timetable. Response metadata names only passage files actually loaded. If no reconstructed observation exists before the request cutoff, replay returns `replay_data_unavailable` with null observation timestamps and age rather than presenting the request time as fresh data.
 
 ---
 
@@ -205,7 +205,8 @@ When fresh data is required and unavailable, the API **suppresses all options (`
 | `feed_unavailable` | No `VehiclePositions` snapshot has been ingested in `live` mode | `$PS1_DATA_DIR/live/feed_state.json` missing |
 | `stale_feed` | `live` mode feed age exceeds freshness threshold | `PS1_LIVE_STALE_THRESHOLD_S=600` s (10 min default; overridable, e.g. `45` s for testing/demo) |
 | `insufficient_coverage` | `fresh_vehicle_count < min_vehicles` in `live` mode | `PS1_LIVE_MIN_VEHICLES=10` |
-| `insufficient_route_coverage` | Best candidate option's average ride `observed_coverage` is below required floor | `min_coverage` query param or `PS1_MIN_ROUTE_COVERAGE` (default `0.0`) |
+| `insufficient_route_coverage` | No candidate has any route-level support, or the best candidate's average ride `observed_coverage` is below an optional additional floor | No-supported-route check always active; optional floor via `min_coverage` or `PS1_MIN_ROUTE_COVERAGE` (default `0.0`) |
+| `replay_data_unavailable` | No loaded reconstructed observation is visible before the replay cutoff | Null `feed_timestamp`, `reference_timestamp`, and `feed_age_seconds`; zero visible observations |
 
 Control endpoints `GET /live/status`, `POST /live/pause`, and `POST /live/resume` allow controlled stale-feed testing and immediate recovery polling without touching external services.
 

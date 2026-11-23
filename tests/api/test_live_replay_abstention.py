@@ -245,7 +245,7 @@ def test_poller_rejects_html_spa_shell_and_preserves_last_good_timestamp(tmp_pat
     assert state["status"] == "degraded"
     assert state["consecutive_failures"] == 1
     assert state["header_timestamp"] == good_ts
-    assert "HTML" in (state["last_error"] or "")
+    assert state["last_error"] == "upstream_non_protobuf_payload"
 
 
 def test_live_mode_reports_fresh_age_and_per_leg_provenance_including_sparse_leg(tmp_path: Path) -> None:
@@ -505,3 +505,179 @@ def test_insufficient_fleet_and_route_coverage_abstention(tmp_path: Path) -> Non
     assert high_floor["status"] == "insufficient_data"
     assert high_floor["options"] == []
     assert high_floor["abstention"]["code"] == "insufficient_route_coverage"
+
+    # Stock settings still allow this journey because route 100 is supported and route 200 is labelled sparse.
+    supported = client.get("/journeys", params=params).json()
+    assert supported["status"] == "ok"
+    sparse = next(
+        leg for leg in supported["options"][0]["legs"] if leg["type"] == "ride" and leg["route_id"] == 200
+    )
+    assert sparse["timing_source"] in {"historical_fallback", "timetable_fallback"}
+    assert sparse["observed_coverage"] == 0.0
+
+
+def test_fresh_header_cannot_revive_stale_route_positions_at_default_settings(tmp_path: Path) -> None:
+    _make_stops(tmp_path)
+    now = int(time.time())
+    payload = _make_protobuf(
+        now,
+        [(f"OLD{i}", "100", 28.65, 77.22, 5.0, now - 660) for i in range(12)]
+        + [(f"FRESH{i}", "200", 28.65, 77.22, 5.0, now - 5) for i in range(10)],
+    )
+    decoded = decode_vehicle_positions(payload, polled_at=now)
+    state = persist_decoded_feed(tmp_path, decoded)
+
+    assert state["fresh_vehicle_count"] == 10
+    route_stats = json.loads((tmp_path / "live" / "route_stats.json").read_text())
+    assert route_stats["routes"]["100"]["fresh_vehicle_count"] == 0
+    assert route_stats["routes"]["100"]["median_speed_mps"] == 0.0
+    assert route_stats["routes"]["100"]["latest_ts"] == 0
+
+    app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=FakeOTP(),
+        model=_build_retime_model(tmp_path, []),
+        enable_poller=False,
+        min_live_vehicles=10,
+    )
+    client = TestClient(app)
+    params = {"from": "Kashmere Gate ISBT", "to": "Nehru Place", "depart": "2026-11-24T08:30:00+05:30"}
+    body = client.get("/journeys", params=params).json()
+    assert body["status"] == "ok"
+    rides = [leg for leg in body["options"][0]["legs"] if leg["type"] == "ride"]
+    assert rides[0]["route_id"] == 100
+    assert rides[0]["timing_source"] == "timetable_fallback"
+    assert rides[1]["route_id"] == 200
+    assert rides[1]["timing_source"] == "model_live"
+
+    # Move the fresh fleet to an unrelated route: stock settings now abstain because neither candidate leg is supported.
+    unsupported = _make_protobuf(
+        now,
+        [(f"OLD{i}", "100", 28.65, 77.22, 5.0, now - 660) for i in range(12)]
+        + [(f"FRESH{i}", "999", 28.65, 77.22, 5.0, now - 5) for i in range(10)],
+    )
+    persist_decoded_feed(tmp_path, decode_vehicle_positions(unsupported, polled_at=now + 1))
+    body = client.get("/journeys", params=params).json()
+    assert body["status"] == "insufficient_data"
+    assert body["abstention"]["code"] == "insufficient_route_coverage"
+    assert body["abstention"]["supported_options"] == 0
+    assert body["options"] == []
+
+
+def test_replay_without_loaded_observations_abstains_without_fresh_timestamp(tmp_path: Path) -> None:
+    _make_stops(tmp_path)
+    raw_gps = tmp_path / "gps" / "day=2026-10-01.parquet"
+    raw_gps.parent.mkdir(parents=True)
+    raw_gps.write_bytes(b"raw GPS is not a reconstructed passage fixture")
+    model = _build_retime_model(tmp_path, [])
+    app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=FakeOTP(),
+        model=model,
+        enable_poller=False,
+    )
+
+    body = TestClient(app).get(
+        "/journeys",
+        params={
+            "from": "Kashmere Gate ISBT",
+            "to": "Nehru Place",
+            "depart": "2026-10-01T08:30:00+05:30",
+            "mode": "replay",
+        },
+    ).json()
+    assert body["status"] == "insufficient_data"
+    assert body["abstention"]["code"] == "replay_data_unavailable"
+    assert body["feed_timestamp"] is None
+    assert body["reference_timestamp"] is None
+    assert body["feed_age_seconds"] is None
+    assert body["feed_summary"]["visible_observations"] == 0
+    assert body["feed_summary"]["replay_data_available"] is False
+    assert body["feed_summary"]["fixture_path"] is None
+    assert body["feed_summary"]["loaded_passage_files"] == []
+
+
+def test_live_ride_without_usable_speed_uses_fallback_provenance(tmp_path: Path) -> None:
+    _make_stops(tmp_path)
+    now = int(time.time())
+    vehicles = [(f"DL1PD{i}", "100", 28.65, 77.22, 0.0, now - 5) for i in range(12)]
+    persist_decoded_feed(tmp_path, decode_vehicle_positions(_make_protobuf(now, vehicles), polled_at=now))
+    model = _build_retime_model(
+        tmp_path,
+        [_stretch_record("2026-10-15", 8, 10, 100, "4109", "50", actual_s=720, scheduled_s=600)],
+    )
+    app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=FakeOTP(),
+        model=model,
+        enable_poller=False,
+        min_live_vehicles=10,
+    )
+    body = TestClient(app).get(
+        "/journeys",
+        params={"from": "Kashmere Gate ISBT", "to": "Nehru Place", "depart": "2026-11-24T08:30:00+05:30"},
+    ).json()
+
+    assert body["status"] == "ok"
+    legs = body["options"][0]["legs"]
+    first_ride = next(leg for leg in legs if leg["type"] == "ride" and leg["route_id"] == 100)
+    second_ride = next(leg for leg in legs if leg["type"] == "ride" and leg["route_id"] == 200)
+    board = next(leg for leg in legs if leg["type"] == "board")
+    assert first_ride["timing_source"] == "historical_fallback"
+    assert first_ride["source"] == "historical"
+    assert first_ride["observation_count"] == 1
+    assert "no usable speed" in first_ride["coverage_note"]
+    assert second_ride["timing_source"] == "historical_fallback"
+    assert second_ride["observed_coverage"] == 0.0
+    # Live headway can still time the wait independently of the ride fallback.
+    assert board["timing_source"] == "model_live"
+
+    night = TestClient(app).get(
+        "/journeys",
+        params={"from": "Kashmere Gate ISBT", "to": "Nehru Place", "depart": "2026-11-24T03:00:00+05:30"},
+    ).json()
+    night_ride = next(
+        leg for leg in night["options"][0]["legs"] if leg["type"] == "ride" and leg["route_id"] == 200
+    )
+    assert night_ride["timing_source"] == "timetable_fallback"
+    assert night_ride["source"] == "timetable"
+
+
+def test_transport_exception_never_persists_or_exposes_credential(tmp_path: Path, caplog) -> None:
+    _make_stops(tmp_path)
+    secret_key = "test-credential-with-line-break\nnever-expose-this-value"
+
+    def failing_transport(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"Illegal header value containing {secret_key}")
+
+    poller = LivePoller(tmp_path, feed_url="https://example.test/vp.pb", api_key=secret_key)
+    with httpx.Client(transport=httpx.MockTransport(failing_transport)) as http_client:
+        result = poller.poll_once(client=http_client)
+
+    assert result["last_error"] == "transport_error"
+    app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=FakeOTP(),
+        model=_build_retime_model(tmp_path, []),
+        enable_poller=False,
+        poller=poller,
+    )
+    endpoint = TestClient(app).get("/live/status")
+    assert endpoint.status_code == 200
+    assert endpoint.json()["state"]["last_error"] == "transport_error"
+
+    exposed_text = "\n".join(
+        [
+            json.dumps(result),
+            endpoint.text,
+            caplog.text,
+            (tmp_path / "live" / "feed_state.json").read_text(encoding="utf-8"),
+            (tmp_path / "live" / "poller.log").read_text(encoding="utf-8"),
+        ]
+    )
+    assert secret_key not in exposed_text
+    assert "Illegal header value" not in exposed_text

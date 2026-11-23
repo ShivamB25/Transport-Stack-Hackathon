@@ -6,6 +6,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -59,6 +60,48 @@ class LiveFeedError(RuntimeError):
     """Raised when fetching or decoding VehiclePositions fails."""
 
 
+_ERROR_CATEGORIES = {
+    "auth_not_configured",
+    "empty_upstream_payload",
+    "upstream_non_protobuf_payload",
+    "protobuf_decode_error",
+    "missing_feed_timestamps",
+    "upstream_http_error",
+    "transport_timeout",
+    "transport_error",
+    "live_feed_error",
+    "poll_error",
+}
+
+
+def sanitize_poll_error(error: BaseException | str) -> str:
+    """Return a fixed public error category, never raw exception text."""
+    if isinstance(error, httpx.TimeoutException):
+        return "transport_timeout"
+    if isinstance(error, httpx.HTTPError):
+        return "transport_error"
+    if isinstance(error, LiveFeedError):
+        message = str(error).casefold()
+        if "not configured" in message:
+            return "auth_not_configured"
+        if "empty vehiclepositions" in message:
+            return "empty_upstream_payload"
+        if "non-protobuf" in message:
+            return "upstream_non_protobuf_payload"
+        if "failed to decode" in message:
+            return "protobuf_decode_error"
+        if "no header or vehicle timestamps" in message:
+            return "missing_feed_timestamps"
+        if "upstream returned http" in message:
+            return "upstream_http_error"
+        return "live_feed_error"
+    if isinstance(error, str):
+        if error in _ERROR_CATEGORIES or re.fullmatch(r"upstream_http_[0-9]{3}", error):
+            return error
+        return "poll_error"
+    return "poll_error"
+
+
 @dataclass(frozen=True)
 class DecodedFeed:
     header_timestamp: int
@@ -67,6 +110,7 @@ class DecodedFeed:
     route_stats: dict[str, dict[str, Any]]
     vehicle_count: int
     fresh_vehicle_count: int
+    entity_max_age_s: float
     in_bbox_count: int
     route_count: int
 
@@ -143,7 +187,7 @@ def decode_vehicle_positions(
     payload: bytes,
     *,
     polled_at: float | None = None,
-    entity_max_age_s: float = LIVE_ENTITY_MAX_AGE_S,
+    entity_max_age_s: float | None = None,
 ) -> DecodedFeed:
     """Decode a GTFS-RT VehiclePositions protobuf payload into records and route stats."""
     if not payload:
@@ -159,6 +203,11 @@ def decode_vehicle_positions(
         raise LiveFeedError(f"failed to decode GTFS-RT protobuf: {exc}") from exc
 
     now = time.time() if polled_at is None else float(polled_at)
+    max_entity_age = (
+        min(float(LIVE_ENTITY_MAX_AGE_S), float(LIVE_STALE_THRESHOLD_S))
+        if entity_max_age_s is None
+        else float(entity_max_age_s)
+    )
     header_ts = int(feed.header.timestamp) if feed.HasField("header") and feed.header.timestamp else 0
 
     records: list[dict[str, Any]] = []
@@ -226,7 +275,8 @@ def decode_vehicle_positions(
     in_bbox_count = 0
     for row in records:
         ts = row["ts"]
-        is_fresh = ts > 0 and (header_ts - ts) <= entity_max_age_s
+        entity_age = now - ts
+        is_fresh = ts > 0 and 0.0 <= entity_age <= max_entity_age
         row["fresh"] = is_fresh
         if is_fresh:
             fresh_count += 1
@@ -249,7 +299,7 @@ def decode_vehicle_positions(
             "median_speed_mps": round(float(median(speeds)), 3)
             if speeds
             else (round(float(median(all_speeds)), 3) if all_speeds else 0.0),
-            "latest_ts": max((r["ts"] for r in rows), default=header_ts),
+            "latest_ts": max((r["ts"] for r in fresh_rows), default=0),
             "observed_coverage": round(len(fresh_rows) / len(rows), 4) if rows else 0.0,
         }
 
@@ -260,6 +310,7 @@ def decode_vehicle_positions(
         route_stats=route_stats,
         vehicle_count=len(records),
         fresh_vehicle_count=fresh_count,
+        entity_max_age_s=max_entity_age,
         in_bbox_count=in_bbox_count,
         route_count=len(route_stats),
     )
@@ -319,6 +370,11 @@ def persist_decoded_feed(
         "polled_at_iso": _iso_ist(decoded.polled_at),
         "vehicle_count": decoded.vehicle_count,
         "fresh_vehicle_count": decoded.fresh_vehicle_count,
+        "latest_fresh_vehicle_timestamp": max(
+            (row["ts"] for row in decoded.records if row["fresh"]),
+            default=None,
+        ),
+        "entity_max_age_seconds": decoded.entity_max_age_s,
         "in_bbox_count": decoded.in_bbox_count,
         "route_count": decoded.route_count,
         "feed_age_seconds_at_poll": age_at_poll,
@@ -351,9 +407,15 @@ def persist_decoded_feed(
     return state
 
 
-def record_poll_failure(data_dir: Path, error: str, *, feed_url: str = LIVE_FEED_URL) -> dict[str, Any]:
-    """Record a poll error without erasing the last valid header_timestamp."""
+def record_poll_failure(
+    data_dir: Path,
+    error: BaseException | str,
+    *,
+    feed_url: str = LIVE_FEED_URL,
+) -> dict[str, Any]:
+    """Record only a fixed error category and preserve the last good timestamp."""
     now = time.time()
+    category = sanitize_poll_error(error)
     previous = read_live_state(data_dir) or {}
     failures = int(previous.get("consecutive_failures", 0)) + 1
     state = {
@@ -362,7 +424,7 @@ def record_poll_failure(data_dir: Path, error: str, *, feed_url: str = LIVE_FEED
         "last_attempt_at": round(now, 3),
         "last_attempt_iso": _iso_ist(now),
         "consecutive_failures": failures,
-        "last_error": error,
+        "last_error": category,
         "feed_url": feed_url,
     }
     _atomic_write_json(_live_dir(data_dir) / "feed_state.json", state)
@@ -373,7 +435,7 @@ def record_poll_failure(data_dir: Path, error: str, *, feed_url: str = LIVE_FEED
             "ts": round(now, 3),
             "ts_iso": _iso_ist(now),
             "consecutive_failures": failures,
-            "error": error,
+            "error": category,
         },
     )
     return state
@@ -384,7 +446,10 @@ def read_live_state(data_dir: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        state = json.loads(path.read_text(encoding="utf-8"))
+        if state.get("last_error"):
+            state["last_error"] = sanitize_poll_error(str(state["last_error"]))
+        return state
     except (OSError, ValueError):
         return None
 
@@ -459,7 +524,7 @@ class LivePoller:
             decoded = decode_vehicle_positions(response.content)
             return persist_decoded_feed(self.data_dir, decoded, feed_url=self.feed_url)
         except (httpx.HTTPError, LiveFeedError) as exc:
-            return record_poll_failure(self.data_dir, str(exc), feed_url=self.feed_url)
+            return record_poll_failure(self.data_dir, exc, feed_url=self.feed_url)
 
     async def apoll_once(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
         """Asynchronously fetch, decode, and persist one VehiclePositions snapshot."""
@@ -477,7 +542,7 @@ class LivePoller:
             decoded = decode_vehicle_positions(response.content)
             return persist_decoded_feed(self.data_dir, decoded, feed_url=self.feed_url)
         except (httpx.HTTPError, LiveFeedError) as exc:
-            return record_poll_failure(self.data_dir, str(exc), feed_url=self.feed_url)
+            return record_poll_failure(self.data_dir, exc, feed_url=self.feed_url)
 
     async def run_loop(self, stop_event: asyncio.Event | None = None) -> None:
         """Continuously poll on interval_s; reacts quickly to resume after pause."""

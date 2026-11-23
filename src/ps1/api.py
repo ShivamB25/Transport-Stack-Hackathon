@@ -286,6 +286,14 @@ def _evaluate_live_feed(
     return state, age, None
 
 
+def _option_has_supported_route(option: dict[str, Any]) -> bool:
+    """A journey is supported when at least one ride has route-level observations."""
+    return any(
+        leg.get("type") == "ride" and float(leg.get("observed_coverage") or 0.0) > 0.0
+        for leg in option.get("legs", [])
+    )
+
+
 def _max_option_ride_coverage(options: list[dict[str, Any]]) -> float:
     best = 0.0
     for option in options:
@@ -414,11 +422,38 @@ def create_app(
                 reference_timestamp = replay_info["reference_timestamp"]
                 feed_summary = {
                     "fixture_path": replay_info["fixture_path"],
+                    "loaded_passage_files": replay_info.get("loaded_passage_files", []),
+                    "replay_data_available": replay_info.get("replay_data_available", True),
+                    "same_day_data_available": replay_info.get("same_day_data_available", False),
                     "visible_observations": replay_info["visible_observations"],
                     "same_day_observations": replay_info["same_day_observations"],
                     "observed_same_day_stretches": replay_info["observed_same_day_stretches"],
                     "live_feed_contacted": False,
                 }
+                if not replay_info.get("replay_data_available", True):
+                    return JourneyResponse(
+                        status="insufficient_data",
+                        mode="replay",
+                        feed_age_seconds=None,
+                        feed_timestamp=None,
+                        reference_timestamp=None,
+                        feed_summary=feed_summary,
+                        selected_rung=timing_model.selected_rung,
+                        depart=departure.isoformat(),
+                        resolved_from=origin,
+                        resolved_to=destination,
+                        options=[],
+                        abstention={
+                            "label": "not enough data",
+                            "code": "replay_data_unavailable",
+                            "reason": (
+                                "Not enough data: no reconstructed October observations were loaded "
+                                "before the requested replay cutoff."
+                            ),
+                            "requested_cutoff": departure.isoformat(),
+                            "visible_observations": 0,
+                        },
+                    )
             else:
                 feed_age = 0.0
                 feed_timestamp = departure.isoformat()
@@ -441,6 +476,34 @@ def create_app(
         if not options:
             raise HTTPException(404, "no bus itineraries found for this request")
         options.sort(key=lambda option: option["total_duration_s"])
+
+        supported_options = sum(_option_has_supported_route(option) for option in options)
+        if supported_options == 0:
+            return JourneyResponse(
+                status="insufficient_data",
+                mode=effective_mode,
+                feed_age_seconds=feed_age,
+                feed_timestamp=feed_timestamp,
+                reference_timestamp=reference_timestamp,
+                feed_summary=feed_summary,
+                selected_rung=timing_model.selected_rung,
+                depart=departure.isoformat(),
+                resolved_from=origin,
+                resolved_to=destination,
+                options=[],
+                abstention={
+                    "label": "not enough data",
+                    "code": "insufficient_route_coverage",
+                    "reason": (
+                        "Not enough data: no candidate journey has a supported route with "
+                        "usable route-level observations."
+                    ),
+                    "feed_age_seconds": feed_age,
+                    "observed_coverage": 0.0,
+                    "candidate_options": len(options),
+                    "supported_options": 0,
+                },
+            )
 
         if coverage_floor > 0.0:
             best_cov = _max_option_ride_coverage(options)

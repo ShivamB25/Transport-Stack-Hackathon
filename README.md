@@ -92,9 +92,9 @@ All runtime and library versions used to build, evaluate, and serve PS1 are pinn
   - `PS1_ENABLE_LIVE_POLLER` (`1` | `0`, default `1`)
   - `PS1_LIVE_POLL_INTERVAL_S` (default `25`)
   - `PS1_LIVE_STALE_THRESHOLD_S` (default **`600`** seconds = 10 minutes; override e.g. `PS1_LIVE_STALE_THRESHOLD_S=45` for rapid abstention testing and the recorded demo)
-  - `PS1_LIVE_ENTITY_MAX_AGE_S` (default `900` s)
+  - `PS1_LIVE_ENTITY_MAX_AGE_S` (default `900` s source-retention cap; usable entities are also limited by `PS1_LIVE_STALE_THRESHOLD_S`, so the stock effective maximum is `600` s measured from each entity timestamp)
   - `PS1_LIVE_MIN_VEHICLES` (default `10`)
-  - `PS1_MIN_ROUTE_COVERAGE` (default `0.0`)
+  - `PS1_MIN_ROUTE_COVERAGE` (optional additional average-coverage floor, default `0.0`; even at zero, the API abstains when no candidate has any route-level support)
 
 ---
 
@@ -198,7 +198,7 @@ lsof -ti :3100 | xargs -r kill
 
 ### Stale-feed abstention threshold (`600 s` default vs `45 s` override)
 
-- **Production default:** `PS1_LIVE_STALE_THRESHOLD_S=600` (10 minutes). Whenever live `VehiclePositions` age exceeds this threshold (or `fresh_vehicle_count < 10`, or no snapshot exists), `GET /journeys` in `live` mode returns `status: "insufficient_data"`, `options: []`, and `abstention.label: "not enough data"` with the stale-feed code, reason, feed age, and threshold. The UI suppresses all options and displays the red **Not enough data** panel.
+- **Production default:** `PS1_LIVE_STALE_THRESHOLD_S=600` (10 minutes). A fresh protobuf header is not sufficient: each entity timestamp must also be within the effective threshold before it contributes to route timing or `fresh_vehicle_count`. `GET /journeys` returns `status: "insufficient_data"` and `options: []` for a stale header (`stale_feed`), too few fresh vehicles (`insufficient_coverage`), no snapshot (`feed_unavailable`), or no route-supported candidate (`insufficient_route_coverage`). Sparse fallback legs remain visible inside a journey supported on another route. The UI suppresses options and displays the red **Not enough data** panel. Poller state, logs, and `/live/status` expose only fixed error categories, never raw transport exception text.
 - **Fast abstention testing / demo override (`PS1_LIVE_STALE_THRESHOLD_S=45`):**
   ```bash
   PS1_LIVE_STALE_THRESHOLD_S=45 \
