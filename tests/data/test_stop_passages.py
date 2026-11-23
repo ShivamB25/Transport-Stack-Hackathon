@@ -1,20 +1,27 @@
 """Synthetic and small real-data checks for geometric stop reconstruction."""
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import duckdb
 import pytest
 
 from ps1.stop_passages import (
+    CANONICAL_COVERAGE_REPORT,
+    IST,
+    SCOPED_DAYS,
     Anchor,
     PatternStop,
     Ping,
+    RoutePattern,
     build_passages,
     drop_time_order_breaking_anchors,
     haversine_m,
     load_route_patterns,
     reconstruct_day,
+    resolve_report_path,
+    schedule_start_for_run,
     select_minimum_distance_anchors,
 )
 
@@ -106,6 +113,91 @@ def test_reconstruction_requires_two_ordered_anchors():
         build_passages([stop(0), stop(1, 60)], [Anchor(0, 100, 5)], 0)
 
 
+def test_available_at_semantics_observed_interpolated_and_extrapolated():
+    stops = [stop(i, i * 60) for i in range(6)]
+    anchors = [Anchor(1, 1_000, 5.0), Anchor(4, 1_450, 5.0)]
+    passages = build_passages(stops, anchors, schedule_start_ts=940)
+
+    assert [p.source for p in passages] == [
+        "interpolated",  # 0: leading extrapolated from anchor 1
+        "observed",      # 1: observed anchor
+        "interpolated",  # 2: interpolated between anchor 1 and anchor 4
+        "interpolated",  # 3: interpolated between anchor 1 and anchor 4
+        "observed",      # 4: observed anchor
+        "interpolated",  # 5: trailing extrapolated from anchor 4
+    ]
+    assert [p.ts for p in passages] == [940, 1_000, 1_150, 1_300, 1_450, 1_510]
+    assert [p.available_at for p in passages] == [
+        1_000,  # leading extrapolated endpoint -> anchor 1 used
+        1_000,  # observed -> own ping ts
+        1_450,  # interpolated -> later anchor (4) ts
+        1_450,  # interpolated -> later anchor (4) ts
+        1_450,  # observed -> own ping ts
+        1_450,  # trailing extrapolated endpoint -> anchor 4 used
+    ]
+
+
+def test_midnight_crossing_resolves_adjacent_service_date_oct22_regression():
+    """Regression: Oct 22 UP run 2171_23_57_4191 stop 2 must not get a -80,064 s error."""
+    stops = (
+        stop(0, 0),
+        stop(1, 120),
+        stop(2, 270),
+        stop(3, 352),
+        stop(4, 5473),
+    )
+    pattern = RoutePattern(
+        route_id=2171,
+        direction="UP",
+        shape_id="shp_3_271",
+        stops=stops,
+        timetable={
+            4 * 3600 + 40 * 60: "2171_04_40",
+            22 * 3600 + 10 * 60: "2171_22_10",
+        },
+    )
+
+    # Exact Oct 22 counterexample: raw pings start 2026-10-21 23:59:44 IST, stop 2 at 2026-10-22 00:00:06 IST
+    ping0_ts = int(datetime(2026, 10, 21, 23, 59, 44, tzinfo=IST).timestamp())
+    stop2_ts = int(datetime(2026, 10, 22, 0, 0, 6, tzinfo=IST).timestamp())
+    stop3_ts = int(datetime(2026, 10, 22, 0, 1, 1, tzinfo=IST).timestamp())
+    pings = [Ping(ping0_ts, 28.6, 77.2)]
+    anchors = [Anchor(2, stop2_ts, 11.0), Anchor(3, stop3_ts, 11.1)]
+
+    sched_start = schedule_start_for_run(pattern, "2171_23_57_4191", pings, "2026-10-22", anchors=anchors)
+    expected_start = int(datetime(2026, 10, 21, 22, 10, 0, tzinfo=IST).timestamp())
+    assert sched_start == expected_start
+    passages = build_passages(stops, anchors, sched_start)
+    assert passages[2].schedule_error_s == 6_336
+    assert abs(passages[2].schedule_error_s) < 10_000
+
+    # Hinted-start midnight crossing: run_id has exact timetable start 22:10 from previous service date
+    stop4_ts = int(datetime(2026, 10, 28, 0, 0, 28, tzinfo=IST).timestamp())
+    hinted_anchors = [Anchor(3, stop4_ts - 5100, 10.0), Anchor(4, stop4_ts, 10.0)]
+    hinted_start = schedule_start_for_run(
+        pattern, "2171_22_10_9999", [Ping(stop4_ts - 5200, 28.6, 77.2)], "2026-10-28", anchors=hinted_anchors
+    )
+    assert hinted_start == int(datetime(2026, 10, 27, 22, 10, 0, tzinfo=IST).timestamp())
+
+
+def test_scoped_run_does_not_overwrite_canonical_coverage_report(tmp_path: Path):
+    full_path = resolve_report_path(None, SCOPED_DAYS, {2170, 2171}, tmp_path)
+    assert full_path == CANONICAL_COVERAGE_REPORT
+
+    scoped_path = resolve_report_path(None, ["2026-10-22"], {2170, 2171}, tmp_path)
+    assert scoped_path != CANONICAL_COVERAGE_REPORT
+    assert scoped_path.parent == tmp_path
+
+    route_scoped_path = resolve_report_path(None, SCOPED_DAYS, {2171}, tmp_path)
+    assert route_scoped_path != CANONICAL_COVERAGE_REPORT
+
+    with pytest.raises(ValueError, match="refusing to overwrite canonical coverage report"):
+        resolve_report_path(CANONICAL_COVERAGE_REPORT, ["2026-10-22"], {2170, 2171}, tmp_path)
+
+    explicit_custom = tmp_path / "custom.md"
+    assert resolve_report_path(explicit_custom, ["2026-10-22"], {2170, 2171}, tmp_path) == explicit_custom
+
+
 @pytest.mark.skipif(
     not Path("/home/factory-user/ps1-scratch/data/gps/day=2026-10-22.parquet").exists(),
     reason="real October Parquet is not available",
@@ -138,9 +230,26 @@ def test_small_real_data_smoke(tmp_path: Path):
         [str(data_dir / "gps" / "day=2026-10-22.parquet"), run, str(source)],
     )
     con.close()
+    out_parquet = tmp_path / "passages.parquet"
     coverage, _ = reconstruct_day(
-        "2026-10-22", source, patterns, tmp_path / "passages.parquet"
+        "2026-10-22", source, patterns, out_parquet
     )
     assert coverage
     for row in coverage:
         assert row["stops"] == row["observed"] + row["interpolated"]
+
+    con = duckdb.connect()
+    try:
+        null_avail, obs_mismatch = con.execute(
+            """
+            select
+                count(*) filter (where available_at is null),
+                count(*) filter (where observed and available_at <> ts)
+            from read_parquet(?)
+            """,
+            [str(out_parquet)],
+        ).fetchone()
+    finally:
+        con.close()
+    assert null_avail == 0
+    assert obs_mismatch == 0

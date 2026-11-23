@@ -25,6 +25,8 @@ IST = timezone(timedelta(hours=5, minutes=30))
 SCOPED_DAYS = tuple(
     f"2026-10-{day:02d}" for day in (5, 6, 7, 8, 13, 14, 15, 22, 27, 28)
 )
+CANONICAL_ROUTES = frozenset({2170, 2171})
+CANONICAL_COVERAGE_REPORT = Path("reports/coverage-717a.md")
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,7 @@ class Passage:
     stop: PatternStop
     source: str
     ts: int
+    available_at: int
     scheduled_ts: int
     schedule_error_s: int
     distance_m: float | None
@@ -89,6 +92,7 @@ PASSAGE_SCHEMA = pa.schema(
         ("source", pa.string()),
         ("observed", pa.bool_()),
         ("ts", pa.int64()),
+        ("available_at", pa.int64()),
         ("scheduled_ts", pa.int64()),
         ("schedule_error_s", pa.int64()),
         ("distance_m", pa.float64()),
@@ -170,15 +174,22 @@ def drop_time_order_breaking_anchors(anchors: Sequence[Anchor]) -> list[Anchor]:
     return list(reversed(kept))
 
 
-def interpolate_stop_times(
+def interpolate_stop_times_and_availability(
     stops: Sequence[PatternStop], anchors: Sequence[Anchor]
-) -> list[int]:
-    """Interpolate all gaps by elapsed time per scheduled second between anchors."""
+) -> tuple[list[int], list[int]]:
+    """Interpolate stop times and compute each passage's GPS availability epoch.
+
+    Availability semantics:
+    - observed stop: its own anchor ping ts
+    - interpolated stop between anchors: ts of the later anchor that enabled interpolation
+    - extrapolated leading/trailing endpoints: ts of the anchor used for extrapolation
+    """
     if len(anchors) < 2:
         raise ValueError("at least two monotonic anchors are required")
     by_stop = {anchor.stop_index: anchor for anchor in anchors}
     anchor_indices = sorted(by_stop)
     result = [0] * len(stops)
+    available_at = [0] * len(stops)
 
     def pace(left: Anchor, right: Anchor) -> float:
         scheduled_delta = stops[right.stop_index].schedule_s - stops[left.stop_index].schedule_s
@@ -186,35 +197,50 @@ def interpolate_stop_times(
             return 1.0
         return max(0.0, (right.ts - left.ts) / scheduled_delta)
 
-    first = anchors[0]
+    first = by_stop[anchor_indices[0]]
     for index in range(first.stop_index):
         scheduled_delta = stops[first.stop_index].schedule_s - stops[index].schedule_s
         result[index] = first.ts - scheduled_delta
+        available_at[index] = first.ts
 
     for left_index, right_index in pairwise(anchor_indices):
         left, right = by_stop[left_index], by_stop[right_index]
         result[left_index] = left.ts
+        available_at[left_index] = left.ts
         gap_pace = pace(left, right)
         for index in range(left_index + 1, right_index):
             scheduled_delta = stops[index].schedule_s - stops[left_index].schedule_s
             result[index] = round(left.ts + scheduled_delta * gap_pace)
-    result[anchor_indices[-1]] = anchors[-1].ts
+            available_at[index] = right.ts
 
-    last = anchors[-1]
+    last = by_stop[anchor_indices[-1]]
+    result[last.stop_index] = last.ts
+    available_at[last.stop_index] = last.ts
     for index in range(last.stop_index + 1, len(stops)):
         scheduled_delta = stops[index].schedule_s - stops[last.stop_index].schedule_s
         result[index] = last.ts + scheduled_delta
-    return result
+        available_at[index] = last.ts
+    return result, available_at
+
+
+def interpolate_stop_times(
+    stops: Sequence[PatternStop], anchors: Sequence[Anchor]
+) -> list[int]:
+    """Interpolate all gaps by elapsed time per scheduled second between anchors."""
+    times, _ = interpolate_stop_times_and_availability(stops, anchors)
+    return times
 
 
 def build_passages(
     stops: Sequence[PatternStop], anchors: Sequence[Anchor], schedule_start_ts: int
 ) -> list[Passage]:
-    """Combine observed anchors and interpolated gaps, adding timetable errors."""
-    times = interpolate_stop_times(stops, anchors)
+    """Combine observed anchors and interpolated gaps, adding availability and timetable errors."""
+    times, availabilities = interpolate_stop_times_and_availability(stops, anchors)
     observed = {anchor.stop_index: anchor for anchor in anchors}
     passages = []
-    for index, (stop, ts) in enumerate(zip(stops, times, strict=True)):
+    for index, (stop, ts, available_at) in enumerate(
+        zip(stops, times, availabilities, strict=True)
+    ):
         scheduled_ts = schedule_start_ts + stop.schedule_s
         anchor = observed.get(index)
         passages.append(
@@ -222,6 +248,7 @@ def build_passages(
                 stop=stop,
                 source="observed" if anchor else "interpolated",
                 ts=ts,
+                available_at=available_at,
                 scheduled_ts=scheduled_ts,
                 schedule_error_s=ts - scheduled_ts,
                 distance_m=anchor.distance_m if anchor else None,
@@ -339,22 +366,40 @@ def load_gps_runs(
 
 
 def schedule_start_for_run(
-    pattern: RoutePattern, run_id: str, pings: Sequence[Ping], day: str
+    pattern: RoutePattern,
+    run_id: str,
+    pings: Sequence[Ping],
+    day: str,
+    anchors: Sequence[Anchor] | None = None,
 ) -> int:
-    """Infer the timetable departure from run start time, never by joining trip IDs."""
+    """Infer timetable departure across adjacent IST service dates, never joining trip IDs."""
     day_date = date.fromisoformat(day)
-    midnight = int(datetime.combine(day_date, datetime.min.time(), IST).timestamp())
+    if anchors:
+        first_anchor = min(anchors, key=lambda anchor: anchor.stop_index)
+        ref_start = first_anchor.ts - pattern.stops[first_anchor.stop_index].schedule_s
+    elif pings:
+        ref_start = pings[0].ts
+    else:
+        raise ValueError(f"no pings or anchors available for {run_id}")
+
+    midnights = [
+        int(datetime.combine(day_date + timedelta(days=offset), datetime.min.time(), IST).timestamp())
+        for offset in (-1, 0, 1)
+    ]
     hinted_start = _parse_trip_start(run_id)
     if hinted_start in pattern.timetable:
-        return midnight + hinted_start
-    if not pattern.timetable:
-        if hinted_start is not None:
-            return midnight + hinted_start
+        candidates = [midnight + hinted_start for midnight in midnights]
+    elif pattern.timetable:
+        candidates = [
+            midnight + start
+            for midnight in midnights
+            for start in pattern.timetable
+        ]
+    elif hinted_start is not None:
+        candidates = [midnight + hinted_start for midnight in midnights]
+    else:
         raise ValueError(f"no timetable start available for {run_id}")
-    local_first_ts = pings[0].ts + int(IST.utcoffset(None).total_seconds())
-    seconds_into_day = local_first_ts % 86_400
-    nearest = min(pattern.timetable, key=lambda start: abs(start - seconds_into_day))
-    return midnight + nearest
+    return min(candidates, key=lambda candidate: (abs(candidate - ref_start), candidate))
 
 
 def reconstruct_day(
@@ -379,7 +424,7 @@ def reconstruct_day(
         if len(anchors) < 2 or anchors[-1].ts - anchors[0].ts > MAX_OBSERVED_SPAN_S:
             skipped += 1
             continue
-        schedule_start = schedule_start_for_run(pattern, run_id, pings, day)
+        schedule_start = schedule_start_for_run(pattern, run_id, pings, day, anchors=anchors)
         passages = build_passages(pattern.stops, anchors, schedule_start)
         observed_count = sum(passage.observed for passage in passages)
         coverage.append(
@@ -413,6 +458,7 @@ def reconstruct_day(
                     "source": passage.source,
                     "observed": passage.observed,
                     "ts": passage.ts,
+                    "available_at": passage.available_at,
                     "scheduled_ts": passage.scheduled_ts,
                     "schedule_error_s": passage.schedule_error_s,
                     "distance_m": passage.distance_m,
@@ -529,6 +575,32 @@ def parse_days(values: Sequence[str] | None) -> list[str]:
     return [date.fromisoformat(day).isoformat() for day in days]
 
 
+def resolve_report_path(
+    report: Path | None,
+    days: Sequence[str],
+    route_ids: set[int],
+    output_dir: Path,
+) -> Path:
+    """Protect the canonical coverage report from being overwritten by scoped runs."""
+    is_canonical = set(days) == set(SCOPED_DAYS) and route_ids == set(CANONICAL_ROUTES)
+    if report is not None:
+        if not is_canonical and report.resolve() == CANONICAL_COVERAGE_REPORT.resolve():
+            raise ValueError(
+                f"refusing to overwrite canonical coverage report {CANONICAL_COVERAGE_REPORT} "
+                "from a scoped run; pass a distinct --report path"
+            )
+        return report
+    if is_canonical:
+        return CANONICAL_COVERAGE_REPORT
+    sorted_days = sorted(set(days))
+    label = (
+        sorted_days[0]
+        if len(sorted_days) == 1
+        else f"{sorted_days[0]}_to_{sorted_days[-1]}"
+    )
+    return output_dir / f"coverage-scoped-{label}.md"
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--day", action="append", help="ISO day or comma-separated days")
@@ -536,17 +608,29 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--gtfs-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
-    parser.add_argument("--report", type=Path, default=Path("reports/coverage-717a.md"))
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help=(
+            "coverage report output path (defaults to reports/coverage-717a.md only for "
+            "full canonical runs; scoped runs default under --output-dir)"
+        ),
+    )
     parser.add_argument("--radius-m", type=float, default=DEFAULT_RADIUS_M)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
     days = parse_days(args.day)
     route_ids = {int(value) for value in args.routes.split(",")}
-    if not route_ids <= {2170, 2171}:
+    if not route_ids <= CANONICAL_ROUTES:
         parser.error("this scoped reconstruction supports routes 2170 and 2171 only")
     data_dir = args.data_dir
     gtfs_dir = args.gtfs_dir or data_dir / "gtfs"
     output_dir = args.output_dir or data_dir / "passages"
+    try:
+        report_path = resolve_report_path(args.report, days, route_ids, output_dir)
+    except ValueError as exc:
+        parser.error(str(exc))
     patterns = load_route_patterns(gtfs_dir, route_ids)
     all_coverage = []
     skipped_by_day = {}
@@ -570,8 +654,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"{day}: {len(coverage)} runs, {stops} passages, "
             f"{observed / stops:.2%} observed, {skipped} excluded; {output}"
         )
-    write_coverage_report(args.report, all_coverage, skipped_by_day, outputs, args.radius_m)
-    print(f"Coverage report: {args.report}")
+    write_coverage_report(report_path, all_coverage, skipped_by_day, outputs, args.radius_m)
+    print(f"Coverage report: {report_path}")
 
 
 if __name__ == "__main__":
