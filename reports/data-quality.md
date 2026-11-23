@@ -1,6 +1,6 @@
 # GPS data quality — October 2026 DTC bus feed
 
-Updated 2026-11-23 from `data/gps/day=*.parquet` (PS1_DATA_DIR=`/home/factory-user/ps1-scratch/data`, 9.857 GB total across 31 days) after re-acquiring 29 days (`2026-10-01` through `2026-10-29`) with the hardened deterministic extractor and verifying all 31 days in place.
+Updated 2026-11-23 from `data/gps/day=*.parquet` (PS1_DATA_DIR=`/home/factory-user/ps1-scratch/data`, 9.955 GB total across 31 days) after re-acquiring all 31 days with the hardened deterministic extractor and verifying every file in place.
 
 ## Pipeline cleaning rules
 
@@ -12,7 +12,7 @@ Each raw archive day (SQLite `vehicle_feed`) is converted to Parquet by `src/ps1
 4. `route_id` = `TRY_CAST(route_id AS INTEGER)` (stored as REAL in the archive); unparseable values become NULL.
 5. Staged verification and atomic publication: each day is written to a staged `.parquet` file, checked by `verify_day` (exact schema, row/vehicle counts, IST archive-day window, bbox, and zero duplicates), and published atomically via `os.replace` so failed runs never remove an existing canonical Parquet.
 
-**Tie-break status across the 31 days:** Twenty-nine days (`2026-10-01` through `2026-10-29`) have been re-acquired on 2026-11-23 with the deterministic `rowid`-ordered first-row dedupe extractor. The other 2 October days still use the older arbitrary tie-break while `reacquire-remaining-days` runs (an Oct 22 audit measured 13,942 `route_id` [0.258%] and 14,247 `trip_id` [0.264%] disagreements across 5,402,665 duplicate-key groups between the legacy pick and SQLite `rowid` first-row selection; row counts, vehicle counts, bbox, and timestamp bounds are invariant).
+**Deterministic tie-break across all 31 days:** Every October day was re-acquired on 2026-11-23 with the `rowid`-ordered first-row dedupe extractor. All files therefore follow the same rule for disagreeing non-key fields; row counts, vehicle counts, bbox, and timestamp bounds remained invariant throughout the refresh.
 
 ## Per-day reconciliation (raw vs clean)
 
@@ -49,9 +49,9 @@ Each raw archive day (SQLite `vehicle_feed`) is converted to Parquet by `src/ps1
 | 2026-10-27 | 31,038,199 | 17,490,107 | 43.65 | 6,295 | 0 | 0 | 0 | 2026-10-26 23:47:10 | 2026-10-27 23:59:43 | rowid first |
 | 2026-10-28 | 31,359,638 | 17,800,017 | 43.24 | 6,328 | 0 | 0 | 0 | 2026-10-27 23:45:40 | 2026-10-28 23:59:52 | rowid first |
 | 2026-10-29 | 28,264,904 | 16,329,823 | 42.23 | 6,319 | 0 | 0 | 0 | 2026-10-29 00:00:00 | 2026-10-29 23:59:37 | rowid first |
-| 2026-10-30 | 28,643,700 | 16,336,026 | 42.97 | 6,266 | 0 | 0 | 0 | 2026-10-29 23:46:02 | 2026-10-30 23:59:38 | legacy |
-| 2026-10-31 | 30,972,964 | 18,296,405 | 40.93 | 6,327 | 0 | 0 | 0 | 2026-10-30 23:47:06 | 2026-10-31 23:59:43 | legacy |
-| **Total** | **912,877,061** | **560,357,771** | **38.62** | | **0** | **0** | | | | **29 rowid first / 2 legacy** |
+| 2026-10-30 | 28,643,700 | 16,336,026 | 42.97 | 6,266 | 0 | 0 | 0 | 2026-10-29 23:46:02 | 2026-10-30 23:59:38 | rowid first |
+| 2026-10-31 | 30,972,964 | 18,296,405 | 40.93 | 6,327 | 0 | 0 | 0 | 2026-10-30 23:47:06 | 2026-10-31 23:59:43 | rowid first |
+| **Total** | **912,877,061** | **560,357,771** | **38.62** | | **0** | **0** | | | | **31 rowid first** |
 
 ## Duplicate-removal reconciliation
 
