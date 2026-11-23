@@ -13,8 +13,18 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from ps1.features import PassageRow, StretchError, build_stretch_errors, load_passages
+from ps1.features import (
+    CausalFeatures,
+    PassageRow,
+    RouteGeometry,
+    StretchError,
+    build_route_geometry,
+    build_stretch_errors,
+    day_type_for_timestamp,
+    load_passages,
+)
 from ps1.live_poller import read_live_route_stats
+from ps1.model import LoadedModelArtifact, Prediction, load_model_artifact
 
 IST = timezone(timedelta(hours=5, minutes=30))
 SCENARIOS = 192
@@ -105,10 +115,16 @@ class TimingRecord:
 class RetimeModel:
     """Selected-rung adapter with causal historical and timetable fallbacks."""
 
-    def __init__(self, data_dir: Path, selection_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        data_dir: Path,
+        selection_path: Path | None = None,
+        model_dir: Path | None = None,
+    ) -> None:
         self.data_dir = Path(data_dir)
         root = Path(__file__).resolve().parents[2]
         self.selection_path = selection_path or root / "reports" / "selection.json"
+        self.model_dir = Path(model_dir) if model_dir is not None else self.data_dir / "model"
         self.selected_rung = "1"
         if self.selection_path.exists():
             selection = json.loads(self.selection_path.read_text())
@@ -120,8 +136,15 @@ class RetimeModel:
         self.route_hour: dict[tuple[int, int], list[TimingRecord]] = defaultdict(list)
         self.global_hour: dict[int, list[TimingRecord]] = defaultdict(list)
         self.stop_events: dict[tuple[int, str], list[PassageRow]] = defaultdict(list)
+        self.route_geometries: dict[tuple[int, str], RouteGeometry] = {}
+        self.route_patterns: dict[int, tuple[str, list[tuple[int, str]]]] = {}
+        self.stretch_typical_scheduled: dict[tuple[int, str, str], float] = {}
         self._live_stats_mtime: float | None = None
         self._live_stats_cache: dict[int, dict[str, Any]] = {}
+        loaded = load_model_artifact(self.model_dir)
+        self._artifact: LoadedModelArtifact | None = (
+            loaded if loaded is not None and loaded.rung == self.selected_rung else None
+        )
         self._load()
 
     def _live_route_stat(self, route_id: int) -> dict[str, Any] | None:
@@ -185,15 +208,33 @@ class RetimeModel:
         if not files:
             return
         passages = load_passages(self.data_dir / "passages" / "*.parquet")
-        self.records = [TimingRecord(row) for row in build_stretch_errors(passages)]
+        self.route_geometries = build_route_geometry(passages)
+        route_stops: dict[int, tuple[str, dict[int, str]]] = {}
         for passage in passages:
             self.stop_events[(passage.route_id, passage.stop_id)].append(passage)
+            if passage.route_id not in route_stops:
+                route_stops[passage.route_id] = (passage.direction, {})
+            seq_map = route_stops[passage.route_id][1]
+            if passage.stop_sequence not in seq_map:
+                seq_map[passage.stop_sequence] = passage.stop_id
+        self.route_patterns = {
+            rid: (direction, sorted(seq_map.items()))
+            for rid, (direction, seq_map) in route_stops.items()
+        }
+
+        self.records = [TimingRecord(row) for row in build_stretch_errors(passages)]
+        sched_samples: dict[tuple[int, str, str], list[int]] = defaultdict(list)
         for record in self.records:
             stretch = record.stretch
-            self.exact[(stretch.route_id, stretch.from_stop_id, stretch.to_stop_id)].append(record)
+            key = (stretch.route_id, stretch.from_stop_id, stretch.to_stop_id)
+            self.exact[key].append(record)
+            sched_samples[key].append(stretch.scheduled_duration_s)
             if stretch.target_observed:
                 self.route_hour[(stretch.route_id, record.hour)].append(record)
                 self.global_hour[record.hour].append(record)
+        self.stretch_typical_scheduled = {
+            key: float(median(vals)) for key, vals in sched_samples.items() if vals
+        }
         for group in self.stop_events.values():
             group.sort(key=lambda row: row.ts)
 
@@ -221,6 +262,369 @@ class RetimeModel:
             low = duration - max(45.0, duration * 0.12)
             high = duration + max(90.0, duration * 0.25)
         return max(1.0, low), max(duration + 1.0, high)
+
+    @staticmethod
+    def _correlated_leg_interval(
+        duration: float,
+        predictions: list[Prediction],
+        rho: float = 0.35,
+    ) -> tuple[float, float]:
+        """Combine calibrated per-stretch half-widths within one ride leg using intra-leg correlation."""
+        lows = [
+            max(1.0, float(p.p50_s) - float(p.p10_s))
+            for p in predictions
+            if p.p10_s is not None and p.p50_s is not None
+        ]
+        highs = [
+            max(1.0, float(p.p90_s) - float(p.p50_s))
+            for p in predictions
+            if p.p90_s is not None and p.p50_s is not None
+        ]
+
+        def combine(widths: list[float]) -> float:
+            if not widths:
+                return max(45.0, duration * 0.15)
+            sq = sum(w * w for w in widths)
+            cross = (sum(widths) ** 2) - sq
+            return math.sqrt(max(1.0, sq + rho * cross))
+
+        w_lo = combine(lows)
+        w_hi = combine(highs)
+        p10 = max(1.0, min(duration, duration - w_lo))
+        p90 = max(duration + 1.0, duration + w_hi)
+        return p10, p90
+
+    def _causal_features_for_stretch(
+        self,
+        *,
+        route_id: int,
+        direction: str,
+        from_seq: int,
+        to_seq: int,
+        from_stop: str,
+        to_stop: str,
+        scheduled_s: float,
+        depart: datetime,
+        mode: str,
+        same_day_route: list[TimingRecord],
+        live_stat: dict[str, Any] | None,
+    ) -> CausalFeatures:
+        depart_ts = int(depart.timestamp())
+        dt_ist = depart.astimezone(IST)
+        hour = dt_ist.hour
+        minute_of_day = hour * 60 + dt_ist.minute
+        angle = 2.0 * math.pi * minute_of_day / 1440.0
+        dow, day_type, coarse_day_type, is_weekend = day_type_for_timestamp(depart_ts)
+
+        geom = getattr(self, "route_geometries", {}).get((route_id, direction))
+        if geom is not None:
+            remaining_stops = max(0, geom.max_sequence - from_seq)
+            stretch_distance_m = geom.stretch_distances_m.get((from_seq, to_seq), math.nan)
+            remaining_distance_m = geom.remaining_distances_m.get(from_seq, math.nan)
+        else:
+            remaining_stops = 0
+            stretch_distance_m = math.nan
+            remaining_distance_m = math.nan
+
+        previous_error_s = math.nan
+        previous_error_age_s = math.nan
+        previous_observed = 0.0
+        recent_speed = math.nan
+        recent_pace = math.nan
+        headway_s = math.nan
+        ping_age_s = math.nan
+        from_observed = 0.0
+        last_stop_delay_s = math.nan
+        last_stretch_error_s = math.nan
+        recent_veh_progress = math.nan
+        recent_veh_speed = math.nan
+
+        if mode == "replay":
+            day_str = depart.date().isoformat()
+            exact_visible = [
+                r
+                for r in self._visible(self.exact.get((route_id, from_stop, to_stop), []), depart_ts)
+                if r.stretch.day == day_str
+            ]
+            obs_exact = [r for r in exact_visible if r.stretch.target_observed]
+            prev_pool = obs_exact or exact_visible
+            if prev_pool:
+                prev = max(prev_pool, key=lambda r: (r.stretch.query_ts, r.stretch.run_id))
+                previous_error_s = float(prev.stretch.error_s)
+                previous_error_age_s = float(max(0, depart_ts - prev.stretch.to_ts))
+                previous_observed = 1.0 if prev.stretch.target_observed else 0.0
+
+            recent_30m = [r for r in same_day_route if r.stretch.to_ts >= depart_ts - 1800]
+            route_pool = recent_30m or same_day_route
+            if route_pool:
+                paces = [
+                    max(0.2, min(5.0, r.ratio))
+                    for r in route_pool
+                    if r.stretch.scheduled_duration_s > 0
+                ]
+                if paces:
+                    recent_pace = float(median(paces))
+                if geom is not None:
+                    speeds = []
+                    for r in route_pool:
+                        d = geom.stretch_distances_m.get(
+                            (r.stretch.from_sequence, r.stretch.to_sequence)
+                        )
+                        if d is not None and d > 0 and r.stretch.actual_duration_s > 0:
+                            speeds.append(max(0.1, min(30.0, d / r.stretch.actual_duration_s)))
+                    if speeds:
+                        recent_speed = float(median(speeds))
+
+            stop_rows = [
+                p
+                for p in self.stop_events.get((route_id, from_stop), [])
+                if p.day == day_str and p.ts < depart_ts
+            ]
+            if stop_rows:
+                last_p = stop_rows[-1]
+                gap = depart_ts - last_p.ts
+                if 0 < gap <= 14_400:
+                    headway_s = float(gap)
+                if gap <= 1800:
+                    ping_age_s = float(gap)
+                    from_observed = 1.0 if last_p.observed else 0.0
+                    raw_delay = last_p.effective_schedule_error_s
+                    if abs(raw_delay) <= 21_600:
+                        last_stop_delay_s = float(raw_delay)
+                    # Causal prior stretches of that same approaching run (strictly <= depart_ts)
+                    run_prior = [
+                        r.stretch
+                        for r in same_day_route
+                        if r.stretch.run_id == last_p.run_id
+                        and r.stretch.to_sequence <= from_seq
+                        and r.stretch.to_ts <= depart_ts
+                    ]
+                    if run_prior:
+                        run_prior.sort(key=lambda s: s.from_sequence)
+                        last_stretch_error_s = float(run_prior[-1].error_s)
+                        recent_runs = run_prior[-3:]
+                        sched_sum = sum(s.scheduled_duration_s for s in recent_runs)
+                        act_sum = sum(s.actual_duration_s for s in recent_runs)
+                        if sched_sum > 0:
+                            recent_veh_progress = max(0.2, min(5.0, act_sum / sched_sum))
+                        if geom is not None and act_sum > 0:
+                            dists = [
+                                (geom.stretch_distances_m.get((s.from_sequence, s.to_sequence)), s.actual_duration_s)
+                                for s in recent_runs
+                            ]
+                            valid = [(d, t) for d, t in dists if d is not None and d > 0 and t > 0]
+                            if valid:
+                                recent_veh_speed = max(
+                                    0.1,
+                                    min(30.0, sum(d for d, _ in valid) / sum(t for _, t in valid)),
+                                )
+        elif mode == "live" and live_stat is not None:
+            live_fresh = int(live_stat.get("fresh_vehicle_count", 0))
+            median_speed = float(live_stat.get("median_speed_mps", 0.0))
+            if median_speed > 0.5:
+                recent_speed = max(0.1, min(30.0, median_speed))
+                recent_pace = max(0.5, min(2.5, 5.5 / median_speed))
+            if live_fresh >= 1:
+                headway_s = max(120.0, min(1800.0, 3600.0 / max(1, live_fresh)))
+                ping_age_s = 0.0
+                from_observed = 1.0
+
+        return CausalFeatures(
+            remaining_stops=remaining_stops,
+            remaining_distance_m=remaining_distance_m,
+            stretch_distance_m=stretch_distance_m,
+            scheduled_duration_s=float(scheduled_s),
+            ping_age_s=ping_age_s,
+            from_observed=from_observed,
+            recent_vehicle_progress_ratio=recent_veh_progress,
+            recent_vehicle_speed_mps=recent_veh_speed,
+            last_stop_delay_s=last_stop_delay_s,
+            last_stretch_error_s=last_stretch_error_s,
+            previous_error_s=previous_error_s,
+            previous_error_age_s=previous_error_age_s,
+            previous_observed=previous_observed,
+            recent_same_direction_speed_mps=recent_speed,
+            recent_same_direction_pace_ratio=recent_pace,
+            headway_s=headway_s,
+            hour=hour,
+            minute_of_day=minute_of_day,
+            tod_sin=math.sin(angle),
+            tod_cos=math.cos(angle),
+            day_of_week=dow,
+            day_type=day_type,
+            coarse_day_type=coarse_day_type,
+            is_weekend=is_weekend,
+            route_id=route_id,
+            from_sequence=from_seq,
+        )
+
+    def _predict_covered_route_with_artifact(
+        self,
+        artifact: LoadedModelArtifact,
+        route_id: int,
+        from_stop: str,
+        to_stop: str,
+        scheduled: float,
+        depart: datetime,
+        mode: str,
+        same_day_route: list[TimingRecord],
+        hist_reference: list[TimingRecord],
+        live_stat: dict[str, Any] | None,
+        replay_delay_s: float,
+    ) -> TimingEstimate | None:
+        """Time a leg on a covered route using the loaded selected-rung artifact."""
+        pattern_info = getattr(self, "route_patterns", {}).get(route_id)
+        if pattern_info is None:
+            return None
+        direction, ordered_stops = pattern_info
+        stop_ids = [sid for _, sid in ordered_stops]
+        live_fresh = int(live_stat.get("fresh_vehicle_count", 0)) if live_stat else 0
+
+        # Locate constituent stretches along the route pattern
+        stretches: list[tuple[int, int, str, str, float]] = []
+        if from_stop in stop_ids and to_stop in stop_ids:
+            from_idx = stop_ids.index(from_stop)
+            to_idx = stop_ids.index(to_stop)
+            if from_idx < to_idx:
+                typical_map = getattr(self, "stretch_typical_scheduled", {})
+                raw_scheds = [
+                    typical_map.get((route_id, ordered_stops[i][1], ordered_stops[i + 1][1]), 60.0)
+                    for i in range(from_idx, to_idx)
+                ]
+                total_raw = sum(raw_scheds) or float(len(raw_scheds))
+                scale = scheduled / total_raw
+                for offset, i in enumerate(range(from_idx, to_idx)):
+                    seq_a, sid_a = ordered_stops[i]
+                    seq_b, sid_b = ordered_stops[i + 1]
+                    stretches.append((seq_a, seq_b, sid_a, sid_b, max(1.0, raw_scheds[offset] * scale)))
+
+        items: list[tuple[tuple[int, str, str, str], CausalFeatures]] = []
+        pattern_matched = bool(stretches)
+        if pattern_matched:
+            for seq_a, seq_b, sid_a, sid_b, stretch_sched in stretches:
+                feat = self._causal_features_for_stretch(
+                    route_id=route_id,
+                    direction=direction,
+                    from_seq=seq_a,
+                    to_seq=seq_b,
+                    from_stop=sid_a,
+                    to_stop=sid_b,
+                    scheduled_s=stretch_sched,
+                    depart=depart,
+                    mode=mode,
+                    same_day_route=same_day_route,
+                    live_stat=live_stat,
+                )
+                items.append(((route_id, direction, sid_a, sid_b), feat))
+            preds = artifact.predict_batch_from_features(items)
+            total_error = sum(p.error_s for p in preds)
+            duration = max(max(1.0, scheduled * 0.25), scheduled + total_error)
+        else:
+            # Fallback to route midpoint stretch on the covered route
+            if len(ordered_stops) < 2:
+                return None
+            mid = len(ordered_stops) // 2
+            seq_a, sid_a = ordered_stops[mid - 1]
+            seq_b, sid_b = ordered_stops[mid]
+            typical_map = getattr(self, "stretch_typical_scheduled", {})
+            mid_sched = max(1.0, typical_map.get((route_id, sid_a, sid_b), 60.0))
+            feat = self._causal_features_for_stretch(
+                route_id=route_id,
+                direction=direction,
+                from_seq=seq_a,
+                to_seq=seq_b,
+                from_stop=sid_a,
+                to_stop=sid_b,
+                scheduled_s=mid_sched,
+                depart=depart,
+                mode=mode,
+                same_day_route=same_day_route,
+                live_stat=live_stat,
+            )
+            preds = artifact.predict_batch_from_features([((route_id, direction, sid_a, sid_b), feat)])
+            ratio = max(0.35, min(3.0, (mid_sched + preds[0].error_s) / mid_sched))
+            duration = max(1.0, scheduled * ratio)
+
+        model_desc = (
+            f"rung {artifact.rung} LightGBM quantile+conformal model"
+            if artifact.rung == "4"
+            else f"rung {artifact.rung} model"
+        )
+        stretch_desc = (
+            f"{len(stretches)} pattern stretch(es)"
+            if pattern_matched
+            else "route-level pattern projection"
+        )
+
+        if mode == "replay":
+            if same_day_route:
+                source = "replay"
+                timing_source = "model_replay"
+                reference = same_day_route
+                observation_count = len(same_day_route)
+                coverage = self._coverage(same_day_route)
+                coverage_note = (
+                    f"causal October replay {model_desc} "
+                    f"({len(same_day_route)} same-day observed stretches on route {route_id}; {stretch_desc})"
+                )
+            else:
+                source = "historical"
+                timing_source = "historical_fallback"
+                reference = hist_reference
+                observation_count = len(hist_reference)
+                coverage = self._coverage(hist_reference) if hist_reference else 0.0
+                coverage_note = (
+                    f"sparse replay observations (0 same-day obs on route {route_id}); "
+                    f"{model_desc} time-of-day/historical profile ({stretch_desc})"
+                )
+        elif live_fresh >= 1 and live_stat is not None:
+            median_speed = float(live_stat.get("median_speed_mps", 0.0))
+            source = "live"
+            timing_source = "model_live"
+            reference = hist_reference
+            observation_count = live_fresh
+            coverage = max(0.0, min(1.0, round(float(live_stat.get("observed_coverage", 1.0)), 4)))
+            coverage_note = (
+                f"live VehiclePositions ({live_fresh} fresh vehicles on route {route_id}, "
+                f"median {median_speed:.1f} m/s) + {model_desc} ({stretch_desc})"
+            )
+        else:
+            source = "historical"
+            timing_source = "historical_fallback"
+            reference = hist_reference
+            observation_count = len(hist_reference)
+            coverage = self._coverage(hist_reference) if hist_reference else 0.0
+            coverage_note = (
+                f"sparse live observations (0 fresh vehicles on route {route_id}); "
+                f"{model_desc} time-of-day/historical fallback ({stretch_desc})"
+            )
+
+        if replay_delay_s:
+            duration += replay_delay_s
+            if mode == "replay":
+                source = "replay"
+                timing_source = "model_replay"
+                coverage_note = f"{coverage_note}; +{int(replay_delay_s)}s replay delay injected"
+
+        has_quantiles = all(p.p10_s is not None and p.p50_s is not None and p.p90_s is not None for p in preds)
+        if has_quantiles and pattern_matched:
+            p10, p90 = self._correlated_leg_interval(duration, preds)
+        else:
+            p10, p90 = self._ratio_interval(reference, duration)
+            if replay_delay_s:
+                p10 += replay_delay_s
+                p90 += replay_delay_s
+
+        return TimingEstimate(
+            duration,
+            p10,
+            p90,
+            source,
+            coverage,
+            timing_source=timing_source,
+            observation_count=observation_count,
+            coverage_note=coverage_note,
+        )
 
     def predict_ride(
         self,
@@ -274,7 +678,39 @@ class RetimeModel:
         live_stat = self._live_route_stat(route_id) if mode == "live" else None
         live_fresh = int(live_stat.get("fresh_vehicle_count", 0)) if live_stat else 0
 
-        if mode == "replay" and self.selected_rung == "1" and same_day:
+        # If a non-rung-1 model artifact is loaded and covers this route, use it directly
+        artifact = getattr(self, "_artifact", None)
+        if (
+            artifact is not None
+            and artifact.rung == self.selected_rung
+            and self.selected_rung != "1"
+            and route_id in artifact.covered_routes
+        ):
+            estimate = self._predict_covered_route_with_artifact(
+                artifact=artifact,
+                route_id=route_id,
+                from_stop=from_stop,
+                to_stop=to_stop,
+                scheduled=scheduled,
+                depart=depart,
+                mode=mode,
+                same_day_route=same_day_route,
+                hist_reference=hist_reference,
+                live_stat=live_stat,
+                replay_delay_s=replay_delay_s,
+            )
+            if estimate is not None:
+                return estimate
+
+        # Uncovered routes (or when selected_rung == "1"): keep rung-1 persistence -> historical -> timetable chain
+        is_covered = artifact is not None and route_id in artifact.covered_routes
+        fallback_suffix = (
+            f" (route {route_id} outside rung {self.selected_rung} model scope)"
+            if self.selected_rung != "1" and not is_covered
+            else ""
+        )
+
+        if mode == "replay" and same_day:
             previous = max(same_day, key=lambda record: record.stretch.query_ts)
             duration = max(1.0, scheduled + previous.stretch.error_s)
             source = "replay"
@@ -283,8 +719,8 @@ class RetimeModel:
             observation_count = len(same_day)
             coverage = self._coverage(reference)
             coverage_note = (
-                f"causal October replay rung {self.selected_rung} "
-                f"({len(same_day)} same-day observed runs on route {route_id})"
+                f"causal October replay rung 1 persistence "
+                f"({len(same_day)} same-day observed runs on route {route_id}){fallback_suffix}"
             )
         elif mode == "replay" and same_day_route:
             recent = sorted(same_day_route, key=lambda record: record.stretch.query_ts)[-20:]
@@ -295,8 +731,8 @@ class RetimeModel:
             observation_count = len(same_day_route)
             coverage = self._coverage(same_day_route)
             coverage_note = (
-                f"causal October replay rung {self.selected_rung} "
-                f"({len(same_day_route)} same-day route-{route_id} observed stretches)"
+                f"causal October replay rung 1 route-level persistence "
+                f"({len(same_day_route)} same-day route-{route_id} observed stretches){fallback_suffix}"
             )
         elif mode == "live" and live_fresh >= 1 and live_stat is not None:
             reference = hist_reference
@@ -317,9 +753,14 @@ class RetimeModel:
             observation_count = live_fresh
             coverage = float(live_stat.get("observed_coverage", 1.0))
             coverage = max(0.0, min(1.0, round(coverage, 4)))
+            profile_label = (
+                f"historical {hist_level} fallback{fallback_suffix}"
+                if self.selected_rung != "1"
+                else f"rung-1 {hist_level} profile"
+            )
             coverage_note = (
                 f"live VehiclePositions ({live_fresh} fresh vehicles on route {route_id}, "
-                f"median {median_speed:.1f} m/s) + rung-{self.selected_rung} {hist_level} profile"
+                f"median {median_speed:.1f} m/s) + {profile_label}"
             )
         elif hist_reference:
             reference = hist_reference
@@ -335,12 +776,12 @@ class RetimeModel:
             if mode == "live":
                 coverage_note = (
                     f"sparse live observations (0 fresh vehicles on route {route_id}); "
-                    f"historical {hist_level} fallback (n={len(reference)})"
+                    f"historical {hist_level} fallback (n={len(reference)}){fallback_suffix}"
                 )
             else:
                 coverage_note = (
                     f"sparse replay observations (0 same-day exact obs on route {route_id}); "
-                    f"historical {hist_level} fallback (n={len(reference)})"
+                    f"historical {hist_level} fallback (n={len(reference)}){fallback_suffix}"
                 )
         else:
             reference = []
