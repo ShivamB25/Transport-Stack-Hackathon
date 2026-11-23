@@ -1,10 +1,22 @@
 """Unit tests for the acquisition orchestrator's pure logic."""
 from __future__ import annotations
 
+import argparse
+import datetime as dt
+from pathlib import Path
+
+import duckdb
 import pytest
 
 from ps1 import acquire
-from ps1.acquire import DEFAULT_DAYS, recover_rows_in, validate_days, write_status
+from ps1.acquire import (
+    DEFAULT_DAYS,
+    process_day,
+    recover_rows_in,
+    validate_days,
+    write_status,
+)
+from ps1.extract_day import IST, default_output_path
 
 
 def test_default_days_priority_first_then_rest():
@@ -50,3 +62,76 @@ def test_write_status_accounts_for_every_day(tmp_path):
         assert "Failed days: none" in text
     finally:
         acquire.RESULTS.clear()
+
+
+def test_process_day_failed_overwrite_never_deletes_canonical_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    data_dir = tmp_path / "data"
+    work_dir = tmp_path / "work"
+    (data_dir / "gps").mkdir(parents=True)
+    work_dir.mkdir(parents=True)
+    canonical = default_output_path(data_dir, 15)
+    sentinel = b"EXISTING-VALID-DAY-15-PARQUET"
+    canonical.write_bytes(sentinel)
+
+    monkeypatch.setattr(
+        acquire,
+        "run_day",
+        lambda *_a, **_kw: (_ for _ in ()).throw(OSError("network error during refresh")),
+    )
+    args = argparse.Namespace(
+        data_dir=data_dir,
+        work_dir=work_dir,
+        overwrite=True,
+        deadline_seconds=3600,
+        rows_in_log={},
+    )
+    result = process_day(15, args)
+    assert result["status"] == "failed"
+    assert canonical.exists()
+    assert canonical.read_bytes() == sentinel
+
+
+def test_process_day_resume_rejects_corrupt_and_wrong_day_parquet(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    work_dir = tmp_path / "work"
+    (data_dir / "gps").mkdir(parents=True)
+    work_dir.mkdir(parents=True)
+    args = argparse.Namespace(
+        data_dir=data_dir,
+        work_dir=work_dir,
+        overwrite=False,
+        deadline_seconds=3600,
+        rows_in_log={},
+    )
+
+    # Corrupt file must not be marked OK on resume
+    corrupt_path = default_output_path(data_dir, 15)
+    corrupt_path.write_bytes(b"corrupt-parquet-bytes")
+    corrupt_result = process_day(15, args)
+    assert corrupt_result["status"] == "failed"
+    assert "verification failed" in corrupt_result["error"]
+    assert corrupt_path.exists()
+
+    # Wrong-day Parquet (Oct 14 + Oct 16) must not be marked OK for day 15 on resume
+    wrong_day_path = default_output_path(data_dir, 15)
+    d14 = int(dt.datetime(2026, 10, 14, 12, 0, 0, tzinfo=IST).timestamp())
+    d16 = int(dt.datetime(2026, 10, 16, 12, 0, 0, tzinfo=IST).timestamp())
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE t (vehicle_id VARCHAR, route_id INTEGER, trip_id VARCHAR, "
+        "ts BIGINT, lat DOUBLE, lng DOUBLE, speed DOUBLE)"
+    )
+    con.executemany(
+        "INSERT INTO t VALUES (?,?,?,?,?,?,?)",
+        [
+            ("V1", 2171, "t1", d14, 28.6, 77.2, 5.0),
+            ("V2", 2171, "t2", d16, 28.6, 77.2, 5.0),
+        ],
+    )
+    con.execute(f"COPY t TO '{wrong_day_path}' (FORMAT PARQUET)")
+    con.close()
+    wrong_day_result = process_day(15, args)
+    assert wrong_day_result["status"] == "failed"
+    assert "outside archive-day window" in wrong_day_result["error"]

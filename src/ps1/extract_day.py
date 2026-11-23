@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -33,6 +34,19 @@ from ps1.range_reader import HTTPRangeFile
 MIN_PLAUSIBLE_DB_BYTES = 1_000_000_000
 MIN_FREE_BYTES = 9_000_000_000
 IST_OFFSET_SECONDS = 5 * 3600 + 30 * 60
+IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+PREVIOUS_EVENING_OVERLAP_S = 3600
+MIN_IN_DAY_ROW_SHARE = 0.90
+
+EXPECTED_SCHEMA: dict[str, tuple[str, ...]] = {
+    "vehicle_id": ("VARCHAR",),
+    "route_id": ("INTEGER", "INT32"),
+    "trip_id": ("VARCHAR",),
+    "ts": ("BIGINT", "INT64"),
+    "lat": ("DOUBLE",),
+    "lng": ("DOUBLE",),
+    "speed": ("DOUBLE",),
+}
 
 
 def day_key(day: int) -> str:
@@ -89,16 +103,21 @@ def connect_duckdb(temp_dir: Path) -> duckdb.DuckDBPyConnection:
 def convert_day(db_path: Path, output_path: Path, temp_dir: Path) -> tuple[int, int]:
     """Dedupe and clean one raw SQLite day into Parquet; returns (rows_in, rows_out)."""
     con = connect_duckdb(temp_dir)
-    tmp_output = output_path.with_suffix(".tmp.parquet")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_output = output_path.with_name(
+        f".{output_path.name}.{os.getpid()}.{threading.get_ident()}.tmp.parquet"
+    )
     escaped_db = str(db_path).replace("'", "''")
-    source = f"sqlite_scan('{escaped_db}', 'vehicle_feed')"
+    escaped_tmp = str(tmp_output).replace("'", "''")
     try:
-        rows_in = con.execute(f"SELECT count(*) FROM {source}").fetchone()[0]
+        con.execute(f"ATTACH '{escaped_db}' AS src_db (TYPE sqlite, READ_ONLY)")
+        rows_in = con.execute("SELECT count(*) FROM src_db.vehicle_feed").fetchone()[0]
         tmp_output.unlink(missing_ok=True)
         query = f"""
         COPY (
             WITH cleaned AS (
                 SELECT
+                    rowid AS _src_rowid,
                     vehicle_id,
                     TRY_CAST(route_id AS INTEGER) AS route_id,
                     trip_id,
@@ -106,7 +125,7 @@ def convert_day(db_path: Path, output_path: Path, temp_dir: Path) -> tuple[int, 
                     TRY_CAST(lat AS DOUBLE) AS lat,
                     TRY_CAST(lng AS DOUBLE) AS lng,
                     TRY_CAST(speed AS DOUBLE) AS speed
-                FROM {source}
+                FROM src_db.vehicle_feed
             ), bounded AS (
                 SELECT * FROM cleaned
                 WHERE ts IS NOT NULL
@@ -115,18 +134,20 @@ def convert_day(db_path: Path, output_path: Path, temp_dir: Path) -> tuple[int, 
             ), ranked AS (
                 SELECT *, row_number() OVER (
                     PARTITION BY vehicle_id, ts, lat, lng
+                    ORDER BY _src_rowid ASC
                 ) AS duplicate_rank
                 FROM bounded
             )
             SELECT vehicle_id, route_id, trip_id, ts, lat, lng, speed
             FROM ranked WHERE duplicate_rank = 1
-        ) TO '{tmp_output}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 1000000)
+        ) TO '{escaped_tmp}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 1000000)
         """
         con.execute(query)
-        rows_out = con.execute(f"SELECT count(*) FROM read_parquet('{tmp_output}')").fetchone()[0]
+        rows_out = con.execute(
+            "SELECT count(*) FROM read_parquet(?)", [str(tmp_output)]
+        ).fetchone()[0]
         if rows_out < 1:
             raise ValueError("conversion produced no rows")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         os.replace(tmp_output, output_path)
         return rows_in, rows_out
     finally:
@@ -134,29 +155,136 @@ def convert_day(db_path: Path, output_path: Path, temp_dir: Path) -> tuple[int, 
         con.close()
 
 
-def verify_day(day: int, output_path: Path) -> dict:
-    """Check row/vehicle counts and the IST time span of a finished Parquet day."""
+def verify_day(
+    day: int,
+    output_path: Path,
+    *,
+    min_rows: int | None = None,
+    min_vehicles: int | None = None,
+) -> dict:
+    """Verify schema, counts, IST day window, bbox, and zero duplicates for a Parquet day."""
+    if not output_path.is_file():
+        raise ValueError(f"verification failed: file does not exist: {output_path}")
+
+    day_start_ist = int(dt.datetime(2026, 10, day, 0, 0, 0, tzinfo=IST).timestamp())
+    day_end_ist = day_start_ist + 86_400
+    earliest_allowed = day_start_ist - PREVIOUS_EVENING_OVERLAP_S
+    latest_allowed = day_end_ist
+    six_ist = day_start_ist + 6 * 3600
+    nineteen_ist = day_start_ist + 19 * 3600
+
     con = duckdb.connect()
     try:
         con.execute("SET threads=2")
-        rows, vehicles, min_ts, max_ts = con.execute(
-            f"SELECT count(*), count(DISTINCT vehicle_id), min(ts), max(ts) "
-            f"FROM read_parquet('{output_path}')"
-        ).fetchone()
+        con.execute("SET preserve_insertion_order=false")
+        try:
+            schema_rows = con.execute(
+                "DESCRIBE SELECT * FROM read_parquet(?)", [str(output_path)]
+            ).fetchall()
+        except duckdb.Error as exc:
+            raise ValueError(f"verification failed: unreadable Parquet: {exc}") from exc
+
+        actual_schema = {name: dtype.upper() for name, dtype, *_ in schema_rows}
+        schema_problems: list[str] = []
+        missing_cols = sorted(set(EXPECTED_SCHEMA) - set(actual_schema))
+        extra_cols = sorted(set(actual_schema) - set(EXPECTED_SCHEMA))
+        if missing_cols:
+            schema_problems.append(f"missing columns: {', '.join(missing_cols)}")
+        if extra_cols:
+            schema_problems.append(f"unexpected columns: {', '.join(extra_cols)}")
+        for col, allowed_types in EXPECTED_SCHEMA.items():
+            if col in actual_schema and actual_schema[col] not in allowed_types:
+                schema_problems.append(
+                    f"column {col} has type {actual_schema[col]}, expected one of {allowed_types}"
+                )
+        if schema_problems:
+            raise ValueError("verification failed: " + "; ".join(schema_problems))
+
+        try:
+            (
+                rows,
+                vehicles,
+                min_ts,
+                max_ts,
+                null_ts,
+                out_of_window_ts,
+                in_day_rows,
+                bbox_violations,
+            ) = con.execute(
+                """
+                SELECT
+                    count(*),
+                    count(DISTINCT vehicle_id),
+                    min(ts),
+                    max(ts),
+                    count(*) FILTER (WHERE ts IS NULL),
+                    count(*) FILTER (WHERE ts < ? OR ts > ?),
+                    count(*) FILTER (WHERE ts >= ? AND ts < ?),
+                    count(*) FILTER (
+                        WHERE lat IS NULL OR lng IS NULL
+                           OR lat < ? OR lat > ?
+                           OR lng < ? OR lng > ?
+                    )
+                FROM read_parquet(?)
+                """,
+                [
+                    earliest_allowed,
+                    latest_allowed,
+                    day_start_ist,
+                    day_end_ist,
+                    BBOX_LAT_MIN,
+                    BBOX_LAT_MAX,
+                    BBOX_LNG_MIN,
+                    BBOX_LNG_MAX,
+                    str(output_path),
+                ],
+            ).fetchone()
+            has_duplicates = con.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM read_parquet(?)
+                    GROUP BY vehicle_id, ts, lat, lng
+                    HAVING count(*) > 1
+                )
+                """,
+                [str(output_path)],
+            ).fetchone()[0]
+        except duckdb.Error as exc:
+            raise ValueError(f"verification failed: corrupt Parquet: {exc}") from exc
     finally:
         con.close()
-    day_start = int(dt.datetime(2026, 10, day, tzinfo=dt.UTC).timestamp())
-    six_ist = day_start - IST_OFFSET_SECONDS + 6 * 3600
-    nineteen_ist = day_start - IST_OFFSET_SECONDS + 19 * 3600
-    problems = []
-    if day != 7 and rows <= 10_000_000:
-        problems.append(f"rows {rows} <= 10000000")
-    if vehicles <= 4000:
-        problems.append(f"vehicles {vehicles} <= 4000")
+
+    expected_min_rows = (
+        min_rows
+        if min_rows is not None
+        else (1_000_001 if day == 7 else 10_000_001)
+    )
+    expected_min_vehicles = min_vehicles if min_vehicles is not None else 4001
+
+    problems: list[str] = []
+    if rows < expected_min_rows:
+        problems.append(f"rows {rows} < {expected_min_rows}")
+    if vehicles < expected_min_vehicles:
+        problems.append(f"vehicles {vehicles} < {expected_min_vehicles}")
+    if null_ts > 0:
+        problems.append(f"{null_ts} rows have NULL ts")
+    if out_of_window_ts > 0:
+        problems.append(
+            f"{out_of_window_ts} rows outside archive-day window [{earliest_allowed}, {latest_allowed}]"
+        )
     if min_ts is None or min_ts > six_ist:
         problems.append(f"min_ts {min_ts} after 06:00 IST")
     if max_ts is None or max_ts < nineteen_ist:
         problems.append(f"max_ts {max_ts} before 19:00 IST")
+    if rows > 0 and (in_day_rows / rows) < MIN_IN_DAY_ROW_SHARE:
+        problems.append(
+            f"only {in_day_rows}/{rows} ({in_day_rows / rows:.2%}) rows inside nominal IST day {day_key(day)}"
+        )
+    if bbox_violations > 0:
+        problems.append(f"{bbox_violations} bbox/coordinate violations")
+    if has_duplicates:
+        problems.append("duplicate (vehicle_id, ts, lat, lng) keys present")
     if problems:
         raise ValueError("verification failed: " + "; ".join(problems))
     return {"rows": rows, "vehicles": vehicles, "min_ts": min_ts, "max_ts": max_ts}
@@ -174,19 +302,25 @@ def run_day(
     output_path: Path | None = None,
     archive_url: str = ARCHIVE_URL,
 ) -> dict:
-    """Extract, convert and verify one day; always removes the intermediate SQLite."""
+    """Extract, convert, stage, verify, and atomically publish one day."""
     output_path = output_path or default_output_path(data_dir, day)
     db_path = work_dir / day_db_name(day)
+    staged_path = output_path.with_name(
+        f".{output_path.name}.{os.getpid()}.{threading.get_ident()}.staged.parquet"
+    )
     free_gb = shutil.disk_usage(data_dir).free / 1e9
     if shutil.disk_usage(data_dir).free < MIN_FREE_BYTES:
         raise OSError(f"only {free_gb:.1f} GB free; refusing extraction")
     work_dir.mkdir(parents=True, exist_ok=True)
     (work_dir / "duckdb-tmp").mkdir(exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         remove_sqlite(db_path)
+        staged_path.unlink(missing_ok=True)
         extract_seconds, fetched = extract_day_db(day, db_path, work_dir, archive_url)
-        rows_in, rows_out = convert_day(db_path, output_path, work_dir / "duckdb-tmp")
-        verified = verify_day(day, output_path)
+        rows_in, rows_out = convert_day(db_path, staged_path, work_dir / "duckdb-tmp")
+        verified = verify_day(day, staged_path)
+        os.replace(staged_path, output_path)
         return {
             "day": day_key(day),
             "status": "ok",
@@ -198,6 +332,7 @@ def run_day(
             **verified,
         }
     finally:
+        staged_path.unlink(missing_ok=True)
         remove_sqlite(db_path)
 
 

@@ -8,15 +8,37 @@ import httpx
 
 from ps1.config import ARCHIVE_USER_AGENT
 
+DEFAULT_BLOCK_BYTES = 8 << 20
+DEFAULT_MAX_RANGE_BYTES = 32 << 20
+
+
+class NonRangeResponseError(OSError):
+    """Raised when a remote endpoint returns a non-206 response to a range request."""
+
 
 class HTTPRangeFile(io.RawIOBase):
     """A read-only, seekable file backed by cached HTTP range requests."""
 
-    def __init__(self, url: str, block: int = 8 << 20, retries: int = 5):
+    def __init__(
+        self,
+        url: str,
+        block: int = DEFAULT_BLOCK_BYTES,
+        retries: int = 5,
+        max_range_bytes: int = DEFAULT_MAX_RANGE_BYTES,
+        client: httpx.Client | None = None,
+    ):
+        if block <= 0:
+            raise ValueError(f"block must be positive: {block}")
+        if max_range_bytes < block:
+            raise ValueError(
+                f"max_range_bytes ({max_range_bytes}) must be >= block ({block})"
+            )
         self.url = url
         self.block = block
         self.retries = retries
-        self.client = httpx.Client(
+        self.max_range_bytes = max_range_bytes
+        self._owns_client = client is None
+        self.client = client or httpx.Client(
             headers={"User-Agent": ARCHIVE_USER_AGENT},
             timeout=httpx.Timeout(120.0, connect=30.0),
             follow_redirects=True,
@@ -50,21 +72,66 @@ class HTTPRangeFile(io.RawIOBase):
         return self.pos
 
     def _get(self, start: int, end: int) -> bytes:
+        if start < 0 or end <= start or end > self.size:
+            raise ValueError(f"invalid byte range [{start}, {end}) for size {self.size}")
+        expected = end - start
+        if expected > self.max_range_bytes:
+            raise ValueError(
+                f"requested range of {expected} bytes exceeds max_range_bytes={self.max_range_bytes}"
+            )
+        expected_range_prefix = f"bytes {start}-{end - 1}/"
         for attempt in range(self.retries):
             try:
-                response = self.client.get(
-                    self.url, headers={"Range": f"bytes={start}-{end - 1}"}
-                )
-                if response.status_code != 206:
-                    raise OSError(f"range request returned HTTP {response.status_code}")
-                expected = end - start
-                if len(response.content) != expected:
-                    raise OSError(
-                        f"short range response: got {len(response.content)}, expected {expected}"
-                    )
-                self.nreq += 1
-                self.nbytes += len(response.content)
-                return response.content
+                with self.client.stream(
+                    "GET", self.url, headers={"Range": f"bytes={start}-{end - 1}"}
+                ) as response:
+                    if response.status_code != 206:
+                        msg = (
+                            f"range request returned HTTP {response.status_code}; "
+                            "refusing non-206 response without reading body"
+                        )
+                        if response.status_code == 429 or response.status_code >= 500:
+                            raise OSError(msg)
+                        raise NonRangeResponseError(msg)
+
+                    content_range = response.headers.get("content-range")
+                    if content_range is not None and not content_range.lower().startswith(
+                        expected_range_prefix
+                    ):
+                        raise OSError(
+                            f"unexpected Content-Range {content_range!r}, "
+                            f"expected prefix {expected_range_prefix!r}"
+                        )
+
+                    content_length = response.headers.get("content-length")
+                    if content_length is not None:
+                        try:
+                            declared = int(content_length)
+                        except ValueError as exc:
+                            raise OSError(
+                                f"invalid Content-Length header: {content_length!r}"
+                            ) from exc
+                        if declared != expected:
+                            raise OSError(
+                                f"range Content-Length mismatch: got {declared}, expected {expected}"
+                            )
+
+                    buf = bytearray()
+                    for chunk in response.iter_bytes():
+                        if len(buf) + len(chunk) > expected:
+                            raise OSError(
+                                f"range response exceeded requested {expected} bytes"
+                            )
+                        buf.extend(chunk)
+                    if len(buf) != expected:
+                        raise OSError(
+                            f"short range response: got {len(buf)}, expected {expected}"
+                        )
+                    self.nreq += 1
+                    self.nbytes += len(buf)
+                    return bytes(buf)
+            except NonRangeResponseError:
+                raise
             except (httpx.HTTPError, OSError):
                 if attempt == self.retries - 1:
                     raise
@@ -72,13 +139,28 @@ class HTTPRangeFile(io.RawIOBase):
         raise AssertionError("unreachable")
 
     def read(self, n: int = -1) -> bytes:
+        remaining = max(0, self.size - self.pos)
+        if remaining == 0:
+            return b""
         if n is None or n < 0:
-            n = self.size - self.pos
-        n = max(0, min(n, self.size - self.pos))
+            if remaining > self.max_range_bytes:
+                raise OSError(
+                    f"refusing unbounded read of {remaining} bytes "
+                    f"(max_range_bytes={self.max_range_bytes})"
+                )
+            n = remaining
+        n = max(0, min(n, remaining))
         if n == 0:
             return b""
         if n > 4 * self.block:
-            data = self._get(self.pos, self.pos + n)
+            out = bytearray()
+            p = self.pos
+            end = self.pos + n
+            while p < end:
+                step_end = min(p + self.max_range_bytes, end)
+                out += self._get(p, step_end)
+                p = step_end
+            data = bytes(out)
         else:
             out = bytearray()
             p = self.pos
@@ -109,5 +191,6 @@ class HTTPRangeFile(io.RawIOBase):
         return len(data)
 
     def close(self) -> None:
-        self.client.close()
+        if self._owns_client:
+            self.client.close()
         super().close()

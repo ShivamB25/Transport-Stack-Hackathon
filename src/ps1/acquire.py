@@ -148,7 +148,6 @@ def process_day(day: int, args: argparse.Namespace) -> dict:
             except Exception as exc:  # noqa: BLE001 - one day's failure must not kill the pool
                 result["error"] = f"attempt {attempt}: {type(exc).__name__}: {exc}"
                 detail(f"{key} attempt {attempt} failed: {exc}")
-                output_path.unlink(missing_ok=True)
                 output_path.with_suffix(".tmp.parquet").unlink(missing_ok=True)
                 if attempt == 2:
                     traceback.print_exc()
