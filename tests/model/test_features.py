@@ -31,6 +31,7 @@ def _passage(
     observed: bool = True,
     lat: float = 28.50,
     lng: float = 77.25,
+    available_at: int | None = None,
 ) -> PassageRow:
     return PassageRow(
         day=day,
@@ -47,6 +48,7 @@ def _passage(
         stop_lng=lng,
         schedule_error_s=ts - scheduled_ts,
         distance_m=12.0 if observed else None,
+        available_at=ts if available_at is None else available_at,
     )
 
 
@@ -92,18 +94,19 @@ def test_all_required_causal_features_computed() -> None:
     stretches = build_stretch_errors(passages)
     queries = build_replay_queries(stretches, passages)
 
-    # Find R2's query at stop_sequence 1 -> 2 (after R2 already completed 0 -> 1)
+    # Find R2's query at stop_sequence 2 -> 3 (one earlier stretch is fully available).
     target = next(
-        q for q in queries if q.stretch.run_id == "R2" and q.stretch.from_sequence == 1
+        q for q in queries if q.stretch.run_id == "R2" and q.stretch.from_sequence == 2
     )
     f = target.features
     assert f is not None
-    assert f.remaining_stops == 2  # max_seq=3, from_seq=1
-    assert f.remaining_distance_m > 700.0
+    assert f.remaining_stops == 1  # max_seq=3, from_seq=2
+    assert f.remaining_distance_m > 350.0
     assert f.stretch_distance_m > 350.0
     assert f.scheduled_duration_s == 100.0
-    assert f.ping_age_s == 0.0
-    assert f.from_observed == 1.0
+    # The current observed passage is available exactly at query time and is excluded.
+    assert f.ping_age_s == 140.0
+    assert f.from_observed == 0.0
     assert math.isclose(f.recent_vehicle_progress_ratio, 1.4, rel_tol=1e-6)
     assert f.recent_vehicle_speed_mps > 0.0
     assert f.last_stop_delay_s == 40.0
@@ -113,7 +116,7 @@ def test_all_required_causal_features_computed() -> None:
     assert f.previous_observed == 1.0
     assert f.recent_same_direction_speed_mps > 0.0
     assert math.isclose(f.recent_same_direction_pace_ratio, 1.2, rel_tol=1e-6)
-    assert f.headway_s == (600 + 140) - 120
+    assert f.headway_s == (600 + 280) - 240
     assert f.hour == 8
     assert f.day_of_week == 3  # 2026-10-22 is Thursday
     assert f.day_type == "thu"
@@ -247,3 +250,114 @@ def test_future_perturbation_leaves_causal_features_identical() -> None:
         else:
             assert a == b
     assert base_target.previous_error_s == perturbed_target.previous_error_s
+
+
+def _interpolated_anchor_scenario(right_anchor_ts: int = 1028) -> list[PassageRow]:
+    rows: list[PassageRow] = []
+    for run_id, vehicle_id, times, schedules in (
+        ("R0", "V0", (400, 500, 650), (400, 500, 600)),
+        ("R1", "V1", (700, 760, right_anchor_ts), (700, 800, 900)),
+        ("R2", "V2", (880, 1000, 1150), (880, 1000, 1100)),
+    ):
+        for seq, (ts, scheduled_ts) in enumerate(zip(times, schedules, strict=True)):
+            interpolated = run_id == "R1" and seq == 1
+            rows.append(
+                _passage(
+                    vehicle_id=vehicle_id,
+                    run_id=run_id,
+                    seq=seq,
+                    stop_id=f"S{seq}",
+                    ts=ts,
+                    scheduled_ts=scheduled_ts,
+                    observed=not interpolated,
+                    # R1 S1 is interpolated from the later observed S2 anchor.
+                    available_at=right_anchor_ts if run_id == "R1" and seq in {1, 2} else ts,
+                )
+            )
+    return rows
+
+
+def test_interpolated_future_anchor_cannot_drive_any_replay_feature() -> None:
+    passages = _interpolated_anchor_scenario()
+    queries = build_replay_queries(build_stretch_errors(passages), passages)
+    targets = {
+        q.stretch.from_sequence: q
+        for q in queries
+        if q.stretch.run_id == "R2"
+    }
+
+    first = targets[0]
+    assert first.previous_run_id == "R0"
+    assert first.previous_error_s == 0
+    assert first.previous_available_at == 500
+    assert first.features is not None
+    # R1's 0 -> 1 stretch has event time 760 but is not knowable until 1028.
+    assert math.isclose(first.features.recent_same_direction_pace_ratio, 1.25)
+
+    second = targets[1]
+    assert second.previous_run_id == "R0"
+    assert second.previous_error_s == 50
+    assert second.previous_available_at == 650
+    assert second.features is not None
+    # R1 S1 arrived at 760 but its 1028 right anchor is after the 1000 query.
+    assert second.features.headway_s == 500
+
+    # Moving the raw right anchor later must not change either as-of prediction input.
+    perturbed_passages = _interpolated_anchor_scenario(right_anchor_ts=2000)
+    perturbed_queries = build_replay_queries(
+        build_stretch_errors(perturbed_passages), perturbed_passages
+    )
+    perturbed_targets = {
+        q.stretch.from_sequence: q
+        for q in perturbed_queries
+        if q.stretch.run_id == "R2"
+    }
+    for sequence, target in targets.items():
+        perturbed = perturbed_targets[sequence]
+        assert perturbed.previous_run_id == target.previous_run_id
+        assert perturbed.previous_error_s == target.previous_error_s
+        assert perturbed.previous_available_at == target.previous_available_at
+        assert target.features is not None and perturbed.features is not None
+        for before, after in zip(
+            target.features.as_numeric_list(),
+            perturbed.features.as_numeric_list(),
+            strict=True,
+        ):
+            assert (math.isnan(before) and math.isnan(after)) or before == after
+
+
+def test_source_availability_at_or_after_query_is_rejected_strict() -> None:
+    passages = _interpolated_anchor_scenario()
+    stretches = build_stretch_errors(passages)
+    current = next(s for s in stretches if s.run_id == "R2" and s.from_sequence == 1)
+    previous = next(s for s in stretches if s.run_id == "R0" and s.from_sequence == 1)
+    interpolated = next(p for p in passages if p.run_id == "R1" and p.stop_sequence == 1)
+    current_passage = next(p for p in passages if p.run_id == "R2" and p.stop_sequence == 1)
+    prior_current = next(p for p in passages if p.run_id == "R2" and p.stop_sequence == 0)
+    earlier = next(p for p in passages if p.run_id == "R0" and p.stop_sequence == 1)
+
+    with pytest.raises(CausalityViolationError, match="available_at=1028"):
+        extract_causal_features_for_query(
+            current=current,
+            previous=previous,
+            other_run_passages=[interpolated],
+            strict=True,
+        )
+    with pytest.raises(CausalityViolationError, match="available_at=1000"):
+        extract_causal_features_for_query(
+            current=current,
+            previous=previous,
+            same_run_passages=[current_passage],
+            strict=True,
+        )
+
+    # Non-strict extraction filters rather than raising, with the same causal result.
+    features = extract_causal_features_for_query(
+        current=current,
+        previous=previous,
+        other_run_passages=[earlier, interpolated],
+        same_run_passages=[prior_current, current_passage],
+        strict=False,
+    )
+    assert features.headway_s == 500
+    assert features.ping_age_s == 120

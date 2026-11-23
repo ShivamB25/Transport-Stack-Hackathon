@@ -95,6 +95,12 @@ class PassageRow:
     stop_lng: float | None = None
     schedule_error_s: int | None = None
     distance_m: float | None = None
+    available_at: int | None = None
+
+    @property
+    def source_available_at(self) -> int:
+        """Return source-GPS availability; synthetic legacy rows default to observed time."""
+        return self.ts if self.available_at is None else self.available_at
 
     @property
     def run_key(self) -> tuple[str, int, str, str]:
@@ -125,6 +131,15 @@ class StretchError:
     error_s: int
     from_observed: bool
     to_observed: bool
+    from_available_at: int | None = None
+    to_available_at: int | None = None
+
+    @property
+    def available_at(self) -> int:
+        """Return when both endpoint observations made this stretch knowable."""
+        from_available = self.query_ts if self.from_available_at is None else self.from_available_at
+        to_available = self.to_ts if self.to_available_at is None else self.to_available_at
+        return max(from_available, to_available)
 
     @property
     def run_key(self) -> tuple[str, int, str, str]:
@@ -225,6 +240,7 @@ class ReplayQuery:
     previous_vehicle_id: str
     previous_run_id: str
     previous_to_ts: int | None = None
+    previous_available_at: int | None = None
     previous_observed: bool = False
     features: CausalFeatures | None = None
 
@@ -294,6 +310,7 @@ def load_passages(path: Path) -> list[PassageRow]:
             "stop_lng" if "stop_lng" in cols else "NULL::DOUBLE as stop_lng",
             "schedule_error_s" if "schedule_error_s" in cols else "NULL::BIGINT as schedule_error_s",
             "distance_m" if "distance_m" in cols else "NULL::DOUBLE as distance_m",
+            "available_at",
         ]
         query = f"""
             select day, route_id, direction, vehicle_id, run_id, stop_sequence,
@@ -305,7 +322,11 @@ def load_passages(path: Path) -> list[PassageRow]:
         rows = con.execute(query, [str(path)]).fetchall()
     finally:
         con.close()
-    return [PassageRow(*row) for row in rows]
+    passages = [PassageRow(*row) for row in rows]
+    missing = [p for p in passages if p.available_at is None]
+    if missing:
+        raise ValueError(f"passage source available_at is required: {path}")
+    return passages
 
 
 def build_stretch_errors(passages: Iterable[PassageRow]) -> list[StretchError]:
@@ -340,6 +361,8 @@ def build_stretch_errors(passages: Iterable[PassageRow]) -> list[StretchError]:
                     error_s=actual_duration - scheduled_duration,
                     from_observed=upstream.observed,
                     to_observed=downstream.observed,
+                    from_available_at=upstream.source_available_at,
+                    to_available_at=downstream.source_available_at,
                 )
             )
     return sorted(
@@ -369,32 +392,45 @@ def validate_causal_observations(
     for p in same_run_passages:
         if p.run_key != run_key:
             raise CausalityViolationError(f"unexpected run_key in same_run_passages: {p.run_key}")
-        if p.ts > query_ts or p.stop_sequence > from_sequence:
+        if (
+            p.ts >= query_ts
+            or p.source_available_at >= query_ts
+            or p.stop_sequence > from_sequence
+        ):
             raise CausalityViolationError(
-                f"future same-run passage leaked: ts={p.ts} > query_ts={query_ts} "
+                f"future same-run passage leaked: ts={p.ts}, "
+                f"available_at={p.source_available_at} >= query_ts={query_ts} "
                 f"or seq={p.stop_sequence} > from_sequence={from_sequence}"
             )
     for s in same_run_stretches:
         if s.run_key != run_key:
             raise CausalityViolationError(f"unexpected run_key in same_run_stretches: {s.run_key}")
-        if s.to_ts > query_ts or s.query_ts > query_ts or s.to_sequence > from_sequence:
+        if (
+            s.to_ts >= query_ts
+            or s.query_ts >= query_ts
+            or s.available_at >= query_ts
+            or s.to_sequence > from_sequence
+        ):
             raise CausalityViolationError(
-                f"future same-run stretch leaked: to_ts={s.to_ts} > query_ts={query_ts} "
+                f"future same-run stretch leaked: to_ts={s.to_ts}, "
+                f"available_at={s.available_at} >= query_ts={query_ts} "
                 f"or to_sequence={s.to_sequence} > from_sequence={from_sequence}"
             )
     for p in other_run_passages:
         if p.run_key == run_key:
             raise CausalityViolationError("current run supplied in other_run_passages")
-        if p.ts >= query_ts:
+        if p.ts >= query_ts or p.source_available_at >= query_ts:
             raise CausalityViolationError(
-                f"future other-run passage leaked: ts={p.ts} >= query_ts={query_ts}"
+                f"future other-run passage leaked: ts={p.ts}, "
+                f"available_at={p.source_available_at} >= query_ts={query_ts}"
             )
     for s in other_run_stretches:
         if s.run_key == run_key:
             raise CausalityViolationError("current run supplied in other_run_stretches")
-        if s.query_ts >= query_ts or s.to_ts >= query_ts:
+        if s.query_ts >= query_ts or s.to_ts >= query_ts or s.available_at >= query_ts:
             raise CausalityViolationError(
-                f"future other-run stretch leaked: query_ts={s.query_ts}, to_ts={s.to_ts} >= {query_ts}"
+                f"future other-run stretch leaked: query_ts={s.query_ts}, to_ts={s.to_ts}, "
+                f"available_at={s.available_at} >= {query_ts}"
             )
 
 
@@ -440,7 +476,11 @@ def _compute_causal_features(
         last_stop_delay_s = (
             float(raw_delay) if abs(raw_delay) <= MAX_VALID_SCHEDULE_DELAY_S else math.nan
         )
-    elif current.from_observed:
+    elif (
+        current.from_observed
+        and (current.from_available_at if current.from_available_at is not None else current.query_ts)
+        < query_ts
+    ):
         ping_age_s = 0.0
         last_stop_delay_s = math.nan
     else:
@@ -520,7 +560,13 @@ def _compute_causal_features(
         stretch_distance_m=stretch_distance_m,
         scheduled_duration_s=float(current.scheduled_duration_s),
         ping_age_s=ping_age_s,
-        from_observed=1.0 if current.from_observed else 0.0,
+        from_observed=(
+            1.0
+            if current.from_observed
+            and (current.from_available_at if current.from_available_at is not None else current.query_ts)
+            < query_ts
+            else 0.0
+        ),
         recent_vehicle_progress_ratio=recent_vehicle_progress_ratio,
         recent_vehicle_speed_mps=recent_vehicle_speed_mps,
         last_stop_delay_s=last_stop_delay_s,
@@ -575,21 +621,27 @@ def extract_causal_features_for_query(
             p
             for p in same_run_passages
             if p.run_key == current.run_key
-            and p.ts <= current.query_ts
+            and p.ts < current.query_ts
+            and p.source_available_at < current.query_ts
             and p.stop_sequence <= current.from_sequence
         ]
         valid_same_s = [
             s
             for s in same_run_stretches
             if s.run_key == current.run_key
-            and s.to_ts <= current.query_ts
-            and s.query_ts <= current.query_ts
+            and s.to_ts < current.query_ts
+            and s.query_ts < current.query_ts
+            and s.available_at < current.query_ts
             and s.to_sequence <= current.from_sequence
         ]
         valid_other_p = [
             p
             for p in other_run_passages
-            if p.run_key != current.run_key and p.ts < current.query_ts
+            if (
+                p.run_key != current.run_key
+                and p.ts < current.query_ts
+                and p.source_available_at < current.query_ts
+            )
         ]
         valid_other_s = [
             s
@@ -597,6 +649,7 @@ def extract_causal_features_for_query(
             if s.run_key != current.run_key
             and s.query_ts < current.query_ts
             and s.to_ts < current.query_ts
+            and s.available_at < current.query_ts
         ]
 
     window_start = current.query_ts - RECENT_WINDOW_S
@@ -651,10 +704,15 @@ def build_replay_queries(
 
     # Index same-run passages and stretches for O(log N) strictly causal slicing
     run_passages: dict[tuple[str, int, str, str], list[PassageRow]] = defaultdict(list)
-    stop_arrivals: dict[tuple[str, int, str, str], list[tuple[int, tuple[str, int, str, str]]]] = defaultdict(list)
+    stop_arrivals: dict[
+        tuple[str, int, str, str],
+        list[tuple[int, tuple[str, int, str, str], int]],
+    ] = defaultdict(list)
     for p in passage_list:
         run_passages[p.run_key].append(p)
-        stop_arrivals[(p.day, p.route_id, p.direction, p.stop_id)].append((p.ts, p.run_key))
+        stop_arrivals[(p.day, p.route_id, p.direction, p.stop_id)].append(
+            (p.ts, p.run_key, p.source_available_at)
+        )
     for p_list in run_passages.values():
         p_list.sort(key=lambda p: p.stop_sequence)
 
@@ -667,7 +725,11 @@ def build_replay_queries(
         groups[(stretch.day, *stretch.stretch_key)].append(stretch)
         if not passage_list:
             stop_arrivals[(stretch.day, stretch.route_id, stretch.direction, stretch.from_stop_id)].append(
-                (stretch.query_ts, stretch.run_key)
+                (
+                    stretch.query_ts,
+                    stretch.run_key,
+                    stretch.query_ts if stretch.from_available_at is None else stretch.from_available_at,
+                )
             )
 
     for r_list in run_stretches.values():
@@ -698,6 +760,7 @@ def build_replay_queries(
                 if candidate.run_key != current.run_key
                 and candidate.query_ts < current.query_ts
                 and candidate.to_ts < current.query_ts
+                and candidate.available_at < current.query_ts
             )
             previous = max(
                 visible,
@@ -708,17 +771,26 @@ def build_replay_queries(
                 continue
 
             q_ts = current.query_ts
-            # Strictly causal same-run passages (stop_sequence <= from_sequence and ts <= query_ts)
+            # Same-run passages must be upstream and strictly available before the query.
             same_p = [
                 p
                 for p in run_passages.get(current.run_key, ())
-                if p.stop_sequence <= current.from_sequence and p.ts <= q_ts
+                if (
+                    p.stop_sequence <= current.from_sequence
+                    and p.ts < q_ts
+                    and p.source_available_at < q_ts
+                )
             ]
-            # Strictly causal same-run prior stretches (to_sequence <= from_sequence and to_ts <= query_ts)
+            # Same-run stretches must be complete and strictly available before the query.
             same_s = [
                 s
                 for s in run_stretches.get(current.run_key, ())
-                if s.to_sequence <= current.from_sequence and s.to_ts <= q_ts and s.query_ts <= q_ts
+                if (
+                    s.to_sequence <= current.from_sequence
+                    and s.to_ts < q_ts
+                    and s.query_ts < q_ts
+                    and s.available_at < q_ts
+                )
             ]
             # Strictly causal recent same-direction stretches from other runs
             dir_key = (current.day, current.route_id, current.direction)
@@ -729,7 +801,12 @@ def build_replay_queries(
             recent_other = [
                 s
                 for s in all_dir[lo:hi]
-                if s.run_key != current.run_key and s.query_ts < q_ts and s.to_ts < q_ts
+                if (
+                    s.run_key != current.run_key
+                    and s.query_ts < q_ts
+                    and s.to_ts < q_ts
+                    and s.available_at < q_ts
+                )
             ]
             # Strictly causal headway at from_stop_id
             stop_key = (current.day, current.route_id, current.direction, current.from_stop_id)
@@ -738,8 +815,8 @@ def build_replay_queries(
             pos = bisect_left(arr_ts, q_ts) - 1
             previous_stop_ts: int | None = None
             while pos >= 0:
-                cand_ts, cand_run = arr_list[pos]
-                if cand_run != current.run_key:
+                cand_ts, cand_run, cand_available_at = arr_list[pos]
+                if cand_run != current.run_key and cand_available_at < q_ts:
                     previous_stop_ts = cand_ts
                     break
                 pos -= 1
@@ -762,6 +839,7 @@ def build_replay_queries(
                     previous_vehicle_id=previous.vehicle_id,
                     previous_run_id=previous.run_id,
                     previous_to_ts=previous.to_ts,
+                    previous_available_at=previous.available_at,
                     previous_observed=previous.target_observed,
                     features=feats,
                 )

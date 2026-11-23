@@ -2,6 +2,7 @@
 
 Status: version 1.0 frozen on 2026-11-23 before baseline fitting, prediction, or metric generation.
 Version: 1.1, amended on 2026-11-23 after the all-stop gate failure and before stratified results.
+Version: 1.2, amended on 2026-11-23 before causal re-evaluation on rebuilt passages (enforcing source-GPS `available_at` causality, shippable rung output domain `{"1", "2", "3", "4"}`, artifact as-of cutoff metadata, and explicit interval-width aggregation labels).
 
 ## Scope and directions
 
@@ -27,7 +28,7 @@ For each run and adjacent stop pair, define:
 
 Every adjacent stretch with nonnegative scheduled and actual durations is eligible. No outcome-based trimming or winsorisation is allowed. The upstream and downstream `observed` flags are retained. Target values are revealed only for scoring after the downstream arrival; they are never model inputs at query time.
 
-Rung 1 requires a causal previous-run error on the same route, direction, day, and stretch. Candidate previous runs must have both upstream and downstream reconstructed timestamps strictly earlier than the current query time and must not be the current run. The candidate with the latest upstream timestamp is selected, with run key as a deterministic tie-breaker. If none exists, persistence is unavailable.
+Rung 1 requires a causal previous-run error on the same route, direction, day, and stretch. Candidate previous runs must have both upstream and downstream reconstructed timestamps and both endpoint source-availability timestamps strictly earlier than the current query time, and must not be the current run. The candidate with the latest upstream timestamp is selected, with run key as a deterministic tie-breaker. If none exists, persistence is unavailable.
 
 To make all baseline comparisons paired, the scored query set for a day and direction is exactly the set of eligible stretches for which that causal previous run exists. Rungs 0 and 1h are scored on this same set, not on a larger set. Rung 1h falls back to zero timetable error if its training bin is empty, and the number of such fallbacks is reported. There is no per-rung row filtering.
 
@@ -42,7 +43,7 @@ No random row split, shuffled split, or day may cross fitting and evaluation. Ru
 
 ## Time-ordered replay and rungs
 
-Runs and stretches are replayed in query-time order. At each query, only passages from earlier timestamps and training days are visible. In particular, a previous run is not available until its downstream passage is strictly before the current query. Current-run and future-run target values are invisible to feature construction.
+Runs and stretches are replayed in query-time order. At each query, only passages whose event and source-availability timestamps are both strictly earlier than the query, plus frozen training days, are visible. In particular, a previous run is not available until its downstream passage and every source anchor for that stretch are strictly before the current query. Current-run and future-run target values are invisible to feature construction.
 
 - **Rung 0, timetable:** predicted stretch error is 0 seconds.
 - **Rung 1, persistence:** predicted stretch error is the selected previous run's actual stretch error on the same stretch and day.
@@ -76,9 +77,20 @@ Every metric is now reported for two strata:
 
 The all-stop rows remain available with this circularity caveat and are not valid for the persistence gate. No model, fallback, or hyperparameter may be tuned on held-out days in response to these results.
 
+## Amendment 1.2 — source-GPS availability causality, shippable selection domain, and artifact cutoffs
+
+Scrutiny of version 1.1 results identified that interpolated stop passages become knowable only when their later GPS anchor arrives (`available_at`), not at their reconstructed event timestamp (`ts`). Admitting another run's interpolated stretch or stop arrival by `ts < query_ts` alone allowed future GPS anchors (observed 27–57 s after the query on October 22) into persistence, headway, and recent-stretch features even on `observed-only` target queries.
+
+The following clarifications are binding before regenerating results from the rebuilt 10-day passages:
+
+- **Source-GPS availability (`available_at`):** Every stop passage carries `available_at` (observed stop = own ping `ts`; interior interpolated stop = later anchor `ts`; extrapolated endpoint = anchor used). For all other-run inputs (persistence previous run, headway prior arrival, recent same-direction stretches), both event timestamps and `available_at` must be strictly earlier than `query_ts` (`ts < query_ts` and `available_at < query_ts`; for stretches, `max(from_available_at, to_available_at) < query_ts`). For same-run prior passages and stretches, `stop_sequence <= from_sequence`, event timestamps `< query_ts`, and `available_at < query_ts`. Thus an observation exactly at the query timestamp is not used as an already-available feature.
+- **Shippable selection domain (`reports/selection.json` and API schema):** Evaluation reports score all six ladder rungs (`0`, `1`, `1h`, `2`, `3`, `4`) for full comparability. Rung `1h` (historical hourly median) is retained in all tables and `selection.json["candidates"]` as a **non-shippable historical baseline**. Shippable rungs are explicitly `{"1", "2", "3", "4"}`: the selection rule ships the highest rung in `("4", "3", "2")` whose held-out `observed-only` query-weighted MAE is strictly lower than rung `1` (persistence) at identical per-group observed-vs-interpolated coverage; otherwise rung `1` ships (including when only `1h` beats rung `1` and none of `2`, `3`, `4` beats rung `1`).
+- **Model artifact as-of eligibility:** Persisted model artifacts record their training cutoff day, calibration cutoff day, overall data cutoff day, and earliest causal eligibility timestamp (`eligible_from_day` / `eligible_from_ts`, starting at `00:00:00+05:30` IST on the calendar day after the latest training or calibration day, and strictly after the latest training/calibration observation availability). Replay requests earlier than an artifact's eligibility cutoff must not invoke that artifact.
+- **Cross-group interval width summary:** Per-day/direction rows report the exact group `median_interval_width_s`. In cross-group summaries derived solely from `eval-full.csv`, the query-weighted average of group medians is explicitly labelled `weighted_mean_group_median_width_s`; the exact pooled held-out `observed-only` median interval width is additionally computed from saved per-query predictions and reported in `selection.json` and `eval-full.md`.
+
 ## Outputs and explicit gate
 
-One scoped command regenerates `reports/eval-baselines.csv` and `reports/eval-baselines.md` for both directions and all three held-out days:
+One scoped command regenerates `reports/eval-baselines.{csv,md}`, `reports/eval-full.{csv,md}`, `reports/selection.json`, and the persisted model artifact for both directions and all three held-out days:
 
 ```bash
 PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate
