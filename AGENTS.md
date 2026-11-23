@@ -41,7 +41,7 @@ Real-time bus travel-time modeling and journey planning for Delhi DTC buses usin
 
 - **Ports:** `3100` (FastAPI + Leaflet UI), `3102` (OTP 2.8.1 GraphQL). Do not bind outside `3100–3199`.
 - **Data directory (`PS1_DATA_DIR`, default `/home/factory-user/ps1-scratch/data`, outside repo):**
-  - `gps/day=YYYY-MM-DD.parquet`: 31 October 2026 deduplicated GPS Parquet files (8.36 GB total).
+  - `gps/day=YYYY-MM-DD.parquet`: 31 October 2026 deduplicated GPS Parquet files (8.87 GB total; the 10 passage days use deterministic `rowid`-ordered first-row dedupe, and the remaining 21 days await `reacquire-remaining-days`).
   - `gtfs/`: Static GTFS feed v32 (`routes.txt`, `trips.txt`, `stops.txt`, `stop_times.txt`, etc.).
   - `passages/day=YYYY-MM-DD.parquet`: Reconstructed 717A stop passages for train/held-out days (`available_at` included).
   - `model/`: Persisted selected model artifact(s).
@@ -88,7 +88,7 @@ Run from repo root `/home/factory-user/repos/Transport-Stack-Hackathon`:
 
 ## Current Headline Results
 
-- **31-day GPS acquisition (`reports/data-quality.md`):** 912,877,061 raw rows -> 560,357,771 clean rows (38.62% removed, 8.36 GB Parquet, 0 duplicate groups, 0 bbox violations, 0 fractional `route_id`; all 31 files pass hardened `verify_day`). Note: Oct 22 audit measured 13,942 `route_id` (0.258%) and 14,247 `trip_id` (0.264%) disagreements across 5,402,665 duplicate-key groups (0.074%/0.076% of all 18.79M rows) between pre-hardening arbitrary tie-breaking and SQLite `rowid` first-row selection.
+- **31-day GPS acquisition (`reports/data-quality.md`):** 912,877,061 raw rows -> 560,357,771 clean rows (38.62% removed, 8.87 GB Parquet, 0 duplicate groups, 0 bbox violations, 0 fractional `route_id`; all 31 files pass hardened `verify_day`). The 10 passage days (`2026-10-05, 06, 07, 08, 13, 14, 15, 22, 27, 28`) were re-acquired on 2026-11-23 with deterministic `rowid` first-row dedupe; the remaining 21 days still use the legacy arbitrary tie-break until `reacquire-remaining-days` runs (Oct 22 audit measured 13,942 `route_id` [0.258%] and 14,247 `trip_id` [0.264%] disagreements across 5,402,665 duplicate-key groups).
 - **717A stop passages (`reports/coverage-717a.md`, rebuilt with adjacent service-date fix & `available_at`):** 2,548 runs, 124,810 passages across 10 days; observed coverage 48.47% UP (2171) / 50.81% DOWN (2170); max `|schedule_error_s|` = 14,065 s (Oct 22 `2171_23_57_4191` stop 2 fixed from `-80,064 s` to `+6,336 s`; Oct 28 `2171_22_16_8617` stop 50 fixed from `-85,253 s` to `+1,155 s`); 0 monotonicity or availability violations.
 - **Model evaluation & selection (`reports/eval-baselines.md`, `reports/eval-full.md`, `reports/selection.json`):** Pending causal re-evaluation using the newly added `available_at` column (current committed reports predate `available_at` filtering: recorded observed-only overall MAE rung 0 = 87.25 s, rung 1 = 77.33 s, rung 4 = 61.74 s, selected rung `"4"`).
 - **Google comparator (`reports/google-comparator.md`, `reports/google-manifest.json`):** 90/90 planned slots compared on `2026-11-24`, 92/300 mission-wide Google calls used (cached), mean diff (ours - Google) `+123 s` (+2.0 min), 96.7% of Google durations inside our `[p10, p90]`.
