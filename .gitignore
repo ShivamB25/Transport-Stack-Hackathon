@@ -2,9 +2,9 @@
 .env
 .env.save
 
-# data lives outside the repo (PS1_DATA_DIR)
-data/
-work/
+# data lives outside the repo (PS1_DATA_DIR); root-anchored so tests/data/ is tracked
+/data/
+/work/
 *.parquet
 *.db
 *.db-shm
