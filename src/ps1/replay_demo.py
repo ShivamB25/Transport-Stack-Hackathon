@@ -13,11 +13,11 @@ from ps1.otp_client import OTPClientError
 IST = timezone(timedelta(hours=5, minutes=30))
 
 DEMO_DAY = "2026-10-22"
-DEMO_RUN_ID = "2171_17_37"
-DEMO_VEHICLE_ID = "DL1PD5280"
+DEMO_RUN_ID = "2171_17_09_490"
+DEMO_VEHICLE_ID = "DL1PD7867"
 DEMO_ROUTE_ID = 2171
 DEMO_ROUTE_NAME = "717AUP"
-DEMO_DEPART_ISO = "2026-10-22T17:35:00+05:30"
+DEMO_DEPART_ISO = "2026-10-22T17:07:00+05:30"
 DEMO_ORIGIN = {
     "name": "Badarpur Border (T)",
     "stop_id": "2640",
@@ -33,55 +33,67 @@ DEMO_TRANSFER_STOP_SEQ = 15
 DEMO_TRANSFER_STOP_ID = "7963"
 DEMO_TRANSFER_STOP_NAME = "Ambedkar Nagar Depot"
 DEMO_CONNECTING_ROUTE = "D-7702UP"
+DEMO_CONNECTING_ROUTE_ID = 3064
+DEMO_CONNECTING_VEHICLE_ID = "DL1PD8627"
 DEMO_DIRECT_ROUTE = "774UP"
 
-# Fallback passage snapshots from real Oct 22 2026 run 2171_17_37 (used only if parquet absent in unit tests)
+# Fallback passage snapshots from real Oct 22 2026 run 2171_17_09_490 (used only if parquet absent in unit tests)
 _FALLBACK_PASSAGES: list[dict[str, Any]] = [
     {
         "stop_sequence": 0,
         "stop_id": "2640",
         "stop_name": "Badarpur Border (T)",
-        "stop_lat": 28.49313,
-        "stop_lng": 77.30373,
+        "stop_lat": 28.49313011545189,
+        "stop_lng": 77.30372712033363,
         "observed": True,
-        "ts": 1792670870,
-        "scheduled_ts": 1792670820,
-        "schedule_error_s": 50,
+        "ts": 1792669305,
+        "scheduled_ts": 1792669140,
+        "schedule_error_s": 165,
     },
     {
-        "stop_sequence": 2,
-        "stop_id": "2819",
-        "stop_name": "Pul Pehladpur ( BadarPur)",
-        "stop_lat": 28.49794,
-        "stop_lng": 77.29132,
+        "stop_sequence": 1,
+        "stop_id": "2818",
+        "stop_name": "Badarpur M B Road / Rajiv Gandhi Stadium",
+        "stop_lat": 28.49922407395255,
+        "stop_lng": 77.29907646775247,
         "observed": True,
-        "ts": 1792671301,
-        "scheduled_ts": 1792671090,
-        "schedule_error_s": 211,
+        "ts": 1792671070,
+        "scheduled_ts": 1792669302,
+        "schedule_error_s": 1768,
     },
     {
-        "stop_sequence": 3,
-        "stop_id": "2820",
-        "stop_name": "Surajkund Crossing",
-        "stop_lat": 28.49988,
-        "stop_lng": 77.28771,
+        "stop_sequence": 4,
+        "stop_id": "2821",
+        "stop_name": "Lal Kuan",
+        "stop_lat": 28.50230367708503,
+        "stop_lng": 77.28455007065351,
         "observed": True,
-        "ts": 1792671785,
-        "scheduled_ts": 1792671172,
-        "schedule_error_s": 613,
+        "ts": 1792671694,
+        "scheduled_ts": 1792669595,
+        "schedule_error_s": 2099,
     },
     {
         "stop_sequence": 15,
         "stop_id": "7963",
         "stop_name": "Ambedkar Nagar Depot",
-        "stop_lat": 28.51518,
-        "stop_lng": 77.22819,
+        "stop_lat": 28.515185,
+        "stop_lng": 77.228193,
         "observed": True,
-        "ts": 1792673257,
-        "scheduled_ts": 1792672427,
-        "schedule_error_s": 830,
+        "ts": 1792673055,
+        "scheduled_ts": 1792670747,
+        "schedule_error_s": 2308,
     },
 ]
+
+_FALLBACK_CONNECTING_PASSAGE: dict[str, Any] = {
+    "vehicle_id": DEMO_CONNECTING_VEHICLE_ID,
+    "run_id": "3064_17_55",
+    "observed": True,
+    "ts": 1792672476,
+    "lat": 28.5151176452637,
+    "lng": 77.2283477783203,
+    "distance_m": 16.875743994761454,
+}
 
 
 def _iso(ts: int) -> str:
@@ -129,6 +141,62 @@ def _load_oct22_run_passages(data_dir: Path) -> tuple[list[dict[str, Any]], str]
     return passages, str(parquet_path)
 
 
+def _load_oct22_connecting_passage(
+    data_dir: Path, scheduled_depart_ts: int
+) -> tuple[dict[str, Any], str]:
+    """Find the matched vehicle's minimum-distance observed stop passage, without a GTFS trip join."""
+    parquet_path = data_dir / "gps" / f"day={DEMO_DAY}.parquet"
+    if not parquet_path.exists():
+        return dict(_FALLBACK_CONNECTING_PASSAGE), "fallback_fixture"
+    con = duckdb.connect()
+    try:
+        row = con.execute(
+            """
+            WITH nearby AS (
+                SELECT vehicle_id, trip_id, ts, lat, lng,
+                       6371000 * 2 * asin(sqrt(
+                           power(sin(radians(lat - ?) / 2), 2)
+                           + cos(radians(?)) * cos(radians(lat))
+                           * power(sin(radians(lng - ?) / 2), 2)
+                       )) AS distance_m
+                FROM read_parquet(?)
+                WHERE route_id = ? AND vehicle_id = ? AND ts BETWEEN ? AND ?
+            )
+            SELECT vehicle_id, trip_id, ts, lat, lng, distance_m
+            FROM nearby
+            WHERE distance_m <= 60
+            ORDER BY distance_m, ts
+            LIMIT 1
+            """,
+            [
+                28.515185,
+                28.515185,
+                77.228193,
+                str(parquet_path),
+                DEMO_CONNECTING_ROUTE_ID,
+                DEMO_CONNECTING_VEHICLE_ID,
+                scheduled_depart_ts - 900,
+                scheduled_depart_ts + 1800,
+            ],
+        ).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        raise RuntimeError("Observed connecting-bus passage is unavailable for the replay demo")
+    return (
+        {
+            "vehicle_id": str(row[0]),
+            "run_id": str(row[1]),
+            "observed": True,
+            "ts": int(row[2]),
+            "lat": float(row[3]),
+            "lng": float(row[4]),
+            "distance_m": float(row[5]),
+        },
+        str(parquet_path),
+    )
+
+
 def _extract_geometries(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     transfer_cand: dict[str, Any] | None = None
     direct_cand: dict[str, Any] | None = None
@@ -173,8 +241,8 @@ def _extract_geometries(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         return result
 
     transfer_scheduled_s = 3793
-    transfer_gap_s = 377
-    connect_sched_iso = "2026-10-22T18:10:04+05:30"
+    transfer_gap_s = 1457
+    connect_sched_iso = "2026-10-22T18:00:04+05:30"
     transfer_route_summary = "717AUP -> D-7702UP -> 413DOWN"
     if transfer_cand:
         t_legs = [leg for leg in transfer_cand.get("legs") or [] if leg.get("transitLeg")]
@@ -277,17 +345,24 @@ async def build_marginal_transfer_demo(
     transfer_gap_s = geom["transfer_gap_s"]
     connecting_depart_dt = datetime.fromisoformat(geom["connecting_scheduled_depart"])
     connecting_depart_ts = int(connecting_depart_dt.timestamp())
+    connecting_passage, connecting_fixture_source = _load_oct22_connecting_passage(
+        data_dir, connecting_depart_ts
+    )
 
     p_start = by_seq.get(0, _FALLBACK_PASSAGES[0])
-    p_mid = by_seq.get(2, _FALLBACK_PASSAGES[1])
-    p_late = by_seq.get(3, _FALLBACK_PASSAGES[2])
+    p_mid = by_seq.get(1, _FALLBACK_PASSAGES[1])
+    p_late = by_seq.get(4, _FALLBACK_PASSAGES[2])
     p_xfer = by_seq.get(DEMO_TRANSFER_STOP_SEQ, _FALLBACK_PASSAGES[3])
 
-    # Actual observed arrival at Ambedkar Nagar Depot vs connecting bus departure
+    # Compare two directly observed passages at the same transfer stop, never schedule with observation.
+    if not p_xfer["observed"] or not connecting_passage["observed"]:
+        raise RuntimeError("Replay outcome requires observed passages for both buses")
     actual_arrival_ts = int(p_xfer["ts"])
+    actual_connecting_depart_ts = int(connecting_passage["ts"])
     scheduled_arrival_ts = int(p_xfer["scheduled_ts"])
     actual_delay_s = int(p_xfer["schedule_error_s"])
-    margin_vs_connection_s = connecting_depart_ts - actual_arrival_ts
+    connecting_delay_s = actual_connecting_depart_ts - connecting_depart_ts
+    margin_vs_connection_s = actual_connecting_depart_ts - actual_arrival_ts
     actual_outcome = "caught" if margin_vs_connection_s >= 0 else "missed"
     missed_by_s = max(0, -margin_vs_connection_s)
 
@@ -297,8 +372,8 @@ async def build_marginal_transfer_demo(
 
     stage_specs = [
         ("initial", "1. Timetable recommends transfer", p_start, 15, False, False),
-        ("delay_growing", "2. First bus falls behind schedule", p_mid, 13, False, False),
-        ("advice_flip", "3. Advice flips to direct bus", p_late, 12, True, False),
+        ("delay_growing", "2. First bus falls behind schedule", p_mid, 14, False, False),
+        ("advice_flip", "3. Advice flips to direct bus", p_late, 11, True, False),
         ("outcome_reveal", "4. Actual Oct 22 outcome revealed", p_xfer, 0, True, True),
     ]
 
@@ -355,10 +430,10 @@ async def build_marginal_transfer_demo(
                 else f"Actual Oct 22 outcome: Connection CAUGHT with {margin_vs_connection_s}s to spare"
             )
             explanation = (
-                f"Real GPS passage for {DEMO_VEHICLE_ID} (run {DEMO_RUN_ID}) at {DEMO_TRANSFER_STOP_NAME} (stop {DEMO_TRANSFER_STOP_ID}): "
-                f"scheduled {_hhmmss(scheduled_arrival_ts)} IST, connecting {DEMO_CONNECTING_ROUTE} departed {_hhmmss(connecting_depart_ts)} IST, "
-                f"actual observed arrival {_hhmmss(actual_arrival_ts)} IST (+{actual_delay_s}s late). "
-                f"The flipped recommendation avoided a missed connection."
+                f"Observed GPS passages at {DEMO_TRANSFER_STOP_NAME} (stop {DEMO_TRANSFER_STOP_ID}): "
+                f"{DEMO_VEHICLE_ID} (run {DEMO_RUN_ID}) had scheduled arrival {_hhmmss(scheduled_arrival_ts)} IST and observed arrival {_hhmmss(actual_arrival_ts)} IST (+{actual_delay_s}s late); "
+                f"connecting {DEMO_CONNECTING_ROUTE} vehicle {DEMO_CONNECTING_VEHICLE_ID} (run {connecting_passage['run_id']}) had scheduled departure {_hhmmss(connecting_depart_ts)} IST and observed departure {_hhmmss(actual_connecting_depart_ts)} IST ({connecting_delay_s:+d}s). "
+                f"The first bus reached the transfer stop {missed_by_s}s after the connecting bus was observed there."
             )
             status_badge = f"OUTCOME REVEALED · {actual_outcome.upper()}"
 
@@ -415,6 +490,7 @@ async def build_marginal_transfer_demo(
         "live_feed_contacted": False,
         "fixture_day": DEMO_DAY,
         "fixture_source": fixture_source,
+        "connecting_fixture_source": connecting_fixture_source,
         "run_id": DEMO_RUN_ID,
         "vehicle_id": DEMO_VEHICLE_ID,
         "route_id": DEMO_ROUTE_ID,
@@ -429,9 +505,16 @@ async def build_marginal_transfer_demo(
             "lng": p_xfer["stop_lng"],
             "scheduled_arrival": _iso(scheduled_arrival_ts),
             "connecting_route": DEMO_CONNECTING_ROUTE,
-            "connecting_depart": geom["connecting_scheduled_depart"],
+            "connecting_run_id": connecting_passage["run_id"],
+            "connecting_vehicle_id": connecting_passage["vehicle_id"],
+            "connecting_scheduled_depart": geom["connecting_scheduled_depart"],
+            "connecting_observed_depart": _iso(actual_connecting_depart_ts),
+            "connecting_observed": connecting_passage["observed"],
+            "connecting_delay_s": connecting_delay_s,
+            "connecting_distance_m": connecting_passage["distance_m"],
             "scheduled_gap_s": transfer_gap_s,
             "actual_arrival": _iso(actual_arrival_ts),
+            "actual_arrival_observed": p_xfer["observed"],
             "actual_delay_s": actual_delay_s,
             "actual_outcome": actual_outcome,
             "missed_by_s": missed_by_s,

@@ -898,6 +898,7 @@
       let demoData = null;
       let demoStageIndex = 0;
       let demoAutoTimer = null;
+      let latestUiAction = 0;
 
       function escapeHtml(str) {
         if (str === null || str === undefined) return "";
@@ -1055,12 +1056,23 @@
         if (data.feed_summary && data.feed_summary.paused) {
           details.push("Poller state: paused");
         }
-        abstentionMeta.textContent = details.join(" · ") || "Stale GPS feed detected; stale options suppressed.";
+        abstentionMeta.textContent = details.join(" · ") || "Options suppressed until timing data is sufficient.";
         abstentionPanel.classList.remove("hidden");
+        const badgeLabels = {
+          stale_feed: "Stale GPS",
+          feed_unavailable: "GPS feed unavailable",
+          insufficient_coverage: "Insufficient GPS coverage",
+          insufficient_route_coverage: "Insufficient route coverage",
+          replay_data_unavailable: "Replay data unavailable"
+        };
+        const badgeLabel = badgeLabels[abs.code] || "Not enough data";
+        const ageText = data.feed_age_seconds !== null && data.feed_age_seconds !== undefined
+          ? " · age " + fmtAge(data.feed_age_seconds)
+          : "";
         setBadge(
           data.mode || "live",
           data.feed_age_seconds,
-          "Stale GPS · age " + fmtAge(data.feed_age_seconds) + (abs.threshold_seconds ? " (limit " + Math.round(abs.threshold_seconds) + "s)" : ""),
+          badgeLabel + ageText + (abs.threshold_seconds ? " (limit " + Math.round(abs.threshold_seconds) + "s)" : ""),
           true
         );
       }
@@ -1329,6 +1341,7 @@
       }
 
       async function submitJourneyQuery() {
+        const actionId = ++latestUiAction;
         hideError();
         hideReplayDemo();
         const fromVal = originInput.value.trim();
@@ -1348,6 +1361,7 @@
           });
           const resp = await fetch("/journeys?" + qs.toString());
           const body = await resp.json();
+          if (actionId !== latestUiAction) return;
           if (!resp.ok) {
             clearJourneyOutput();
             abstentionPanel.classList.add("hidden");
@@ -1361,11 +1375,14 @@
             renderOptions(body);
           }
         } catch (err) {
+          if (actionId !== latestUiAction) return;
           clearJourneyOutput();
           showError("Network error while requesting /journeys: " + (err && err.message ? err.message : String(err)));
         } finally {
-          planBtn.disabled = false;
-          planBtn.textContent = "Plan journey";
+          if (actionId === latestUiAction) {
+            planBtn.disabled = false;
+            planBtn.textContent = "Plan journey";
+          }
         }
       }
 
@@ -1422,7 +1439,7 @@
         }).bindTooltip(
           "Transfer stop: " + data.transfer_stop.stop_name +
           " (connecting " + data.transfer_stop.connecting_route + " departs " +
-          data.transfer_stop.connecting_depart.slice(11, 19) + " IST)"
+          data.transfer_stop.connecting_observed_depart.slice(11, 19) + " IST observed)"
         ).addTo(routeLayer);
 
         // Current bus marker at observed October 22 stop
@@ -1527,6 +1544,7 @@
       }
 
       async function launchReplayDemo() {
+        const actionId = ++latestUiAction;
         hideError();
         abstentionPanel.classList.add("hidden");
         clearJourneyOutput();
@@ -1537,6 +1555,7 @@
         try {
           const resp = await fetch("/replay/demo");
           const body = await resp.json();
+          if (actionId !== latestUiAction) return;
           if (!resp.ok) {
             showError("Failed to load replay demo: " + (body.detail || resp.status));
             return;
@@ -1545,18 +1564,23 @@
           replayDemoPanel.classList.remove("hidden");
           renderReplayDemoStage(0);
         } catch (err) {
+          if (actionId !== latestUiAction) return;
           showError("Network error loading replay demo: " + (err && err.message ? err.message : String(err)));
         } finally {
-          replayDemoBtn.disabled = false;
-          replayDemoBtn.textContent = "Replay demo";
+          if (actionId === latestUiAction) {
+            replayDemoBtn.disabled = false;
+            replayDemoBtn.textContent = "Replay demo";
+          }
         }
       }
 
       async function refreshLiveStatusBanner() {
+        const actionId = latestUiAction;
         try {
           const resp = await fetch("/live/status");
           if (!resp.ok) return;
           const status = await resp.json();
+          if (actionId !== latestUiAction) return;
           if (status.is_fresh) {
             const veh = status.state && status.state.fresh_vehicle_count ? " · " + status.state.fresh_vehicle_count + " buses" : "";
             setBadge("live", status.current_feed_age_seconds, "Feed age: " + fmtAge(status.current_feed_age_seconds) + veh, false);
@@ -1629,6 +1653,7 @@
       replayDemoBtn.addEventListener("click", launchReplayDemo);
 
       document.getElementById("close-demo-btn").addEventListener("click", function () {
+        latestUiAction += 1;
         hideReplayDemo();
         clearMap();
         refreshLiveStatusBanner();

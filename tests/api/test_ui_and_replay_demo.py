@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from copy import deepcopy
 from pathlib import Path
 
@@ -17,8 +18,8 @@ def _candidate_with_coords() -> dict:
                 "mode": "BUS",
                 "transitLeg": True,
                 "duration": 1607,
-                "start": {"scheduledTime": "2026-10-22T17:37:00+05:30"},
-                "end": {"scheduledTime": "2026-10-22T18:03:47+05:30"},
+                "start": {"scheduledTime": "2026-10-22T17:09:00+05:30"},
+                "end": {"scheduledTime": "2026-10-22T17:35:47+05:30"},
                 "from": {
                     "name": "Badarpur Border (T)",
                     "lat": 28.49313,
@@ -32,14 +33,14 @@ def _candidate_with_coords() -> dict:
                     "stop": {"gtfsId": "DTC:7963"},
                 },
                 "route": {"gtfsId": "DTC:2171", "shortName": "717AUP"},
-                "trip": {"gtfsId": "DTC:2171_17_37"},
+                "trip": {"gtfsId": "DTC:2171_17_09_490"},
                 "legGeometry": {"points": "encoded-717a"},
             },
             {
                 "mode": "BUS",
                 "transitLeg": True,
                 "duration": 751,
-                "start": {"scheduledTime": "2026-10-22T18:10:04+05:30"},
+                "start": {"scheduledTime": "2026-10-22T18:00:04+05:30"},
                 "end": {"scheduledTime": "2026-10-22T18:22:35+05:30"},
                 "from": {
                     "name": "Ambedkar Nagar Depot",
@@ -54,7 +55,7 @@ def _candidate_with_coords() -> dict:
                     "stop": {"gtfsId": "DTC:2559"},
                 },
                 "route": {"gtfsId": "DTC:3064", "shortName": "D-7702UP"},
-                "trip": {"gtfsId": "DTC:3064_18_10"},
+                "trip": {"gtfsId": "DTC:3064_17_55"},
                 "legGeometry": {"points": "encoded-d7702"},
             },
         ],
@@ -151,8 +152,8 @@ def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Pat
     assert body["mode"] == "replay"
     assert body["live_feed_contacted"] is False
     assert body["fixture_day"] == "2026-10-22"
-    assert body["run_id"] == "2171_17_37"
-    assert body["vehicle_id"] == "DL1PD5280"
+    assert body["run_id"] == "2171_17_09_490"
+    assert body["vehicle_id"] == "DL1PD7867"
 
     stages = body["stages"]
     assert len(stages) == 4
@@ -178,9 +179,26 @@ def test_replay_demo_uses_real_oct22_parquet_when_available() -> None:
     client = TestClient(app)
     body = client.get("/replay/demo").json()
     assert body["fixture_source"].endswith("day=2026-10-22.parquet")
-    assert body["transfer_stop"]["actual_outcome"] == "missed"
-    assert body["transfer_stop"]["actual_delay_s"] == 830
-    assert body["transfer_stop"]["missed_by_s"] == 453
+    assert body["connecting_fixture_source"].endswith("day=2026-10-22.parquet")
+    transfer = body["transfer_stop"]
+    assert transfer["actual_outcome"] == "missed"
+    assert transfer["actual_delay_s"] == 2308
+    assert transfer["missed_by_s"] == 579
+    assert transfer["actual_arrival_observed"] is True
+    assert transfer["connecting_observed"] is True
+    assert transfer["connecting_vehicle_id"] == "DL1PD8627"
+    assert transfer["connecting_observed_depart"].endswith("18:04:36+05:30")
+    assert transfer["connecting_scheduled_depart"].endswith("18:00:04+05:30")
+
+
+def test_latest_ui_action_wins_when_responses_finish_out_of_order() -> None:
+    result = subprocess.run(
+        ["node", str(Path(__file__).with_name("ui_latest_action_test.cjs"))],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_leg_coordinates_exposed_for_map_rendering(tmp_path: Path) -> None:
