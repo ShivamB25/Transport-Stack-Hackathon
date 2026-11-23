@@ -14,6 +14,19 @@ Configuration is environment-driven (`src/ps1/config.py`): `PS1_DATA_DIR`,
 `PS1_OTP_URL` (default `http://localhost:3102/otp/gtfs/v1`), ports 3100 (API)
 and 3102 (OTP), and the Delhi bbox 27.5-29.0 N / 76.7-77.6 E.
 
+## OpenTripPlanner
+
+Build the Delhi GTFS + BBBike NewDelhi graph and serve it on port 3102 (Java 21,
+OTP 2.8.1, maximum heap 2500 MB):
+
+```bash
+scripts/otp_build.sh > /home/factory-user/ps1-scratch/otp/build.log 2>&1
+scripts/otp_serve.sh
+```
+
+See `docs/otp.md` for inputs, the GraphQL `planConnection` smoke query, and schema
+notes. `reports/otp-smoke.md` records the successful real-itinerary verification.
+
 ## GPS acquisition (October 2026)
 
 The raw feed ships as one 16 GB non-solid 7z with one SQLite per day. We never

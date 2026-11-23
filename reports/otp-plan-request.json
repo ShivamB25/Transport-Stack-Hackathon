@@ -1,0 +1,8 @@
+{
+  "query": "query Plan($from: PlanCoordinateInput!, $to: PlanCoordinateInput!, $t: OffsetDateTime!) { planConnection(origin: {location: {coordinate: $from}}, destination: {location: {coordinate: $to}}, dateTime: {earliestDeparture: $t}, first: 5, searchWindow: \"PT60M\", modes: {direct: [WALK], transit: {transit: [{mode: BUS}]}}, preferences: {street: {walk: {speed: 1.2, reluctance: 2.0}}, transit: {transfer: {slack: \"PT1M\", maximumTransfers: 3}}}, itineraryFilter: {groupSimilarityKeepOne: 0.95, groupSimilarityKeepThree: 0.85}) { searchDateTime routingErrors { code description } pageInfo { endCursor hasNextPage searchWindowUsed } edges { node { start end duration numberOfTransfers walkDistance waitingTime generalizedCost legs { mode transitLeg duration distance serviceDate headsign start { scheduledTime estimated { time delay } } end { scheduledTime estimated { time delay } } from { name lat lon stop { gtfsId code } } to { name lat lon stop { gtfsId code } } route { gtfsId shortName longName } trip { gtfsId } legGeometry { points } } } } } }",
+  "variables": {
+    "from": {"latitude": 28.6675, "longitude": 77.2282},
+    "to": {"latitude": 28.5494, "longitude": 77.2510},
+    "t": "2026-11-24T08:30:00+05:30"
+  }
+}
