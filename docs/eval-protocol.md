@@ -1,7 +1,7 @@
 # Evaluation protocol — 717A baselines
 
-Status: frozen on 2026-11-23 before baseline fitting, prediction, or metric generation.
-Version: 1.0.
+Status: version 1.0 frozen on 2026-11-23 before baseline fitting, prediction, or metric generation.
+Version: 1.1, amended on 2026-11-23 after the all-stop gate failure and before stratified results.
 
 ## Scope and directions
 
@@ -52,7 +52,7 @@ All rungs use one fit/predict interface and predict stretch error; estimated arr
 
 ## Metrics and coverage
 
-For every rung × day × direction group, prediction error is predicted stretch error minus actual stretch error. Report:
+For every stratum × rung × day × direction group, prediction error is predicted stretch error minus actual stretch error. Report:
 
 - query count;
 - MAE (mean absolute prediction error), median AE, and p90 AE in seconds;
@@ -65,6 +65,17 @@ Observed and interpolated/partial counts sum to query count, and their coverage 
 
 Interval-producing rungs must additionally report empirical p10–p90 coverage and mean/median interval width, calibrated only on training days. Point-only baseline rungs leave interval fields empty. Per-leg quantiles are never added to form an end-to-end interval.
 
+## Amendment 1.1 — directly observed ground truth
+
+The version 1.0 all-stop results exposed circular ground truth: rung 0 had median AE of 0 in several groups because schedule-interpolated passage timestamps are derived from the timetable. Scoring the timetable against those timestamps is therefore not independent evidence and biases rung comparisons toward rung 0.
+
+Every metric is now reported for two strata:
+
+- **observed-only:** only queries whose target stretch upstream and downstream endpoints are both directly observed, never interpolated;
+- **all-stop:** the complete version 1.0 paired query set, including interpolated/partial targets.
+
+The all-stop rows remain available with this circularity caveat and are not valid for the persistence gate. No model, fallback, or hyperparameter may be tuned on held-out days in response to these results.
+
 ## Outputs and explicit gate
 
 One scoped command regenerates `reports/eval-baselines.csv` and `reports/eval-baselines.md` for both directions and all three held-out days:
@@ -73,4 +84,4 @@ One scoped command regenerates `reports/eval-baselines.csv` and `reports/eval-ba
 PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate
 ```
 
-The gate is evaluated independently on 2026-10-22 for UP and DOWN using the paired rows and identical coverage: **rung 1 MAE must be strictly less than rung 0 MAE in each direction**. The older-feed values and approximately 30% improvement are historical references only, not targets or pass thresholds. Failure in either direction is escalated rather than hidden by pooling directions or days.
+The gate is evaluated independently on 2026-10-22 for UP and DOWN using only the **observed-only** paired rows and identical coverage: **rung 1 MAE must be strictly less than rung 0 MAE in each direction**. The older-feed values and approximately 30% improvement are historical references only, not targets or pass thresholds. Failure in either direction is recorded as a negative result and escalated without held-out tuning, rather than hidden by pooling directions, days, or strata.
