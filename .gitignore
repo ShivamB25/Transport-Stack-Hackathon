@@ -1,0 +1,27 @@
+# secrets
+.env
+.env.save
+
+# data lives outside the repo (PS1_DATA_DIR)
+data/
+work/
+*.parquet
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# OTP / Java artifacts
+*.jar
+otp/
+graph.obj
+graphs/
