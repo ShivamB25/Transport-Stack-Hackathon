@@ -23,3 +23,16 @@ ARCHIVE_URL = (
 ARCHIVE_USER_AGENT = "curl/8.5.0"
 
 GPS_DIR = "gps"
+LIVE_DIR = "live"
+
+LIVE_FEED_URL = os.environ.get(
+    "PS1_LIVE_FEED_URL",
+    "https://dts-backend.transportstack.in/api/dataset/otd/get-file"
+    "?agency=delhi-buses&category=realtime_gtfs&filename=VehiclePositions.pb",
+)
+LIVE_POLL_INTERVAL_S = float(os.environ.get("PS1_LIVE_POLL_INTERVAL_S", "25"))
+LIVE_STALE_THRESHOLD_S = float(os.environ.get("PS1_LIVE_STALE_THRESHOLD_S", "600"))
+LIVE_ENTITY_MAX_AGE_S = float(os.environ.get("PS1_LIVE_ENTITY_MAX_AGE_S", "900"))
+LIVE_MIN_VEHICLES = int(os.environ.get("PS1_LIVE_MIN_VEHICLES", "10"))
+LIVE_SNAPSHOT_KEEP = int(os.environ.get("PS1_LIVE_SNAPSHOT_KEEP", "30"))
+
