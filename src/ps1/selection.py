@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 LADDER_ORDER: tuple[str, ...] = ("0", "1", "1h", "2", "3", "4")
-SHIPPABLE_ABOVE_PERSISTENCE: tuple[str, ...] = ("4", "3", "2", "1h")
+SHIPPABLE_RUNGS: tuple[str, ...] = ("1", "2", "3", "4")
+SHIPPABLE_ABOVE_PERSISTENCE: tuple[str, ...] = ("4", "3", "2")
 
 
 def _to_float(value: Any) -> float | None:
@@ -57,6 +58,7 @@ def select_shipped_rung(
     *,
     stratum: str = "observed-only",
     calibration: dict[str, Any] | None = None,
+    pooled_interval_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Select the highest rung beating rung 1 MAE at identical coverage on the stratum."""
     scoped = [row for row in rows if str(row["stratum"]) == stratum]
@@ -123,7 +125,7 @@ def select_shipped_rung(
             beats = coverage_matches and rung_mae < baseline_mae
             interval_cov = weighted_optional(group_map, "interval_coverage_pct")
             mean_width = weighted_optional(group_map, "mean_interval_width_s")
-            median_width = weighted_optional(group_map, "median_interval_width_s")
+            weighted_median_width = weighted_optional(group_map, "median_interval_width_s")
         else:
             rung_mae = None
             delta = None
@@ -131,10 +133,11 @@ def select_shipped_rung(
             beats = False
             interval_cov = None
             mean_width = None
-            median_width = None
+            weighted_median_width = None
 
         candidates_summary[rung] = {
             "rung": rung,
+            "shippable": rung in SHIPPABLE_RUNGS,
             "queries": total_queries if complete else sum(_to_int(r["queries"]) for r in group_map.values()),
             "overall_mae_s": rung_mae,
             "delta_vs_rung1_s": delta,
@@ -145,7 +148,7 @@ def select_shipped_rung(
             "beats_rung1_all_groups": complete and wins == len(ordered_groups),
             "interval_coverage_pct": interval_cov,
             "mean_interval_width_s": mean_width,
-            "median_interval_width_s": median_width,
+            "weighted_mean_group_median_width_s": weighted_median_width,
         }
 
     selected_rung = "1"
@@ -182,11 +185,13 @@ def select_shipped_rung(
         "selected_rung": selected_rung,
         "stratum": stratum,
         "rule": (
-            "Ship the highest rung in ladder order (0 < 1 < 1h < 2 < 3 < 4) whose held-out "
-            "observed-only query-weighted MAE is strictly lower than rung 1 (persistence) at "
-            "identical per-group observed-vs-interpolated coverage; otherwise ship rung 1."
+            "Ship the highest shippable rung in (4, 3, 2) whose held-out observed-only "
+            "query-weighted MAE is strictly lower than rung 1 (persistence) at identical "
+            "per-group observed-vs-interpolated coverage; otherwise ship rung 1. Rung 1h is "
+            "a non-shippable historical baseline and never appears as selected_rung."
         ),
         "ladder_order": list(LADDER_ORDER),
+        "shippable_rungs": list(SHIPPABLE_RUNGS),
         "holdout_days": sorted({day for day, _ in ordered_groups}),
         "total_observed_queries": total_queries,
         "baseline_rung": "1",
@@ -198,6 +203,8 @@ def select_shipped_rung(
     }
     if calibration is not None:
         decision["calibration"] = calibration
+    if pooled_interval_metrics is not None:
+        decision["pooled_interval_metrics"] = pooled_interval_metrics
     return decision
 
 

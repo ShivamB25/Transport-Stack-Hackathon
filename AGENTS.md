@@ -15,9 +15,9 @@ Real-time bus travel-time modeling and journey planning for Delhi DTC buses usin
   - `acquire.py`: Resumable 31-day orchestrator (priority days first, 2 workers); verifies existing Parquets in place via `verify_day`, never deletes canonical Parquets on refresh failure, and writes `download.log` + `STATUS.md`.
   - `stop_passages.py`: Geometric GPS-to-stop-pattern matching (60 m radius, min-distance per stop, max-cardinality nondecreasing anchor chain, schedule-proportional interpolation, adjacent IST service-date resolution for midnight-crossing runs, per-passage `available_at` GPS availability epoch) and coverage reporting (`reports/coverage-717a.md`, protected from scoped runs).
   - `features.py`: Stretch error tables and strictly causal replay features.
-  - `model.py`: Model ladder rungs `0` (timetable), `1` (persistence), `1h` (historical median), `2` (+ day-type), `3` (+ vehicle last observed delay), `4` (LightGBM quantile p10/p50/p90 + split-conformal calibration), and artifact persistence.
+  - `model.py`: Model ladder rungs `0` (timetable), `1` (persistence), `1h` (historical median), `2` (+ day-type), `3` (+ vehicle last observed delay), `4` (LightGBM quantile p10/p50/p90 + split-conformal calibration), artifact persistence, and as-of eligibility metadata/checks.
   - `evaluate.py`: Frozen whole-day evaluation runner emitting `reports/eval-baselines.{csv,md}` and `reports/eval-full.{csv,md}`.
-  - `selection.py`: Ship-decision rule (`reports/selection.json`) picking the highest rung beating rung 1 on held-out observed-only MAE at matching coverage.
+  - `selection.py`: Ship-decision rule (`reports/selection.json`) picking the highest shippable rung `4`/`3`/`2` beating rung 1 on held-out observed-only MAE at matching coverage, otherwise rung 1; rung `1h` is report-only.
   - `live_poller.py`: Polls live Delhi GTFS-RT `VehiclePositions.pb`, writes snapshots/route stats under `data/live/`, tracks feed age.
   - `otp_client.py`: GraphQL `planConnection` client for OTP 2.8.1 (`/otp/gtfs/v1`).
   - `retime.py`: Re-times OTP candidate transit legs using the selected model artifact and fallback chain, computes waits, joint-scenario transfer risk, and door-to-door `[p10, p90]` windows.

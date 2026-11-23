@@ -19,7 +19,9 @@ from ps1.model import (
     Rung2DayTypeModel,
     Rung3LastDelayModel,
     Rung4QuantileLightGBMModel,
+    artifact_cutoff_metadata,
     load_model_artifact,
+    model_artifact_eligible_as_of,
     save_model_artifact,
 )
 from ps1.selection import load_eval_csv, select_shipped_rung
@@ -162,6 +164,32 @@ def _metric_row(day: str, direction: str, rung: str, mae: float, queries: int = 
     }
 
 
+def test_artifact_cutoff_metadata_and_eligibility() -> None:
+    latest_training = int(datetime(2026, 10, 14, 23, 30, tzinfo=IST).timestamp())
+    latest_calibration = int(datetime(2026, 10, 16, 0, 30, tzinfo=IST).timestamp())
+    metadata = artifact_cutoff_metadata(
+        training_days=("2026-10-05", "2026-10-14"),
+        calibration_days=("2026-10-15",),
+        latest_training_available_at=latest_training,
+        latest_calibration_available_at=latest_calibration,
+    )
+
+    assert metadata["training_cutoff_day"] == "2026-10-14"
+    assert metadata["calibration_cutoff_day"] == "2026-10-15"
+    assert metadata["data_cutoff_day"] == "2026-10-15"
+    # The late calibration anchor moves eligibility past the default next midnight.
+    assert metadata["eligible_from_ts"] == latest_calibration + 1
+    assert metadata["eligible_from_day"] == "2026-10-16"
+    assert not model_artifact_eligible_as_of(metadata, latest_calibration)
+    assert model_artifact_eligible_as_of(metadata, latest_calibration + 1)
+    assert not model_artifact_eligible_as_of({}, latest_calibration + 1)
+
+    persistence = artifact_cutoff_metadata(training_days=(), calibration_days=())
+    assert persistence["training_cutoff_day"] is None
+    assert persistence["eligible_from_ts"] == 0
+    assert model_artifact_eligible_as_of(persistence, 0)
+
+
 def test_selection_rule_ladder_and_coverage_match() -> None:
     # 1. Rung 4 beats rung 1 at same coverage -> ships rung 4
     rows = [
@@ -194,6 +222,23 @@ def test_selection_rule_ladder_and_coverage_match() -> None:
         _metric_row("2026-10-22", "UP", "4", 85.0),  # tie does not beat strictly
     ]
     assert select_shipped_rung(worse_rows)["selected_rung"] == "1"
+
+
+def test_1h_only_winner_is_reported_but_persistence_ships() -> None:
+    rows = [
+        _metric_row("2026-10-22", "UP", "0", 95.0),
+        _metric_row("2026-10-22", "UP", "1", 85.0),
+        _metric_row("2026-10-22", "UP", "1h", 70.0),
+        _metric_row("2026-10-22", "UP", "2", 86.0),
+        _metric_row("2026-10-22", "UP", "3", 87.0),
+        _metric_row("2026-10-22", "UP", "4", 88.0),
+    ]
+    decision = select_shipped_rung(rows)
+    assert decision["selected_rung"] == "1"
+    assert decision["shippable_rungs"] == ["1", "2", "3", "4"]
+    assert decision["candidates"]["1h"]["beats_rung1_overall"]
+    assert not decision["candidates"]["1h"]["shippable"]
+    assert decision["selected_rung"] in decision["shippable_rungs"]
 
 
 def test_committed_selection_matches_fresh_rule_application() -> None:

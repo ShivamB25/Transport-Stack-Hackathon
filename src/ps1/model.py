@@ -6,6 +6,7 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -15,6 +16,7 @@ import numpy as np
 from sklearn.linear_model import HuberRegressor
 
 from ps1.features import (
+    IST,
     NUMERIC_FEATURE_NAMES,
     CausalFeatures,
     ReplayQuery,
@@ -705,6 +707,52 @@ class Rung4QuantileLightGBMModel:
         return model
 
 
+def artifact_cutoff_metadata(
+    *,
+    training_days: Sequence[str],
+    calibration_days: Sequence[str],
+    latest_training_available_at: int | None = None,
+    latest_calibration_available_at: int | None = None,
+) -> dict[str, Any]:
+    """Describe when an artifact's fitting and calibration data are fully available."""
+    training = sorted(set(training_days))
+    calibration = sorted(set(calibration_days))
+    training_cutoff = max(training) if training else None
+    calibration_cutoff = max(calibration) if calibration else None
+    data_cutoff = max((day for day in (training_cutoff, calibration_cutoff) if day), default=None)
+    availability = [
+        value
+        for value in (latest_training_available_at, latest_calibration_available_at)
+        if value is not None
+    ]
+    if data_cutoff is None:
+        eligible_from_ts = 0
+        eligible_from_day = None
+    else:
+        next_day = datetime.fromisoformat(data_cutoff).replace(tzinfo=IST) + timedelta(days=1)
+        eligible_from_ts = int(next_day.timestamp())
+        if availability:
+            eligible_from_ts = max(eligible_from_ts, max(availability) + 1)
+        eligible_from_day = datetime.fromtimestamp(eligible_from_ts, IST).date().isoformat()
+    return {
+        "training_cutoff_day": training_cutoff,
+        "calibration_cutoff_day": calibration_cutoff,
+        "data_cutoff_day": data_cutoff,
+        "latest_training_available_at": latest_training_available_at,
+        "latest_calibration_available_at": latest_calibration_available_at,
+        "eligible_from_day": eligible_from_day,
+        "eligible_from_ts": eligible_from_ts,
+    }
+
+
+def model_artifact_eligible_as_of(metadata: dict[str, Any], as_of_ts: int) -> bool:
+    """Return whether persisted metadata explicitly permits use at the replay cutoff."""
+    eligible_from_ts = metadata.get("eligible_from_ts")
+    if isinstance(eligible_from_ts, bool) or not isinstance(eligible_from_ts, int):
+        return False
+    return int(as_of_ts) >= eligible_from_ts
+
+
 @dataclass
 class LoadedModelArtifact:
     """Persisted selected-rung model and metadata loaded by the journeys API."""
@@ -713,6 +761,9 @@ class LoadedModelArtifact:
     model: BaselineModel | Rung2DayTypeModel | Rung3LastDelayModel | Rung4QuantileLightGBMModel
     covered_routes: frozenset[int]
     metadata: dict[str, Any]
+
+    def is_eligible_as_of(self, as_of_ts: int) -> bool:
+        return model_artifact_eligible_as_of(self.metadata, as_of_ts)
 
     def predict_from_features(
         self,

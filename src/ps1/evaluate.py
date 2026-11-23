@@ -25,6 +25,7 @@ from ps1.model import (
     Rung2DayTypeModel,
     Rung3LastDelayModel,
     Rung4QuantileLightGBMModel,
+    artifact_cutoff_metadata,
     save_model_artifact,
 )
 from ps1.selection import select_shipped_rung, write_selection
@@ -361,7 +362,7 @@ def write_full_reports(
     lines.extend(
         [
             "",
-            "| Rung | Observed queries | Overall MAE s | Delta vs rung 1 s | Coverage matches rung 1 | Groups beating rung 1 | Interval cov % | Mean width s | Median width s |",
+            "| Rung | Observed queries | Overall MAE s | Delta vs rung 1 s | Coverage matches rung 1 | Groups beating rung 1 | Interval cov % | Mean width s | Weighted mean group median width s |",
             "|---:|---:|---:|---:|---|---:|---:|---:|---:|",
         ]
     )
@@ -376,7 +377,22 @@ def write_full_reports(
             f"{cand['groups_beating_rung1']}/{cand['total_groups']} | "
             f"{_fmt_opt(cand['interval_coverage_pct'])} | "
             f"{_fmt_opt(cand['mean_interval_width_s'])} | "
-            f"{_fmt_opt(cand['median_interval_width_s'])} |"
+            f"{_fmt_opt(cand['weighted_mean_group_median_width_s'])} |"
+        )
+
+    pooled = decision.get("pooled_interval_metrics")
+    if pooled:
+        lines.extend(
+            [
+                "",
+                "## Pooled held-out observed-only rung 4 intervals",
+                "",
+                (
+                    f"- Exact pooled query median width: **{pooled['median_interval_width_s']:.3f} s** "
+                    f"across {pooled['queries']} queries (mean width {pooled['mean_interval_width_s']:.3f} s, "
+                    f"coverage {pooled['interval_coverage_pct']:.3f}%)."
+                ),
+            ]
         )
 
     cal = decision.get("calibration")
@@ -444,6 +460,28 @@ def save_rung4_predictions(
     return output_path
 
 
+def pooled_rung4_interval_metrics(predictions_path: Path) -> dict[str, Any]:
+    """Compute exact pooled observed-only interval statistics from per-query predictions."""
+    table = pq.read_table(
+        predictions_path,
+        columns=["target_observed", "covered", "width_s"],
+    )
+    observed = np.asarray(table["target_observed"], dtype=bool)
+    if not np.any(observed):
+        raise ValueError("saved rung 4 predictions contain no observed-only queries")
+    covered = np.asarray(table["covered"], dtype=bool)[observed]
+    widths = np.asarray(table["width_s"], dtype=float)[observed]
+    return {
+        "rung": "4",
+        "stratum": "observed-only",
+        "aggregation": "pooled_queries",
+        "queries": int(np.sum(observed)),
+        "interval_coverage_pct": _rounded(100.0 * np.mean(covered)),
+        "mean_interval_width_s": _rounded(np.mean(widths)),
+        "median_interval_width_s": _rounded(np.median(widths)),
+    }
+
+
 def run_evaluation(
     data_dir: Path,
     output_dir: Path,
@@ -461,10 +499,12 @@ def run_evaluation(
 
     fit_stretches = []
     fit_queries = []
+    availability_by_day: dict[str, int] = {}
     cal_stretches = []
     cal_queries = []
     for day in TRAIN_DAYS:
         passages = load_passages(data_dir / "passages" / f"day={day}.parquet")
+        availability_by_day[day] = max(p.source_available_at for p in passages)
         stretches = build_stretch_errors(passages)
         queries = build_replay_queries(stretches, passages)
         if day in FIT_DAYS:
@@ -531,14 +571,40 @@ def run_evaluation(
             resolved_model_dir / "eval-predictions-rung4.parquet",
             active_routes,
         )
+        pooled_intervals = pooled_rung4_interval_metrics(pred_path)
         decision = select_shipped_rung(
             full_rows,
             stratum="observed-only",
             calibration=rung4.calibration_info,
+            pooled_interval_metrics=pooled_intervals,
         )
+        decision["persistence_gate_oct22"] = persistence_gate(full_rows)
         write_full_reports(full_rows, decision, output_dir, predictions_path=pred_path)
 
         selected_rung = str(decision["selected_rung"])
+        if selected_rung == "4":
+            artifact_training_days = FIT_DAYS
+            artifact_calibration_days = CALIBRATION_DAYS
+        elif selected_rung in {"1h", "2", "3"}:
+            artifact_training_days = TRAIN_DAYS
+            artifact_calibration_days = ()
+        else:
+            artifact_training_days = ()
+            artifact_calibration_days = ()
+        latest_training_available = max(
+            (availability_by_day[day] for day in artifact_training_days),
+            default=None,
+        )
+        latest_calibration_available = max(
+            (availability_by_day[day] for day in artifact_calibration_days),
+            default=None,
+        )
+        cutoffs = artifact_cutoff_metadata(
+            training_days=artifact_training_days,
+            calibration_days=artifact_calibration_days,
+            latest_training_available_at=latest_training_available,
+            latest_calibration_available_at=latest_calibration_available,
+        )
         save_model_artifact(
             models[selected_rung],
             resolved_model_dir,
@@ -551,6 +617,7 @@ def run_evaluation(
                 "selection_overall_mae_s": decision["selected_overall_mae_s"],
                 "baseline_overall_mae_s": decision["baseline_overall_mae_s"],
                 "predictions_path": str(pred_path),
+                **cutoffs,
             },
         )
 
