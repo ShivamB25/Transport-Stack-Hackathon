@@ -87,6 +87,7 @@ class WaitEstimate:
     timing_source: str | None = None
     observation_count: int = 0
     coverage_note: str | None = None
+    departure_delay_s: float = 0.0
 
 
 def _default_timing_source(source: str) -> str:
@@ -162,16 +163,22 @@ class RetimeModel:
 
     def replay_reference_info(self, depart: datetime) -> dict[str, Any]:
         """Summarize causal October observations visible at a replay departure."""
+        depart = depart.astimezone(IST)
         depart_ts = int(depart.timestamp())
         day_str = depart.date().isoformat()
-        visible = [r for r in self.records if r.stretch.to_ts <= depart_ts]
+        visible = self._visible(self.records, depart_ts)
         same_day = [r for r in visible if r.stretch.day == day_str]
         observed_same_day = [r for r in same_day if r.stretch.target_observed]
         candidate_pool = observed_same_day or same_day or visible
-        latest_ts = max((r.stretch.to_ts for r in candidate_pool), default=None)
+        latest_ts = max((r.stretch.available_at for r in candidate_pool), default=None)
         if latest_ts is None:
             latest_stop = max(
-                (row.ts for rows in self.stop_events.values() for row in rows if row.ts <= depart_ts),
+                (
+                    row.source_available_at
+                    for rows in self.stop_events.values()
+                    for row in rows
+                    if row.ts < depart_ts and row.source_available_at < depart_ts
+                ),
                 default=None,
             )
             latest_ts = latest_stop
@@ -239,11 +246,13 @@ class RetimeModel:
             group.sort(key=lambda row: row.ts)
 
     @staticmethod
-    def _visible(records: list[TimingRecord], depart_ts: int) -> list[TimingRecord]:
+    def _visible(records: list[TimingRecord], as_of_ts: int) -> list[TimingRecord]:
         return [
             record
             for record in records
-            if record.stretch.query_ts < depart_ts and record.stretch.to_ts <= depart_ts
+            if record.stretch.query_ts < as_of_ts
+            and record.stretch.to_ts <= as_of_ts
+            and record.stretch.available_at < as_of_ts
         ]
 
     @staticmethod
@@ -305,16 +314,18 @@ class RetimeModel:
         to_stop: str,
         scheduled_s: float,
         depart: datetime,
+        as_of: datetime | None,
         mode: str,
         same_day_route: list[TimingRecord],
         live_stat: dict[str, Any] | None,
     ) -> CausalFeatures:
-        depart_ts = int(depart.timestamp())
-        dt_ist = depart.astimezone(IST)
+        depart = depart.astimezone(IST)
+        as_of_ts = int((as_of or depart).timestamp())
+        dt_ist = depart
         hour = dt_ist.hour
         minute_of_day = hour * 60 + dt_ist.minute
         angle = 2.0 * math.pi * minute_of_day / 1440.0
-        dow, day_type, coarse_day_type, is_weekend = day_type_for_timestamp(depart_ts)
+        dow, day_type, coarse_day_type, is_weekend = day_type_for_timestamp(int(depart.timestamp()))
 
         geom = getattr(self, "route_geometries", {}).get((route_id, direction))
         if geom is not None:
@@ -343,7 +354,7 @@ class RetimeModel:
             day_str = depart.date().isoformat()
             exact_visible = [
                 r
-                for r in self._visible(self.exact.get((route_id, from_stop, to_stop), []), depart_ts)
+                for r in self._visible(self.exact.get((route_id, from_stop, to_stop), []), as_of_ts)
                 if r.stretch.day == day_str
             ]
             obs_exact = [r for r in exact_visible if r.stretch.target_observed]
@@ -351,10 +362,10 @@ class RetimeModel:
             if prev_pool:
                 prev = max(prev_pool, key=lambda r: (r.stretch.query_ts, r.stretch.run_id))
                 previous_error_s = float(prev.stretch.error_s)
-                previous_error_age_s = float(max(0, depart_ts - prev.stretch.to_ts))
+                previous_error_age_s = float(max(0, as_of_ts - prev.stretch.available_at))
                 previous_observed = 1.0 if prev.stretch.target_observed else 0.0
 
-            recent_30m = [r for r in same_day_route if r.stretch.to_ts >= depart_ts - 1800]
+            recent_30m = [r for r in same_day_route if r.stretch.available_at >= as_of_ts - 1800]
             route_pool = recent_30m or same_day_route
             if route_pool:
                 paces = [
@@ -378,11 +389,13 @@ class RetimeModel:
             stop_rows = [
                 p
                 for p in self.stop_events.get((route_id, from_stop), [])
-                if p.day == day_str and p.ts < depart_ts
+                if p.day == day_str
+                and p.ts < as_of_ts
+                and p.source_available_at < as_of_ts
             ]
             if stop_rows:
                 last_p = stop_rows[-1]
-                gap = depart_ts - last_p.ts
+                gap = as_of_ts - last_p.source_available_at
                 if 0 < gap <= 14_400:
                     headway_s = float(gap)
                 if gap <= 1800:
@@ -397,7 +410,8 @@ class RetimeModel:
                         for r in same_day_route
                         if r.stretch.run_id == last_p.run_id
                         and r.stretch.to_sequence <= from_seq
-                        and r.stretch.to_ts <= depart_ts
+                        and r.stretch.to_ts <= as_of_ts
+                        and r.stretch.available_at < as_of_ts
                     ]
                     if run_prior:
                         run_prior.sort(key=lambda s: s.from_sequence)
@@ -466,6 +480,7 @@ class RetimeModel:
         to_stop: str,
         scheduled: float,
         depart: datetime,
+        as_of: datetime | None,
         mode: str,
         same_day_route: list[TimingRecord],
         hist_reference: list[TimingRecord],
@@ -511,6 +526,7 @@ class RetimeModel:
                     to_stop=sid_b,
                     scheduled_s=stretch_sched,
                     depart=depart,
+                    as_of=as_of,
                     mode=mode,
                     same_day_route=same_day_route,
                     live_stat=live_stat,
@@ -537,6 +553,7 @@ class RetimeModel:
                 to_stop=sid_b,
                 scheduled_s=mid_sched,
                 depart=depart,
+                as_of=as_of,
                 mode=mode,
                 same_day_route=same_day_route,
                 live_stat=live_stat,
@@ -635,29 +652,34 @@ class RetimeModel:
         depart: datetime,
         mode: str,
         replay_delay_s: float = 0.0,
+        as_of: datetime | None = None,
     ) -> TimingEstimate:
         scheduled = max(1.0, scheduled_duration_s)
-        depart_ts = int(depart.timestamp())
-        exact = self._visible(self.exact.get((route_id, from_stop, to_stop), []), depart_ts)
+        depart = depart.astimezone(IST)
+        observation_cutoff = (as_of or depart).astimezone(IST)
+        as_of_ts = int(observation_cutoff.timestamp())
+        service_day = depart.date().isoformat()
+        exact = self._visible(self.exact.get((route_id, from_stop, to_stop), []), as_of_ts)
         same_day = [
             record
             for record in exact
-            if record.stretch.day == depart.date().isoformat() and record.stretch.target_observed
+            if record.stretch.day == service_day and record.stretch.target_observed
         ]
         historical_exact = [record for record in exact if record.stretch.target_observed]
         same_hour = [record for record in historical_exact if record.hour == depart.hour]
-        route_records = self._visible(self.route_hour.get((route_id, depart.hour), []), depart_ts)
+        route_records = self._visible(self.route_hour.get((route_id, depart.hour), []), as_of_ts)
         same_day_route = [
             record
             for record in self.records
             if record.stretch.route_id == route_id
-            and record.stretch.day == depart.date().isoformat()
+            and record.stretch.day == service_day
             and record.stretch.target_observed
-            and record.stretch.query_ts < depart_ts
-            and record.stretch.to_ts <= depart_ts
-            and record.stretch.to_ts >= depart_ts - 7200
+            and record.stretch.query_ts < as_of_ts
+            and record.stretch.to_ts <= as_of_ts
+            and record.stretch.available_at < as_of_ts
+            and record.stretch.available_at >= as_of_ts - 7200
         ]
-        global_records = self._visible(self.global_hour.get(depart.hour, []), depart_ts)
+        global_records = self._visible(self.global_hour.get(depart.hour, []), as_of_ts)
 
         if same_hour:
             hist_reference = same_hour
@@ -678,14 +700,17 @@ class RetimeModel:
         live_stat = self._live_route_stat(route_id) if mode == "live" else None
         live_fresh = int(live_stat.get("fresh_vehicle_count", 0)) if live_stat else 0
 
-        # If a non-rung-1 model artifact is loaded and covers this route, use it directly
         artifact = getattr(self, "_artifact", None)
-        if (
-            artifact is not None
+        artifact_eligible = artifact is not None and (
+            mode != "replay" or artifact.is_eligible_as_of(as_of_ts)
+        )
+        artifact_usable = (
+            artifact_eligible
             and artifact.rung == self.selected_rung
             and self.selected_rung != "1"
             and route_id in artifact.covered_routes
-        ):
+        )
+        if artifact_usable:
             estimate = self._predict_covered_route_with_artifact(
                 artifact=artifact,
                 route_id=route_id,
@@ -693,6 +718,7 @@ class RetimeModel:
                 to_stop=to_stop,
                 scheduled=scheduled,
                 depart=depart,
+                as_of=observation_cutoff,
                 mode=mode,
                 same_day_route=same_day_route,
                 hist_reference=hist_reference,
@@ -702,13 +728,26 @@ class RetimeModel:
             if estimate is not None:
                 return estimate
 
-        # Uncovered routes (or when selected_rung == "1"): keep rung-1 persistence -> historical -> timetable chain
-        is_covered = artifact is not None and route_id in artifact.covered_routes
-        fallback_suffix = (
-            f" (route {route_id} outside rung {self.selected_rung} model scope)"
-            if self.selected_rung != "1" and not is_covered
-            else ""
+        # Uncovered and ineligible-artifact routes use the causal rung-1 fallback chain.
+        is_covered = artifact_usable and route_id in artifact.covered_routes
+        artifact_ineligible = (
+            artifact is not None
+            and not artifact_eligible
+            and mode == "replay"
+            and self.selected_rung != "1"
+            and route_id in artifact.covered_routes
         )
+        if artifact_ineligible:
+            fallback_suffix = (
+                f" (selected artifact ineligible as of {observation_cutoff.isoformat()}; "
+                "causal rung 1 fallback)"
+            )
+        else:
+            fallback_suffix = (
+                f" (route {route_id} outside rung {self.selected_rung} model scope)"
+                if self.selected_rung != "1" and not is_covered
+                else ""
+            )
 
         if mode == "replay" and same_day:
             previous = max(same_day, key=lambda record: record.stretch.query_ts)
@@ -792,7 +831,7 @@ class RetimeModel:
             coverage = 0.0
             coverage_note = (
                 f"no live or historical observations for route {route_id} "
-                f"at hour {depart.hour:02d}; timetable fallback"
+                f"at hour {depart.hour:02d}; timetable fallback{fallback_suffix}"
             )
 
         if replay_delay_s:
@@ -823,12 +862,16 @@ class RetimeModel:
         scheduled_wait_s: float,
         depart: datetime,
         mode: str,
+        as_of: datetime | None = None,
     ) -> WaitEstimate:
-        depart_ts = int(depart.timestamp())
+        depart = depart.astimezone(IST)
+        as_of_ts = int((as_of or depart).timestamp())
         events = [
             row
             for row in self.stop_events.get((route_id, stop_id), [])
-            if row.ts <= depart_ts and row.ts >= depart_ts - 6 * 3600
+            if row.ts < as_of_ts
+            and row.source_available_at < as_of_ts
+            and row.source_available_at >= as_of_ts - 6 * 3600
         ]
         scheduled_wait = max(0.0, scheduled_wait_s)
         if not events:
@@ -868,7 +911,7 @@ class RetimeModel:
             if 30 <= later.ts - earlier.ts <= 3600
         ]
         headway = median(headways) if headways else 600.0
-        delay = median(row.ts - row.scheduled_ts for row in run_events[-5:])
+        delay = median(row.effective_schedule_error_s for row in run_events[-5:])
         wait = max(0.0, min(headway, headway / 2 + delay))
         source = "replay" if mode == "replay" else "historical"
         timing_source = "model_replay" if mode == "replay" else "historical_fallback"
@@ -886,6 +929,7 @@ class RetimeModel:
             timing_source=timing_source,
             observation_count=len(run_events),
             coverage_note=note,
+            departure_delay_s=float(delay),
         )
 
 
@@ -954,6 +998,7 @@ def retime_itinerary(
     replay_delay_s: float = 0.0,
 ) -> dict[str, Any]:
     """Replace OTP timing and produce correlated, transfer-aware scenarios."""
+    depart = depart.astimezone(IST)
     raw_legs = itinerary.get("legs", [])
     transit_legs = [leg for leg in raw_legs if leg.get("transitLeg")]
     if not transit_legs:
@@ -961,7 +1006,8 @@ def retime_itinerary(
     first_transit = True
     events: list[dict[str, Any]] = []
     previous_transit: dict[str, Any] | None = None
-    for raw in raw_legs:
+    previous_transit_index = -1
+    for raw_index, raw in enumerate(raw_legs):
         if not raw.get("transitLeg"):
             leg = _base_leg("walk", raw)
             duration = float(raw.get("duration", 0))
@@ -970,23 +1016,61 @@ def retime_itinerary(
             continue
         scheduled_start = raw["start"]["scheduledTime"]
         scheduled_end = raw["end"]["scheduledTime"]
-        transit_depart = datetime.fromisoformat(scheduled_start)
+        transit_depart = datetime.fromisoformat(scheduled_start).astimezone(IST)
         route_id = _route_id(raw)
         from_stop = _stop_id(raw.get("from") or {})
         to_stop = _stop_id(raw.get("to") or {})
         scheduled_ride = float(raw.get("duration", _seconds_between(scheduled_start, scheduled_end)))
-        scheduled_wait = 0.0
         if previous_transit is None:
-            raw_index = raw_legs.index(raw)
-            if raw_index:
-                scheduled_wait = _seconds_between(raw_legs[raw_index - 1]["end"]["scheduledTime"], scheduled_start)
+            initial_walk_s = sum(
+                float(previous.get("duration", 0))
+                for previous in raw_legs[:raw_index]
+                if not previous.get("transitLeg")
+            )
+            scheduled_wait = max(
+                0.0,
+                (transit_depart - depart).total_seconds() - initial_walk_s,
+            )
+            wait = model.predict_wait(
+                route_id,
+                from_stop,
+                scheduled_wait,
+                transit_depart,
+                mode,
+                as_of=depart,
+            )
         else:
-            scheduled_wait = _seconds_between(previous_transit["end"]["scheduledTime"], scheduled_start)
+            scheduled_gap = _seconds_between(
+                previous_transit["end"]["scheduledTime"],
+                scheduled_start,
+            )
+            transfer_walk_s = sum(
+                float(previous.get("duration", 0))
+                for previous in raw_legs[previous_transit_index + 1:raw_index]
+                if not previous.get("transitLeg")
+            )
+            scheduled_wait = max(0.0, scheduled_gap - transfer_walk_s)
+            wait = model.predict_wait(
+                route_id,
+                from_stop,
+                scheduled_wait,
+                transit_depart,
+                mode,
+                as_of=depart,
+            )
+            previous_place = previous_transit.get("to") or {}
+            next_place = raw.get("from") or {}
             transfer = _base_leg("transfer", raw)
-            transfer["from_stop"] = (previous_transit.get("to") or {}).get("name")
-            transfer["from_stop_id"] = _stop_id(previous_transit.get("to") or {})
-            wait = model.predict_wait(route_id, from_stop, scheduled_wait, transit_depart, mode)
             transfer.update(
+                from_stop=previous_place.get("name"),
+                from_stop_id=_stop_id(previous_place) or None,
+                from_lat=previous_place.get("lat"),
+                from_lng=previous_place.get("lon"),
+                to_stop=next_place.get("name"),
+                to_stop_id=_stop_id(next_place) or None,
+                to_lat=next_place.get("lat"),
+                to_lng=next_place.get("lon"),
+                geometry=None,
                 scheduled_duration_s=round(scheduled_wait),
                 source=wait.source,
                 timing_source=wait.timing_source or _default_timing_source(wait.source),
@@ -997,11 +1081,13 @@ def retime_itinerary(
             events.append({
                 "leg": transfer,
                 "kind": "transfer",
-                "scheduled_gap": scheduled_wait,
+                "scheduled_wait": scheduled_wait,
+                "connection_departure_s": (
+                    (transit_depart - depart).total_seconds() + wait.departure_delay_s
+                ),
                 "wait": wait,
             })
         board = _base_leg("board", raw)
-        wait = model.predict_wait(route_id, from_stop, scheduled_wait, transit_depart, mode)
         board_duration = wait.duration_s if first_transit else 0.0
         board.update(
             scheduled_duration_s=round(scheduled_wait if first_transit else 0),
@@ -1027,6 +1113,7 @@ def retime_itinerary(
             depart if first_transit else transit_depart,
             mode,
             injected,
+            as_of=depart,
         )
         ride = _base_leg("ride", raw)
         ride_timing_source = estimate.timing_source or _default_timing_source(estimate.source)
@@ -1050,6 +1137,7 @@ def retime_itinerary(
         )
         events.append({"leg": alight, "kind": "fixed", "duration": 0.0})
         previous_transit = raw
+        previous_transit_index = raw_index
         first_transit = False
 
     rng = random.Random(717)
@@ -1058,7 +1146,6 @@ def retime_itinerary(
     for _ in range(SCENARIOS):
         shared = rng.gauss(0.0, 1.0)
         elapsed = 0.0
-        nominal = 0.0
         durations: list[float] = []
         for index, event in enumerate(events):
             kind = event["kind"]
@@ -1073,18 +1160,14 @@ def retime_itinerary(
                 duration = max(1.0, estimate.duration_s + spread * (0.8 * shared + 0.6 * rng.gauss(0.0, 1.0)))
             else:
                 wait = event["wait"]
-                scheduled_departure = nominal + event["scheduled_gap"]
-                if elapsed <= scheduled_departure:
-                    duration = scheduled_departure - elapsed
+                connection_departure = event["connection_departure_s"]
+                if elapsed <= connection_departure:
+                    duration = connection_departure - elapsed
                 else:
                     missed[index] += 1
-                    duration = wait.headway_s - ((elapsed - scheduled_departure) % wait.headway_s)
+                    duration = wait.headway_s - ((elapsed - connection_departure) % wait.headway_s)
             durations.append(duration)
             elapsed += duration
-            if kind != "transfer":
-                nominal += event["leg"]["estimated_duration_s"]
-            else:
-                nominal += event["scheduled_gap"]
         scenarios.append(durations)
 
     windows = scenario_windows(scenarios)
@@ -1103,6 +1186,7 @@ def retime_itinerary(
         output_legs.append(leg)
 
     quiet_total = 0.0
+    quiet_depart = depart.replace(hour=23, minute=0, second=0, microsecond=0)
     for event in events:
         if event["kind"] == "ride":
             quiet = model.predict_ride(
@@ -1110,12 +1194,13 @@ def retime_itinerary(
                 event["leg"]["from_stop_id"],
                 event["leg"]["to_stop_id"],
                 event["leg"]["scheduled_duration_s"],
-                depart.replace(hour=23, minute=0),
+                quiet_depart,
                 mode,
+                as_of=depart,
             )
             quiet_total += quiet.duration_s
         elif event["kind"] == "transfer":
-            quiet_total += event["scheduled_gap"]
+            quiet_total += event["scheduled_wait"]
         elif event["kind"] != "first_wait":
             quiet_total += float(event["leg"]["estimated_duration_s"])
         else:

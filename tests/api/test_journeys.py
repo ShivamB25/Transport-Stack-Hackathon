@@ -58,12 +58,14 @@ class FakeOTP:
 class StubModel:
     selected_rung = "1"
 
-    def predict_ride(self, route_id, from_stop, to_stop, scheduled, depart, mode, replay_delay_s=0):
+    def predict_ride(
+        self, route_id, from_stop, to_stop, scheduled, depart, mode, replay_delay_s=0, as_of=None
+    ):
         factor = 1.4 if 7 <= depart.hour <= 10 else 0.8
         duration = scheduled * factor + replay_delay_s
         return TimingEstimate(duration, duration - 60, duration + 120, "replay" if mode == "replay" else "historical", 0.5)
 
-    def predict_wait(self, route_id, stop_id, scheduled, depart, mode):
+    def predict_wait(self, route_id, stop_id, scheduled, depart, mode, as_of=None):
         return WaitEstimate(60.0, 300.0, 300.0, "historical", 0.5)
 
 
@@ -76,6 +78,7 @@ def _client(tmp_path: Path) -> TestClient:
 4730,ISBT Maharana Pratap Bus Terminal,28.6681691,77.2285861
 2559,Nehru Place,28.5485761,77.2491332
 2562,Nehru Place,28.5473227,77.2538969
+10032,"BLOCK 43,45 SOUTH PATEL NAGAR",28.6512,77.1694
 """
     )
     app = create_app(tmp_path, otp_url="http://unused", otp=FakeOTP(), model=StubModel())
@@ -113,6 +116,38 @@ def test_stop_names_resolve_to_coordinate_endpoints(tmp_path: Path) -> None:
     coordinates = client.get("/journeys", params={"from": "28.6675,77.2282", "to": "28.5494,77.2510", "depart": params["depart"]}).json()
     assert named["resolved_from"]["stop_id"] == coordinates["resolved_from"]["stop_id"] == "4730"
     assert named["resolved_to"]["stop_id"] == coordinates["resolved_to"]["stop_id"] == "2559"
+
+
+def test_exact_stop_name_with_comma_resolves_before_coordinate_parsing(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    response = client.get(
+        "/journeys",
+        params={
+            "from": "BLOCK 43,45 SOUTH PATEL NAGAR",
+            "to": "Nehru Place",
+            "depart": "2026-10-22T08:30:00+05:30",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["resolved_from"]["stop_id"] == "10032"
+    assert response.json()["resolved_from"]["stop_name"] == "BLOCK 43,45 SOUTH PATEL NAGAR"
+
+
+def test_equivalent_offsets_use_identical_delhi_service_clock(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    params = {"from": "Kashmere Gate ISBT", "to": "Nehru Place"}
+    utc = client.get(
+        "/journeys",
+        params={**params, "depart": "2026-09-30T19:00:00Z"},
+    )
+    delhi = client.get(
+        "/journeys",
+        params={**params, "depart": "2026-10-01T00:30:00+05:30"},
+    )
+    assert utc.status_code == delhi.status_code == 200
+    assert utc.json() == delhi.json()
+    assert utc.json()["mode"] == "replay"
+    assert utc.json()["depart"] == "2026-10-01T00:30:00+05:30"
 
 
 def test_time_of_day_and_replay_delay_change_ride_not_geometry(tmp_path: Path) -> None:

@@ -87,7 +87,11 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
     import pyarrow.parquet as pq
 
     from ps1.features import PassageRow, build_replay_queries, build_stretch_errors
-    from ps1.model import Rung4QuantileLightGBMModel, save_model_artifact
+    from ps1.model import (
+        Rung4QuantileLightGBMModel,
+        artifact_cutoff_metadata,
+        save_model_artifact,
+    )
     from ps1.stop_passages import PASSAGE_SCHEMA
 
     def make_day(day: str, err: int, runs: int = 8) -> list[PassageRow]:
@@ -158,7 +162,17 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
     ]
     pq.write_table(pa.Table.from_pylist(records, schema=PASSAGE_SCHEMA), passages_dir / "day=2026-10-22.parquet")
 
-    save_model_artifact(rung4, tmp_path / "model", covered_routes=[2171])
+    save_model_artifact(
+        rung4,
+        tmp_path / "model",
+        covered_routes=[2171],
+        extra_metadata=artifact_cutoff_metadata(
+            training_days=("2026-10-05", "2026-10-06"),
+            calibration_days=("2026-10-15",),
+            latest_training_available_at=max(p.source_available_at for p in fit_p),
+            latest_calibration_available_at=max(p.source_available_at for p in cal_p),
+        ),
+    )
     selection_path = tmp_path / "selection.json"
     selection_path.write_text(json.dumps({"selected_rung": "4"}), encoding="utf-8")
 

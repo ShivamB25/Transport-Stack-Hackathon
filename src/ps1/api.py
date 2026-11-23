@@ -140,6 +140,22 @@ class StopResolver:
         value = value.strip()
         if not value:
             raise HTTPException(400, f"{field} must be lat,lng or an exact stop name")
+        key = _normalise(value)
+        stop_id = self.aliases.get(key)
+        if stop_id is None:
+            matches = self.names.get(key, [])
+            stop_id = min(matches) if matches else None
+        if stop_id is not None:
+            stop = self.stops[stop_id]
+            return ResolvedEndpoint(
+                requested=value,
+                stop_id=stop.stop_id,
+                stop_name=stop.name,
+                lat=stop.lat,
+                lng=stop.lng,
+                routing_lat=stop.lat,
+                routing_lng=stop.lng,
+            )
         if "," in value:
             parts = value.split(",")
             try:
@@ -165,23 +181,7 @@ class StopResolver:
                 routing_lat=lat,
                 routing_lng=lng,
             )
-        key = _normalise(value)
-        stop_id = self.aliases.get(key)
-        if stop_id is None:
-            matches = self.names.get(key, [])
-            if not matches:
-                raise HTTPException(404, f"unknown stop name for {field}: {value}")
-            stop_id = min(matches)
-        stop = self.stops[stop_id]
-        return ResolvedEndpoint(
-            requested=value,
-            stop_id=stop.stop_id,
-            stop_name=stop.name,
-            lat=stop.lat,
-            lng=stop.lng,
-            routing_lat=stop.lat,
-            routing_lng=stop.lng,
-        )
+        raise HTTPException(404, f"unknown stop name for {field}: {value}")
 
 
 def _parse_depart(value: str) -> datetime:
@@ -191,7 +191,7 @@ def _parse_depart(value: str) -> datetime:
         raise HTTPException(422, "depart must be an ISO 8601 date-time with an offset") from exc
     if depart.tzinfo is None or depart.utcoffset() is None:
         raise HTTPException(422, "depart must include a timezone offset")
-    return depart
+    return depart.astimezone(IST)
 
 
 def _stale_threshold(override: float | None) -> float:
@@ -213,6 +213,7 @@ def _min_route_coverage(override: float | None) -> float:
 
 
 def _resolve_mode(requested_mode: str, departure: datetime) -> str:
+    departure = departure.astimezone(IST)
     is_october_2026 = departure.year == 2026 and departure.month == 10
     if requested_mode == "auto":
         env_mode = os.environ.get("PS1_MODE", "auto").strip().lower()
