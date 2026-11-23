@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ps1.config import (
@@ -37,9 +38,11 @@ from ps1.live_poller import (
     resume_feed,
 )
 from ps1.otp_client import OTPClient, OTPClientError
+from ps1.replay_demo import build_marginal_transfer_demo
 from ps1.retime import RetimeModel, retime_itinerary
 
 IST = timezone(timedelta(hours=5, minutes=30))
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class Leg(BaseModel):
@@ -50,6 +53,10 @@ class Leg(BaseModel):
     to_stop: str | None = None
     from_stop_id: str | None = None
     to_stop_id: str | None = None
+    from_lat: float | None = None
+    from_lng: float | None = None
+    to_lat: float | None = None
+    to_lng: float | None = None
     scheduled_duration_s: int
     estimated_duration_s: int
     window_p10_s: int | None = None
@@ -570,6 +577,21 @@ def create_app(
             "replay_available": replay_available,
             "selected_rung": timing_model.selected_rung,
         }
+
+    @app.get("/replay/demo")
+    async def replay_demo() -> dict[str, Any]:
+        return await build_marginal_transfer_demo(resolved_data_dir, otp_client)
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> Response:
+        return Response(status_code=204)
+
+    @app.get("/", include_in_schema=False)
+    async def index() -> FileResponse:
+        index_path = STATIC_DIR / "index.html"
+        if not index_path.exists():
+            raise HTTPException(404, "UI index.html not found")
+        return FileResponse(index_path, media_type="text/html")
 
     return app
 

@@ -1,0 +1,1670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delhi Bus Journey Planner — Model-Timed Transit</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f766e'/><text x='16' y='22' font-size='18' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>D</text></svg>" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-muted: #f1f5f9;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #475569;
+      --primary: #0f766e;
+      --primary-hover: #115e59;
+      --accent: #2563eb;
+      --live-bg: #dcfce7;
+      --live-fg: #166534;
+      --replay-bg: #e0e7ff;
+      --replay-fg: #3730a3;
+      --warn-bg: #fef3c7;
+      --warn-fg: #92400e;
+      --danger-bg: #fee2e2;
+      --danger-fg: #991b1b;
+      --danger-border: #fca5a5;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header.topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 18px;
+      background: #0f172a;
+      color: #f8fafc;
+      border-bottom: 1px solid #1e293b;
+      flex-shrink: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .brand .subtitle {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .mode-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: lowercase;
+    }
+
+    .mode-badge::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .mode-badge.live {
+      background: var(--live-bg);
+      color: var(--live-fg);
+    }
+
+    .mode-badge.replay {
+      background: var(--replay-bg);
+      color: var(--replay-fg);
+    }
+
+    .mode-badge.stale {
+      background: var(--danger-bg);
+      color: var(--danger-fg);
+    }
+
+    .feed-age {
+      font-size: 12px;
+      color: #cbd5e1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .main-layout {
+      display: grid;
+      grid-template-columns: 440px 1fr;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    aside.sidebar {
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 14px 16px 24px;
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+
+    form.query-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .field-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .field-row-split {
+      display: grid;
+      grid-template-columns: 1fr 130px;
+      gap: 8px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    input[type="text"], select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      font-size: 13px;
+      color: var(--text);
+      background: #fff;
+      font-family: inherit;
+    }
+
+    input[type="text"]:focus, select:focus {
+      outline: 2px solid rgba(15, 118, 110, 0.25);
+      border-color: var(--primary);
+    }
+
+    .preset-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip-btn {
+      border: 1px solid #cbd5e1;
+      background: var(--surface-muted);
+      color: #334155;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .chip-btn:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .action-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    button.btn-primary {
+      flex: 1;
+      padding: 9px 14px;
+      border: none;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.btn-primary:hover { background: var(--primary-hover); }
+    button.btn-primary:disabled { opacity: 0.6; cursor: wait; }
+
+    button.btn-secondary {
+      padding: 9px 13px;
+      border: 1px solid #6366f1;
+      border-radius: 8px;
+      background: #eef2ff;
+      color: #3730a3;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button.btn-secondary:hover { background: #e0e7ff; }
+
+    button.btn-outline {
+      padding: 6px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      background: #fff;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button.btn-outline:hover { background: var(--surface-muted); }
+
+    .hidden { display: none !important; }
+
+    /* Abstention & Error Panels */
+    .abstention-panel {
+      background: var(--danger-bg);
+      border: 2px solid var(--danger-border);
+      border-radius: 10px;
+      padding: 14px;
+      color: var(--danger-fg);
+    }
+
+    .abstention-panel h2 {
+      margin: 0 0 6px;
+      font-size: 16px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .abstention-panel p {
+      margin: 4px 0;
+      font-size: 13px;
+    }
+
+    .abstention-meta {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.72);
+      border-radius: 7px;
+      font-size: 12px;
+      color: #7f1d1d;
+    }
+
+    .error-panel {
+      background: #fff7ed;
+      border: 1px solid #fdba74;
+      color: #9a3412;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+
+    /* Results summary & options */
+    .results-summary {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 9px 12px;
+      background: var(--surface-muted);
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .results-summary strong { color: var(--text); }
+
+    .options-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .option-card {
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .option-card:hover { border-color: #94a3b8; }
+
+    .option-card.selected {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+    }
+
+    .option-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .option-title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .route-pill {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: #0f766e;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .xfer-pill {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .option-total {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .option-total .duration-main {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .option-total .duration-sec {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .option-metrics {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding-top: 8px;
+      border-top: 1px solid #f1f5f9;
+    }
+
+    .metric-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .metric-line strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .quiet-delta {
+      font-weight: 600;
+      color: #b45309;
+    }
+
+    .quiet-delta.faster { color: #15803d; }
+
+    /* Leg breakdown */
+    .legs-breakdown {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .leg-item {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 7px 9px;
+      border-radius: 7px;
+      background: #f8fafc;
+      border-left: 3px solid #94a3b8;
+      font-size: 12px;
+    }
+
+    .leg-item.leg-ride { border-left-color: #0f766e; background: #f0fdfa; }
+    .leg-item.leg-transfer { border-left-color: #d97706; background: #fffbeb; }
+    .leg-item.leg-board { border-left-color: #2563eb; background: #eff6ff; }
+    .leg-item.leg-alight { border-left-color: #64748b; }
+    .leg-item.leg-walk { border-left-color: #94a3b8; }
+
+    .leg-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+    }
+
+    .leg-type-tag {
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #e2e8f0;
+      color: #334155;
+      margin-right: 4px;
+    }
+
+    .leg-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .source-tag {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 10px;
+    }
+
+    .source-tag.src-live { background: var(--live-bg); color: var(--live-fg); }
+    .source-tag.src-replay { background: var(--replay-bg); color: var(--replay-fg); }
+    .source-tag.src-historical { background: #fef3c7; color: #92400e; }
+    .source-tag.src-timetable { background: #e2e8f0; color: #334155; }
+
+    /* Replay Demo Panel */
+    .replay-panel {
+      border: 2px solid #6366f1;
+      border-radius: 10px;
+      padding: 13px;
+      background: #fafaff;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .replay-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .replay-header h2 {
+      margin: 0;
+      font-size: 15px;
+      color: #312e81;
+    }
+
+    .replay-sub {
+      font-size: 11px;
+      color: #4338ca;
+      margin-top: 2px;
+    }
+
+    .stage-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 5px;
+    }
+
+    .stage-tab {
+      border: 1px solid #c7d2fe;
+      background: #fff;
+      color: #3730a3;
+      border-radius: 7px;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .stage-tab.active {
+      background: #4f46e5;
+      color: #fff;
+      border-color: #4338ca;
+    }
+
+    .advice-banner {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border-left: 4px solid #0f766e;
+      background: #ecfdf5;
+      color: #065f46;
+    }
+
+    .advice-banner.warning {
+      border-left-color: #d97706;
+      background: #fffbeb;
+      color: #92400e;
+    }
+
+    .advice-banner.flipped {
+      border-left-color: #dc2626;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    .advice-banner.outcome {
+      border-left-color: #7c3aed;
+      background: #f5f3ff;
+      color: #4c1d95;
+    }
+
+    .advice-status {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      margin-bottom: 3px;
+    }
+
+    .advice-headline {
+      font-size: 14px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .advice-explanation {
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .demo-telemetry {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .tel-box {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 7px;
+      padding: 6px 8px;
+      text-align: center;
+    }
+
+    .tel-box .tel-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    .tel-box .tel-val {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .demo-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .demo-opt-card {
+      background: #fff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 9px 11px;
+    }
+
+    .demo-opt-card.recommended {
+      border-color: #0f766e;
+      background: #f0fdfa;
+    }
+
+    .demo-opt-card.infeasible {
+      border-color: #fca5a5;
+      background: #fff5f5;
+    }
+
+    .demo-opt-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .rec-pill {
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .rec-pill.yes { background: #dcfce7; color: #166534; }
+    .rec-pill.no { background: #fee2e2; color: #991b1b; }
+    .rec-pill.alt { background: #e2e8f0; color: #475569; }
+
+    .demo-controls {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* Map container */
+    main.map-pane {
+      position: relative;
+      height: 100%;
+      width: 100%;
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+
+    .map-legend {
+      position: absolute;
+      bottom: 16px;
+      right: 16px;
+      z-index: 500;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: #334155;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 3px;
+    }
+
+    .legend-item:last-child { margin-bottom: 0; }
+
+    .legend-swatch {
+      width: 18px;
+      height: 4px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+
+    .bus-marker-icon {
+      background: #dc2626;
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+
+    @media (max-width: 900px) {
+      .main-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: 52vh 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Delhi Bus Journey Planner</h1>
+        <span class="subtitle">Model-timed routing · OTP2 candidates + real-time GPS</span>
+      </div>
+      <div class="status-bar" aria-live="polite">
+        <span id="mode-badge" class="mode-badge live" data-mode="live">live</span>
+        <span id="feed-age-text" class="feed-age">Checking feed status...</span>
+      </div>
+    </header>
+
+    <div class="main-layout">
+      <aside class="sidebar">
+        <section class="card" aria-label="Journey search">
+          <form id="journey-form" class="query-form">
+            <div class="field-row">
+              <label for="origin-input">Origin (stop name or lat,lng)</label>
+              <input id="origin-input" name="from" type="text" value="Kashmere Gate ISBT" placeholder="e.g. Kashmere Gate ISBT or 28.6675,77.2282" required />
+            </div>
+            <div class="field-row">
+              <label for="destination-input">Destination (stop name or lat,lng)</label>
+              <input id="destination-input" name="to" type="text" value="Nehru Place" placeholder="e.g. Nehru Place or 28.5494,77.2510" required />
+            </div>
+            <div class="field-row-split">
+              <div class="field-row">
+                <label for="depart-input">Departure (ISO IST)</label>
+                <input id="depart-input" name="depart" type="text" value="2026-11-24T08:30:00+05:30" required />
+              </div>
+              <div class="field-row">
+                <label for="mode-select">Data mode</label>
+                <select id="mode-select" name="mode">
+                  <option value="auto">Auto</option>
+                  <option value="live">Live GPS</option>
+                  <option value="replay">Oct Replay</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="preset-row" aria-label="Quick presets">
+              <button type="button" class="chip-btn" id="preset-example-live">Example Tue 08:30 (Live)</button>
+              <button type="button" class="chip-btn" id="preset-example-replay">Oct 22 08:30 (Replay)</button>
+              <button type="button" class="chip-btn" id="preset-peak">09:00 Peak</button>
+              <button type="button" class="chip-btn" id="preset-quiet">23:00 Quiet</button>
+            </div>
+
+            <div class="action-row">
+              <button type="submit" id="plan-btn" class="btn-primary">Plan journey</button>
+              <button type="button" id="replay-demo-btn" class="btn-secondary">Replay demo</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="error-panel" class="error-panel hidden" role="alert"></section>
+
+        <section id="abstention-panel" class="abstention-panel hidden" role="alert" aria-live="assertive">
+          <h2>Not enough data</h2>
+          <p id="abstention-reason"></p>
+          <div id="abstention-meta" class="abstention-meta"></div>
+          <div class="action-row" style="margin-top: 10px;">
+            <button type="button" id="abstention-retry-btn" class="btn-outline">Retry live query</button>
+            <button type="button" id="abstention-replay-btn" class="btn-outline">Use October replay</button>
+          </div>
+        </section>
+
+        <section id="replay-demo-panel" class="replay-panel hidden" aria-label="Marginal-transfer replay demo">
+          <div class="replay-header">
+            <div>
+              <h2>Marginal-Transfer Replay Demo</h2>
+              <div id="replay-demo-sub" class="replay-sub"></div>
+            </div>
+            <button type="button" id="close-demo-btn" class="btn-outline">Close</button>
+          </div>
+
+          <div id="stage-tabs" class="stage-tabs"></div>
+
+          <div id="advice-banner" class="advice-banner">
+            <div id="advice-status" class="advice-status"></div>
+            <div id="advice-headline" class="advice-headline"></div>
+            <div id="advice-explanation" class="advice-explanation"></div>
+          </div>
+
+          <div class="demo-telemetry">
+            <div class="tel-box">
+              <div class="tel-label">Replay Time</div>
+              <div id="tel-time" class="tel-val">--:--</div>
+            </div>
+            <div class="tel-box">
+              <div class="tel-label">717A Delay</div>
+              <div id="tel-delay" class="tel-val">+0s</div>
+            </div>
+            <div class="tel-box">
+              <div class="tel-label">Xfer Buffer</div>
+              <div id="tel-buffer" class="tel-val">--</div>
+            </div>
+          </div>
+
+          <div id="demo-options" class="demo-options"></div>
+
+          <div class="demo-controls">
+            <button type="button" id="demo-prev-btn" class="btn-outline">Previous</button>
+            <button type="button" id="demo-next-btn" class="btn-primary" style="flex: 1;">Next step</button>
+            <button type="button" id="demo-autoplay-btn" class="btn-secondary">Auto-play</button>
+          </div>
+        </section>
+
+        <div id="results-summary" class="results-summary hidden"></div>
+        <section id="options-list" class="options-list" aria-label="Journey options"></section>
+      </aside>
+
+      <main class="map-pane">
+        <div id="map" role="region" aria-label="Delhi transit map"></div>
+        <div class="map-legend">
+          <div class="legend-item"><span class="legend-swatch" style="background:#0f766e;"></span> Bus leg 1 / Recommended</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#2563eb;"></span> Bus leg 2 (transfer)</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#dc2626; height:3px;"></span> Infeasible / alternative</div>
+          <div class="legend-item"><span class="legend-swatch" style="border-top:3px dashed #64748b; background:transparent;"></span> Walk leg</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    (function () {
+      "use strict";
+
+      const ROUTE_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#0284c7"];
+
+      const map = L.map("map", { zoomControl: true }).setView([28.6139, 77.2090], 11);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(map);
+
+      const routeLayer = L.featureGroup().addTo(map);
+
+      // DOM refs
+      const form = document.getElementById("journey-form");
+      const originInput = document.getElementById("origin-input");
+      const destinationInput = document.getElementById("destination-input");
+      const departInput = document.getElementById("depart-input");
+      const modeSelect = document.getElementById("mode-select");
+      const planBtn = document.getElementById("plan-btn");
+      const replayDemoBtn = document.getElementById("replay-demo-btn");
+      const modeBadge = document.getElementById("mode-badge");
+      const feedAgeText = document.getElementById("feed-age-text");
+      const errorPanel = document.getElementById("error-panel");
+      const abstentionPanel = document.getElementById("abstention-panel");
+      const abstentionReason = document.getElementById("abstention-reason");
+      const abstentionMeta = document.getElementById("abstention-meta");
+      const resultsSummary = document.getElementById("results-summary");
+      const optionsList = document.getElementById("options-list");
+      const replayDemoPanel = document.getElementById("replay-demo-panel");
+      const replayDemoSub = document.getElementById("replay-demo-sub");
+      const stageTabs = document.getElementById("stage-tabs");
+      const adviceBanner = document.getElementById("advice-banner");
+      const adviceStatus = document.getElementById("advice-status");
+      const adviceHeadline = document.getElementById("advice-headline");
+      const adviceExplanation = document.getElementById("advice-explanation");
+      const telTime = document.getElementById("tel-time");
+      const telDelay = document.getElementById("tel-delay");
+      const telBuffer = document.getElementById("tel-buffer");
+      const demoOptions = document.getElementById("demo-options");
+
+      let currentResponse = null;
+      let selectedOptionIndex = 0;
+      let demoData = null;
+      let demoStageIndex = 0;
+      let demoAutoTimer = null;
+
+      function escapeHtml(str) {
+        if (str === null || str === undefined) return "";
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function decodePolyline(encoded) {
+        if (!encoded || typeof encoded !== "string") return [];
+        const points = [];
+        let index = 0;
+        let lat = 0;
+        let lng = 0;
+        while (index < encoded.length) {
+          for (let axis = 0; axis < 2; axis++) {
+            let shift = 0;
+            let result = 0;
+            let byte = 0;
+            do {
+              if (index >= encoded.length) return points;
+              byte = encoded.charCodeAt(index++) - 63;
+              result |= (byte & 0x1f) << shift;
+              shift += 5;
+            } while (byte >= 0x20);
+            const delta = (result & 1) ? ~(result >> 1) : (result >> 1);
+            if (axis === 0) lat += delta;
+            else lng += delta;
+          }
+          points.push([lat / 1e5, lng / 1e5]);
+        }
+        return points;
+      }
+
+      function fmtDuration(seconds) {
+        if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "--";
+        const s = Math.round(Number(seconds));
+        if (s < 60) return s + "s";
+        const mins = Math.round(s / 60);
+        if (mins < 60) return mins + " min";
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return h + "h " + m + "m";
+      }
+
+      function fmtDurationExact(seconds) {
+        if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "--";
+        const s = Math.round(Number(seconds));
+        const sign = s < 0 ? "-" : "";
+        const abs = Math.abs(s);
+        const m = Math.floor(abs / 60);
+        const rem = abs % 60;
+        if (m === 0) return sign + rem + "s";
+        return sign + m + "m " + rem + "s";
+      }
+
+      function fmtAge(seconds) {
+        if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "unavailable";
+        const s = Math.round(Number(seconds));
+        if (s < 120) return s + "s";
+        return (s / 60).toFixed(1) + " min (" + s + "s)";
+      }
+
+      function fmtClockIST(baseIso, addSeconds) {
+        const dt = new Date(baseIso);
+        if (Number.isNaN(dt.getTime())) return "--:--";
+        const target = new Date(dt.getTime() + Number(addSeconds || 0) * 1000);
+        // Format explicitly in Asia/Kolkata (+05:30)
+        const istMs = target.getTime() + 5.5 * 3600 * 1000;
+        const istDate = new Date(istMs);
+        const hh = String(istDate.getUTCHours()).padStart(2, "0");
+        const mm = String(istDate.getUTCMinutes()).padStart(2, "0");
+        return hh + ":" + mm;
+      }
+
+      function setBadge(mode, ageSeconds, extraText, isStale) {
+        const normalized = mode === "replay" ? "replay" : "live";
+        modeBadge.textContent = normalized;
+        modeBadge.dataset.mode = normalized;
+        modeBadge.className = "mode-badge " + (isStale ? "stale" : normalized);
+        if (normalized === "replay") {
+          feedAgeText.textContent = extraText || ("October replay · feed age " + fmtAge(ageSeconds ?? 0));
+        } else if (isStale) {
+          feedAgeText.textContent = extraText || ("Stale GPS feed · age " + fmtAge(ageSeconds));
+        } else {
+          feedAgeText.textContent = extraText || ("Feed age: " + fmtAge(ageSeconds));
+        }
+      }
+
+      function normalizeDepartInput(val) {
+        const trimmed = (val || "").trim();
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) {
+          return trimmed + ":00+05:30";
+        }
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+          return trimmed + "+05:30";
+        }
+        return trimmed;
+      }
+
+      function clearMap() {
+        routeLayer.clearLayers();
+      }
+
+      function clearJourneyOutput() {
+        optionsList.innerHTML = "";
+        resultsSummary.classList.add("hidden");
+        resultsSummary.innerHTML = "";
+        clearMap();
+      }
+
+      function showError(message) {
+        errorPanel.textContent = message;
+        errorPanel.classList.remove("hidden");
+      }
+
+      function hideError() {
+        errorPanel.classList.add("hidden");
+        errorPanel.textContent = "";
+      }
+
+      function stopDemoAutoplay() {
+        if (demoAutoTimer !== null) {
+          clearInterval(demoAutoTimer);
+          demoAutoTimer = null;
+          const btn = document.getElementById("demo-autoplay-btn");
+          if (btn) btn.textContent = "Auto-play";
+        }
+      }
+
+      function hideReplayDemo() {
+        stopDemoAutoplay();
+        replayDemoPanel.classList.add("hidden");
+      }
+
+      function renderAbstention(data) {
+        clearJourneyOutput();
+        hideReplayDemo();
+        hideError();
+        const abs = data.abstention || {};
+        abstentionReason.textContent = abs.reason || "Not enough data: live GPS feed is stale or unavailable.";
+        const details = [];
+        if (abs.code) details.push("Code: " + abs.code);
+        if (abs.feed_age_seconds !== null && abs.feed_age_seconds !== undefined) {
+          details.push("Feed age: " + fmtAge(abs.feed_age_seconds));
+        }
+        if (abs.threshold_seconds !== null && abs.threshold_seconds !== undefined) {
+          details.push("Freshness threshold: " + fmtAge(abs.threshold_seconds));
+        }
+        if (abs.last_feed_timestamp) {
+          details.push("Last GPS timestamp: " + abs.last_feed_timestamp);
+        }
+        if (data.feed_summary && data.feed_summary.paused) {
+          details.push("Poller state: paused");
+        }
+        abstentionMeta.textContent = details.join(" · ") || "Stale GPS feed detected; stale options suppressed.";
+        abstentionPanel.classList.remove("hidden");
+        setBadge(
+          data.mode || "live",
+          data.feed_age_seconds,
+          "Stale GPS · age " + fmtAge(data.feed_age_seconds) + (abs.threshold_seconds ? " (limit " + Math.round(abs.threshold_seconds) + "s)" : ""),
+          true
+        );
+      }
+
+      function drawOptionOnMap(response, option) {
+        clearMap();
+        let busColorIdx = 0;
+        const stopMarkers = [];
+
+        if (response.resolved_from) {
+          stopMarkers.push({
+            lat: response.resolved_from.routing_lat,
+            lng: response.resolved_from.routing_lng,
+            label: "Origin: " + response.resolved_from.stop_name,
+            color: "#0f766e",
+            radius: 7
+          });
+        }
+        if (response.resolved_to) {
+          stopMarkers.push({
+            lat: response.resolved_to.routing_lat,
+            lng: response.resolved_to.routing_lng,
+            label: "Destination: " + response.resolved_to.stop_name,
+            color: "#dc2626",
+            radius: 7
+          });
+        }
+
+        for (const leg of option.legs || []) {
+          if (leg.type !== "walk" && leg.type !== "ride") {
+            if (leg.type === "transfer" && leg.from_lat && leg.from_lng) {
+              stopMarkers.push({
+                lat: leg.from_lat,
+                lng: leg.from_lng,
+                label: "Transfer: " + (leg.from_stop || "Stop") + " -> " + (leg.route_name || ""),
+                color: "#d97706",
+                radius: 6
+              });
+            }
+            continue;
+          }
+          let coords = decodePolyline(leg.geometry);
+          if (coords.length < 2 && leg.from_lat != null && leg.from_lng != null && leg.to_lat != null && leg.to_lng != null) {
+            coords = [[leg.from_lat, leg.from_lng], [leg.to_lat, leg.to_lng]];
+          }
+          if (coords.length < 2) continue;
+
+          if (leg.type === "walk") {
+            L.polyline(coords, {
+              color: "#64748b",
+              weight: 4,
+              opacity: 0.85,
+              dashArray: "6, 8"
+            }).bindTooltip("Walk · " + fmtDuration(leg.estimated_duration_s)).addTo(routeLayer);
+          } else {
+            const color = ROUTE_COLORS[busColorIdx % ROUTE_COLORS.length];
+            busColorIdx++;
+            L.polyline(coords, {
+              color: "#ffffff",
+              weight: 8,
+              opacity: 0.85
+            }).addTo(routeLayer);
+            L.polyline(coords, {
+              color: color,
+              weight: 5,
+              opacity: 0.95
+            }).bindTooltip(
+              "Bus " + (leg.route_name || leg.route_id || "") + ": " +
+              (leg.from_stop || "") + " -> " + (leg.to_stop || "") +
+              " (" + fmtDuration(leg.estimated_duration_s) + ", " + leg.source + ")"
+            ).addTo(routeLayer);
+
+            if (leg.from_lat != null && leg.from_lng != null) {
+              stopMarkers.push({
+                lat: leg.from_lat,
+                lng: leg.from_lng,
+                label: "Board " + (leg.route_name || "") + " at " + (leg.from_stop || ""),
+                color: color,
+                radius: 5
+              });
+            }
+            if (leg.to_lat != null && leg.to_lng != null) {
+              stopMarkers.push({
+                lat: leg.to_lat,
+                lng: leg.to_lng,
+                label: "Alight " + (leg.route_name || "") + " at " + (leg.to_stop || ""),
+                color: color,
+                radius: 5
+              });
+            }
+          }
+        }
+
+        for (const m of stopMarkers) {
+          L.circleMarker([m.lat, m.lng], {
+            radius: m.radius,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: m.color,
+            fillOpacity: 1
+          }).bindTooltip(m.label).addTo(routeLayer);
+        }
+
+        if (routeLayer.getLayers().length > 0) {
+          const bounds = routeLayer.getBounds();
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
+          }
+        }
+      }
+
+      function renderLegHtml(leg) {
+        const type = leg.type || "leg";
+        const routeBadge = leg.route_name ? "<strong>Bus " + escapeHtml(leg.route_name) + "</strong> · " : "";
+        let label = "";
+        if (type === "walk") {
+          label = escapeHtml(leg.from_stop || "Start") + " &rarr; " + escapeHtml(leg.to_stop || "Stop");
+        } else if (type === "board") {
+          label = routeBadge + "Board at " + escapeHtml(leg.from_stop || "Stop");
+        } else if (type === "ride") {
+          label = routeBadge + escapeHtml(leg.from_stop || "") + " &rarr; " + escapeHtml(leg.to_stop || "");
+        } else if (type === "transfer") {
+          label = "Transfer at " + escapeHtml(leg.from_stop || "") + " to " + (leg.route_name ? "<strong>" + escapeHtml(leg.route_name) + "</strong>" : "next bus");
+        } else if (type === "alight") {
+          label = routeBadge + "Alight at " + escapeHtml(leg.to_stop || "Stop");
+        } else {
+          label = escapeHtml(type);
+        }
+
+        const est = fmtDurationExact(leg.estimated_duration_s);
+        const sched = fmtDurationExact(leg.scheduled_duration_s);
+        const timingRight = (type === "alight") ? "0s" : (est + " <span style='color:#64748b;font-weight:400;'>(sched " + sched + ")</span>");
+
+        const srcClass = "src-" + (leg.source || "timetable");
+        const srcLabel = escapeHtml(leg.source || "timetable") + (leg.timing_source ? " · " + escapeHtml(leg.timing_source) : "");
+
+        const metaParts = [];
+        metaParts.push("<span class='source-tag " + srcClass + "'>" + srcLabel + "</span>");
+
+        if (leg.observed_coverage !== null && leg.observed_coverage !== undefined) {
+          const pct = Math.round(Number(leg.observed_coverage) * 100);
+          const obsTxt = leg.observation_count !== null && leg.observation_count !== undefined
+            ? " (" + leg.observation_count + " obs)"
+            : "";
+          metaParts.push("<span>coverage: <strong>" + pct + "%</strong>" + escapeHtml(obsTxt) + "</span>");
+        }
+
+        if (leg.window_p10_s != null && leg.window_p90_s != null && (leg.window_p90_s > 0 || leg.window_p10_s > 0)) {
+          metaParts.push("<span>window " + fmtDurationExact(leg.window_p10_s) + "–" + fmtDurationExact(leg.window_p90_s) + "</span>");
+        }
+
+        if (type === "transfer" && leg.connection_missed_probability != null) {
+          const missPct = Math.round(Number(leg.connection_missed_probability) * 100);
+          metaParts.push("<span style='color:#b45309;font-weight:700;'>miss risk " + missPct + "%</span>");
+          if (leg.next_bus_headway_s) {
+            metaParts.push("<span>next bus ~" + fmtDuration(leg.next_bus_headway_s) + "</span>");
+          }
+        }
+
+        const noteHtml = leg.coverage_note
+          ? "<div style='font-size:11px;color:#64748b;'>" + escapeHtml(leg.coverage_note) + "</div>"
+          : "";
+
+        return (
+          "<div class='leg-item leg-" + escapeHtml(type) + "'>" +
+            "<div class='leg-top'>" +
+              "<span><span class='leg-type-tag'>" + escapeHtml(type) + "</span> " + label + "</span>" +
+              "<span style='white-space:nowrap;font-variant-numeric:tabular-nums;'>" + timingRight + "</span>" +
+            "</div>" +
+            "<div class='leg-meta'>" + metaParts.join("") + "</div>" +
+            noteHtml +
+          "</div>"
+        );
+      }
+
+      function renderOptions(data) {
+        abstentionPanel.classList.add("hidden");
+        hideReplayDemo();
+        hideError();
+
+        currentResponse = data;
+        if (selectedOptionIndex >= (data.options || []).length) {
+          selectedOptionIndex = 0;
+        }
+
+        const mode = data.mode || "live";
+        if (mode === "replay") {
+          const refText = data.reference_timestamp ? data.reference_timestamp.slice(0, 16).replace("T", " ") + " IST" : "October 2026";
+          setBadge("replay", data.feed_age_seconds ?? 0, "Replay: " + refText + " · age " + fmtAge(data.feed_age_seconds ?? 0), false);
+        } else {
+          const veh = data.feed_summary && data.feed_summary.fresh_vehicle_count ? " · " + data.feed_summary.fresh_vehicle_count + " buses" : "";
+          setBadge("live", data.feed_age_seconds, "Feed age: " + fmtAge(data.feed_age_seconds) + veh, false);
+        }
+
+        resultsSummary.innerHTML =
+          "<div><strong>" + escapeHtml(data.resolved_from.stop_name) + "</strong> (#" + escapeHtml(data.resolved_from.stop_id) + ") &rarr; " +
+          "<strong>" + escapeHtml(data.resolved_to.stop_name) + "</strong> (#" + escapeHtml(data.resolved_to.stop_id) + ")</div>" +
+          "<div>Depart " + escapeHtml(data.depart) + " · <strong>" + (data.options || []).length + " options</strong> · model rung " + escapeHtml(data.selected_rung) + " · mode <strong>" + escapeHtml(mode) + "</strong></div>";
+        resultsSummary.classList.remove("hidden");
+
+        optionsList.innerHTML = "";
+        (data.options || []).forEach(function (opt, idx) {
+          const isSelected = idx === selectedOptionIndex;
+          const rides = (opt.legs || []).filter(function (l) { return l.type === "ride"; });
+          const transfers = (opt.legs || []).filter(function (l) { return l.type === "transfer"; });
+          const routePills = rides.map(function (r) {
+            return "<span class='route-pill'>" + escapeHtml(r.route_name || ("Route " + r.route_id)) + "</span>";
+          }).join("<span>&rarr;</span>");
+          const xferLabel = transfers.length === 0 ? "Direct" : (transfers.length + (transfers.length === 1 ? " transfer" : " transfers"));
+
+          const arrMed = fmtClockIST(data.depart, opt.total_duration_s);
+          const arrP10 = fmtClockIST(data.depart, opt.total_window_p10_s);
+          const arrP90 = fmtClockIST(data.depart, opt.total_window_p90_s);
+
+          const quietDiff = opt.total_duration_s - opt.quieter_hour_typical_s;
+          let quietDeltaHtml = "";
+          if (Math.abs(quietDiff) < 30) {
+            quietDeltaHtml = "<span class='quiet-delta faster'>same as quiet hour</span>";
+          } else if (quietDiff > 0) {
+            quietDeltaHtml = "<span class='quiet-delta'>+" + fmtDuration(quietDiff) + " slower vs 23:00</span>";
+          } else {
+            quietDeltaHtml = "<span class='quiet-delta faster'>" + fmtDuration(-quietDiff) + " faster vs 23:00</span>";
+          }
+
+          const card = document.createElement("article");
+          card.className = "option-card" + (isSelected ? " selected" : "");
+          card.dataset.optionIndex = String(idx);
+          card.setAttribute("tabindex", "0");
+
+          const legsHtml = isSelected
+            ? "<div class='legs-breakdown'>" + (opt.legs || []).map(renderLegHtml).join("") + "</div>"
+            : "<div style='margin-top:6px;font-size:11px;color:#0f766e;font-weight:600;'>Click to inspect leg breakdown &amp; show on map</div>";
+
+          card.innerHTML =
+            "<div class='option-header'>" +
+              "<div class='option-title'>Option " + (idx + 1) + " " + routePills + " <span class='xfer-pill'>" + escapeHtml(xferLabel) + "</span></div>" +
+              "<div class='option-total'>" +
+                "<span class='duration-main'>" + fmtDuration(opt.total_duration_s) + "</span>" +
+                "<span class='duration-sec'>" + opt.total_duration_s + "s (" + (opt.total_duration_s / 60).toFixed(1) + "m)</span>" +
+              "</div>" +
+            "</div>" +
+            "<div class='option-metrics'>" +
+              "<div class='metric-line'><span>Arrival (p10–p90 window)</span><strong>" + arrMed + " (" + arrP10 + " – " + arrP90 + ")</strong></div>" +
+              "<div class='metric-line'><span>Trip duration window</span><strong>" + fmtDuration(opt.total_window_p10_s) + " – " + fmtDuration(opt.total_window_p90_s) + "</strong></div>" +
+              "<div class='metric-line'><span>Quiet-hour typical (23:00)</span><span><strong>" + fmtDuration(opt.quieter_hour_typical_s) + "</strong> · " + quietDeltaHtml + "</span></div>" +
+            "</div>" +
+            legsHtml;
+
+          card.addEventListener("click", function () {
+            selectedOptionIndex = idx;
+            renderOptions(currentResponse);
+          });
+          card.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              selectedOptionIndex = idx;
+              renderOptions(currentResponse);
+            }
+          });
+          optionsList.appendChild(card);
+        });
+
+        if (data.options && data.options.length > 0) {
+          drawOptionOnMap(data, data.options[selectedOptionIndex]);
+        }
+      }
+
+      async function submitJourneyQuery() {
+        hideError();
+        hideReplayDemo();
+        const fromVal = originInput.value.trim();
+        const toVal = destinationInput.value.trim();
+        const departVal = normalizeDepartInput(departInput.value);
+        departInput.value = departVal;
+        const modeVal = modeSelect.value;
+
+        planBtn.disabled = true;
+        planBtn.textContent = "Planning...";
+        try {
+          const qs = new URLSearchParams({
+            from: fromVal,
+            to: toVal,
+            depart: departVal,
+            mode: modeVal
+          });
+          const resp = await fetch("/journeys?" + qs.toString());
+          const body = await resp.json();
+          if (!resp.ok) {
+            clearJourneyOutput();
+            abstentionPanel.classList.add("hidden");
+            showError("Request failed (" + resp.status + "): " + (body.detail || "Unable to plan journey"));
+            return;
+          }
+          if (body.status === "insufficient_data") {
+            renderAbstention(body);
+          } else {
+            selectedOptionIndex = 0;
+            renderOptions(body);
+          }
+        } catch (err) {
+          clearJourneyOutput();
+          showError("Network error while requesting /journeys: " + (err && err.message ? err.message : String(err)));
+        } finally {
+          planBtn.disabled = false;
+          planBtn.textContent = "Plan journey";
+        }
+      }
+
+      // --- Marginal-transfer Replay Demo ---
+      function drawReplayDemoOnMap(data, stage) {
+        clearMap();
+        const transferRec = stage.recommended_option === "transfer";
+        const transferColor = transferRec ? "#0f766e" : "#dc2626";
+        const directColor = transferRec ? "#64748b" : "#0f766e";
+
+        function drawLegs(legs, color, isPrimary, labelPrefix) {
+          for (const leg of legs || []) {
+            let coords = decodePolyline(leg.geometry);
+            if (coords.length < 2 && leg.from_lat != null && leg.from_lng != null && leg.to_lat != null && leg.to_lng != null) {
+              coords = [[leg.from_lat, leg.from_lng], [leg.to_lat, leg.to_lng]];
+            }
+            if (coords.length < 2) continue;
+            if (!leg.transit) {
+              L.polyline(coords, {
+                color: "#94a3b8",
+                weight: 3,
+                opacity: isPrimary ? 0.85 : 0.45,
+                dashArray: "5, 7"
+              }).addTo(routeLayer);
+            } else {
+              if (isPrimary) {
+                L.polyline(coords, { color: "#ffffff", weight: 8, opacity: 0.85 }).addTo(routeLayer);
+              }
+              L.polyline(coords, {
+                color: color,
+                weight: isPrimary ? 5 : 3.5,
+                opacity: isPrimary ? 0.95 : 0.65,
+                dashArray: isPrimary ? null : "8, 6"
+              }).bindTooltip(labelPrefix + ": " + (leg.route_name || "BUS")).addTo(routeLayer);
+            }
+          }
+        }
+
+        drawLegs(data.geometries.direct_legs, directColor, !transferRec, "Direct option");
+        drawLegs(data.geometries.transfer_legs, transferColor, transferRec, "Transfer option");
+
+        // Origin & Destination markers
+        L.circleMarker([data.origin.lat, data.origin.lng], {
+          radius: 7, color: "#fff", weight: 2, fillColor: "#0f766e", fillOpacity: 1
+        }).bindTooltip("Origin: " + data.origin.name).addTo(routeLayer);
+
+        L.circleMarker([data.destination.lat, data.destination.lng], {
+          radius: 7, color: "#fff", weight: 2, fillColor: "#2563eb", fillOpacity: 1
+        }).bindTooltip("Destination: " + data.destination.name).addTo(routeLayer);
+
+        // Transfer stop marker
+        L.circleMarker([data.transfer_stop.lat, data.transfer_stop.lng], {
+          radius: 8, color: "#fff", weight: 2.5, fillColor: "#d97706", fillOpacity: 1
+        }).bindTooltip(
+          "Transfer stop: " + data.transfer_stop.stop_name +
+          " (connecting " + data.transfer_stop.connecting_route + " departs " +
+          data.transfer_stop.connecting_depart.slice(11, 19) + " IST)"
+        ).addTo(routeLayer);
+
+        // Current bus marker at observed October 22 stop
+        const busIcon = L.divIcon({
+          className: "",
+          html: "<div class='bus-marker-icon'>" + escapeHtml(data.route_name) + " (" + escapeHtml(stage.observed_delay_s >= 0 ? "+" + stage.observed_delay_s + "s" : stage.observed_delay_s + "s") + ")</div>",
+          iconSize: [120, 24],
+          iconAnchor: [60, 12]
+        });
+        L.marker([stage.bus_lat, stage.bus_lng], { icon: busIcon })
+          .bindTooltip("Vehicle " + data.vehicle_id + " at " + stage.bus_stop_name + " (" + stage.replay_time_ist + " IST)")
+          .addTo(routeLayer);
+
+        if (routeLayer.getLayers().length > 0) {
+          const bounds = routeLayer.getBounds();
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
+          }
+        }
+      }
+
+      function renderReplayDemoStage(index) {
+        if (!demoData || !demoData.stages || !demoData.stages.length) return;
+        demoStageIndex = Math.max(0, Math.min(index, demoData.stages.length - 1));
+        const stage = demoData.stages[demoStageIndex];
+
+        setBadge(
+          "replay",
+          0,
+          "Replay: " + demoData.fixture_day + " " + stage.replay_time_ist + " IST · live feed not contacted",
+          false
+        );
+
+        replayDemoSub.textContent =
+          "Real " + demoData.fixture_day + " GPS · Run " + demoData.run_id + " (Vehicle " + demoData.vehicle_id + ") · " +
+          demoData.origin.name + " -> " + demoData.destination.name;
+
+        stageTabs.innerHTML = "";
+        demoData.stages.forEach(function (st, idx) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "stage-tab" + (idx === demoStageIndex ? " active" : "");
+          btn.textContent = st.title;
+          btn.addEventListener("click", function () {
+            stopDemoAutoplay();
+            renderReplayDemoStage(idx);
+          });
+          stageTabs.appendChild(btn);
+        });
+
+        let bannerClass = "advice-banner";
+        if (stage.outcome_revealed) bannerClass += " outcome";
+        else if (stage.advice_flipped) bannerClass += " flipped";
+        else if (stage.stage_id === "delay_growing") bannerClass += " warning";
+
+        adviceBanner.className = bannerClass;
+        adviceStatus.textContent = stage.status_badge;
+        adviceHeadline.textContent = stage.headline;
+        adviceExplanation.textContent = stage.explanation;
+
+        telTime.textContent = stage.replay_time_ist;
+        telDelay.textContent = (stage.observed_delay_s >= 0 ? "+" : "") + fmtDurationExact(stage.observed_delay_s);
+        telDelay.style.color = stage.observed_delay_s > 300 ? "#dc2626" : (stage.observed_delay_s > 120 ? "#d97706" : "#0f766e");
+        telBuffer.textContent = stage.remaining_buffer_s >= 0
+          ? fmtDurationExact(stage.remaining_buffer_s) + " left"
+          : fmtDurationExact(Math.abs(stage.remaining_buffer_s)) + " late";
+        telBuffer.style.color = stage.remaining_buffer_s < 0 ? "#dc2626" : (stage.remaining_buffer_s < 180 ? "#d97706" : "#0f766e");
+
+        const tOpt = stage.transfer_option;
+        const dOpt = stage.direct_option;
+
+        const tPill = stage.outcome_revealed
+          ? "<span class='rec-pill no'>ACTUAL: " + escapeHtml((stage.actual_outcome || "missed").toUpperCase()) + "</span>"
+          : (tOpt.recommended ? "<span class='rec-pill yes'>RECOMMENDED</span>" : "<span class='rec-pill no'>INFEASIBLE</span>");
+
+        const dPill = dOpt.recommended
+          ? "<span class='rec-pill yes'>" + (stage.advice_flipped ? "RECOMMENDED (FLIPPED)" : "RECOMMENDED") + "</span>"
+          : "<span class='rec-pill alt'>BACKUP DIRECT</span>";
+
+        demoOptions.innerHTML =
+          "<div class='demo-opt-card " + (tOpt.recommended ? "recommended" : "infeasible") + "'>" +
+            "<div class='demo-opt-top'><span>" + escapeHtml(tOpt.label) + "</span>" + tPill + "</div>" +
+            "<div style='margin-top:5px;font-size:12px;color:#334155;'>" +
+              "Est. <strong>" + fmtDuration(tOpt.estimated_duration_s) + "</strong> (window " + fmtDuration(tOpt.window_p10_s) + "–" + fmtDuration(tOpt.window_p90_s) + ") · " +
+              "Timetable: " + fmtDuration(tOpt.scheduled_duration_s) + " · " +
+              "Miss risk: <strong>" + Math.round(tOpt.miss_probability * 100) + "%</strong>" +
+            "</div>" +
+          "</div>" +
+          "<div class='demo-opt-card " + (dOpt.recommended ? "recommended" : "") + "'>" +
+            "<div class='demo-opt-top'><span>" + escapeHtml(dOpt.label) + "</span>" + dPill + "</div>" +
+            "<div style='margin-top:5px;font-size:12px;color:#334155;'>" +
+              "Est. <strong>" + fmtDuration(dOpt.estimated_duration_s) + "</strong> (window " + fmtDuration(dOpt.window_p10_s) + "–" + fmtDuration(dOpt.window_p90_s) + ") · " +
+              "Timetable: " + fmtDuration(dOpt.scheduled_duration_s) + " · " +
+              "Miss risk: <strong>0% (direct)</strong>" +
+            "</div>" +
+          "</div>";
+
+        document.getElementById("demo-prev-btn").disabled = demoStageIndex === 0;
+        document.getElementById("demo-next-btn").disabled = demoStageIndex === demoData.stages.length - 1;
+
+        drawReplayDemoOnMap(demoData, stage);
+      }
+
+      async function launchReplayDemo() {
+        hideError();
+        abstentionPanel.classList.add("hidden");
+        clearJourneyOutput();
+        stopDemoAutoplay();
+
+        replayDemoBtn.disabled = true;
+        replayDemoBtn.textContent = "Loading replay...";
+        try {
+          const resp = await fetch("/replay/demo");
+          const body = await resp.json();
+          if (!resp.ok) {
+            showError("Failed to load replay demo: " + (body.detail || resp.status));
+            return;
+          }
+          demoData = body;
+          replayDemoPanel.classList.remove("hidden");
+          renderReplayDemoStage(0);
+        } catch (err) {
+          showError("Network error loading replay demo: " + (err && err.message ? err.message : String(err)));
+        } finally {
+          replayDemoBtn.disabled = false;
+          replayDemoBtn.textContent = "Replay demo";
+        }
+      }
+
+      async function refreshLiveStatusBanner() {
+        try {
+          const resp = await fetch("/live/status");
+          if (!resp.ok) return;
+          const status = await resp.json();
+          if (status.is_fresh) {
+            const veh = status.state && status.state.fresh_vehicle_count ? " · " + status.state.fresh_vehicle_count + " buses" : "";
+            setBadge("live", status.current_feed_age_seconds, "Feed age: " + fmtAge(status.current_feed_age_seconds) + veh, false);
+          } else {
+            const abs = status.abstention || {};
+            setBadge(
+              "live",
+              status.current_feed_age_seconds,
+              "Stale GPS · age " + fmtAge(status.current_feed_age_seconds) + (abs.threshold_seconds ? " (limit " + Math.round(abs.threshold_seconds) + "s)" : ""),
+              true
+            );
+          }
+        } catch (_err) {
+          // Leave initial state quietly without console noise
+        }
+      }
+
+      // Event wiring
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        submitJourneyQuery();
+      });
+
+      modeSelect.addEventListener("change", function () {
+        const val = modeSelect.value;
+        const current = departInput.value.trim();
+        const timePart = (current.match(/T(\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})/) || [])[1] || "08:30:00+05:30";
+        if (val === "replay" && !current.startsWith("2026-10-")) {
+          departInput.value = "2026-10-22T" + timePart;
+        } else if (val === "live" && current.startsWith("2026-10-")) {
+          departInput.value = "2026-11-24T" + timePart;
+        }
+      });
+
+      document.getElementById("preset-example-live").addEventListener("click", function () {
+        originInput.value = "Kashmere Gate ISBT";
+        destinationInput.value = "Nehru Place";
+        departInput.value = "2026-11-24T08:30:00+05:30";
+        modeSelect.value = "live";
+      });
+
+      document.getElementById("preset-example-replay").addEventListener("click", function () {
+        originInput.value = "Kashmere Gate ISBT";
+        destinationInput.value = "Nehru Place";
+        departInput.value = "2026-10-22T08:30:00+05:30";
+        modeSelect.value = "replay";
+      });
+
+      document.getElementById("preset-peak").addEventListener("click", function () {
+        const datePart = (departInput.value.match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || "2026-11-24";
+        departInput.value = datePart + "T09:00:00+05:30";
+      });
+
+      document.getElementById("preset-quiet").addEventListener("click", function () {
+        const datePart = (departInput.value.match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || "2026-11-24";
+        departInput.value = datePart + "T23:00:00+05:30";
+      });
+
+      document.getElementById("abstention-retry-btn").addEventListener("click", function () {
+        submitJourneyQuery();
+      });
+
+      document.getElementById("abstention-replay-btn").addEventListener("click", function () {
+        modeSelect.value = "replay";
+        const timePart = (departInput.value.match(/T(\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})/) || [])[1] || "08:30:00+05:30";
+        departInput.value = "2026-10-22T" + timePart;
+        submitJourneyQuery();
+      });
+
+      replayDemoBtn.addEventListener("click", launchReplayDemo);
+
+      document.getElementById("close-demo-btn").addEventListener("click", function () {
+        hideReplayDemo();
+        clearMap();
+        refreshLiveStatusBanner();
+      });
+
+      document.getElementById("demo-prev-btn").addEventListener("click", function () {
+        stopDemoAutoplay();
+        renderReplayDemoStage(demoStageIndex - 1);
+      });
+
+      document.getElementById("demo-next-btn").addEventListener("click", function () {
+        stopDemoAutoplay();
+        renderReplayDemoStage(demoStageIndex + 1);
+      });
+
+      document.getElementById("demo-autoplay-btn").addEventListener("click", function () {
+        const btn = document.getElementById("demo-autoplay-btn");
+        if (demoAutoTimer !== null) {
+          stopDemoAutoplay();
+          return;
+        }
+        if (demoData && demoStageIndex >= demoData.stages.length - 1) {
+          renderReplayDemoStage(0);
+        }
+        btn.textContent = "Pause";
+        demoAutoTimer = setInterval(function () {
+          if (!demoData || demoStageIndex >= demoData.stages.length - 1) {
+            stopDemoAutoplay();
+            return;
+          }
+          renderReplayDemoStage(demoStageIndex + 1);
+        }, 2200);
+      });
+
+      refreshLiveStatusBanner();
+    })();
+  </script>
+</body>
+</html>

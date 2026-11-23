@@ -465,14 +465,20 @@ def _seconds_between(start: str, end: str) -> float:
 def _base_leg(kind: str, raw: dict[str, Any] | None = None) -> dict[str, Any]:
     raw = raw or {}
     route = raw.get("route") or {}
+    from_place = raw.get("from") or {}
+    to_place = raw.get("to") or {}
     return {
         "type": kind,
         "route_id": _route_id(raw) if route else None,
         "route_name": route.get("shortName") or route.get("longName") if route else None,
-        "from_stop": (raw.get("from") or {}).get("name"),
-        "to_stop": (raw.get("to") or {}).get("name"),
-        "from_stop_id": _stop_id(raw.get("from") or {}) or None,
-        "to_stop_id": _stop_id(raw.get("to") or {}) or None,
+        "from_stop": from_place.get("name"),
+        "to_stop": to_place.get("name"),
+        "from_stop_id": _stop_id(from_place) or None,
+        "to_stop_id": _stop_id(to_place) or None,
+        "from_lat": from_place.get("lat"),
+        "from_lng": from_place.get("lon"),
+        "to_lat": to_place.get("lat"),
+        "to_lng": to_place.get("lon"),
         "scheduled_duration_s": 0,
         "estimated_duration_s": 0,
         "window_p10_s": 0,
