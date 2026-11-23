@@ -24,6 +24,8 @@ ARCHIVE_USER_AGENT = "curl/8.5.0"
 
 GPS_DIR = "gps"
 LIVE_DIR = "live"
+GOOGLE_DIR = "google"
+GOOGLE_HARD_CALL_CAP = 300
 
 LIVE_FEED_URL = os.environ.get(
     "PS1_LIVE_FEED_URL",

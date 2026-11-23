@@ -1,0 +1,323 @@
+"""Unit tests for Google Routes API comparator client, bus-only filter, cap, and reporting."""
+from __future__ import annotations
+
+import csv
+import importlib.util
+import json
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+import httpx
+import pytest
+
+from ps1.google_client import (
+    DEFAULT_FIELD_MASK,
+    IST,
+    GoogleBudgetExceededError,
+    GoogleClientError,
+    GoogleRoutesClient,
+    InvalidDepartureTimeError,
+    build_compute_routes_payload,
+    extract_bus_only_itineraries,
+    parse_google_duration_s,
+    upcoming_weekday_date,
+    validate_departure_time,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_compare_module():
+    spec = importlib.util.spec_from_file_location("compare_google", REPO_ROOT / "scripts" / "compare_google.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["compare_google"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _google_route(duration_s: int, vehicle_types: list[str], line_names: list[str] | None = None) -> dict:
+    names = line_names or [f"L{i}" for i in range(len(vehicle_types))]
+    steps = [{"travelMode": "WALK", "staticDuration": "120s", "distanceMeters": 150}]
+    for vtype, name in zip(vehicle_types, names, strict=True):
+        steps.append(
+            {
+                "travelMode": "TRANSIT",
+                "staticDuration": f"{max(60, duration_s - 240)}s",
+                "distanceMeters": 4000,
+                "transitDetails": {
+                    "stopDetails": {
+                        "departureStop": {"name": "Stop A"},
+                        "arrivalStop": {"name": "Stop B"},
+                        "departureTime": "2026-11-24T03:05:00Z",
+                        "arrivalTime": "2026-11-24T03:45:00Z",
+                    },
+                    "transitLine": {
+                        "nameShort": name,
+                        "vehicle": {"type": vtype},
+                    },
+                    "stopCount": 12,
+                },
+            }
+        )
+    steps.append({"travelMode": "WALK", "staticDuration": "120s", "distanceMeters": 150})
+    return {
+        "duration": f"{duration_s}s",
+        "distanceMeters": 4300,
+        "legs": [{"steps": steps}],
+    }
+
+
+def test_rejects_october_and_past_departure_times() -> None:
+    now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
+    october_dt = datetime(2026, 10, 22, 8, 30, tzinfo=IST)
+    past_dt = datetime(2026, 11, 23, 8, 30, tzinfo=IST)
+    future_dt = datetime(2026, 11, 24, 8, 30, tzinfo=IST)
+
+    with pytest.raises(InvalidDepartureTimeError, match="October 2026"):
+        validate_departure_time(october_dt, now=now, allow_past_for_cache=False)
+    with pytest.raises(InvalidDepartureTimeError, match="October 2026"):
+        validate_departure_time(october_dt, now=now, allow_past_for_cache=True)
+    with pytest.raises(InvalidDepartureTimeError, match="upcoming future"):
+        validate_departure_time(past_dt, now=now, allow_past_for_cache=False)
+
+    # Past non-October date is allowed only when loading previously cached files
+    assert validate_departure_time(past_dt, now=now, allow_past_for_cache=True) == past_dt
+    assert validate_departure_time(future_dt, now=now, allow_past_for_cache=False) == future_dt
+
+
+def test_upcoming_weekday_date_picks_future_matching_weekday() -> None:
+    early_tue = datetime(2026, 11, 24, 1, 10, tzinfo=IST)
+    late_tue = datetime(2026, 11, 24, 9, 0, tzinfo=IST)
+
+    assert upcoming_weekday_date(1, min_time_ist=(8, 30), now=early_tue) == date(2026, 11, 24)
+    assert upcoming_weekday_date(1, min_time_ist=(8, 30), now=late_tue) == date(2026, 12, 1)
+
+
+def test_payload_and_bus_only_filter() -> None:
+    depart = datetime(2026, 11, 24, 8, 30, tzinfo=IST)
+    payload = build_compute_routes_payload((28.6675, 77.2282), (28.5494, 77.2510), depart)
+    assert payload["travelMode"] == "TRANSIT"
+    assert payload["languageCode"] == "en"
+    assert payload["transitPreferences"]["allowedTravelModes"] == ["BUS"]
+    assert payload["departureTime"] == "2026-11-24T03:00:00Z"
+
+    with pytest.raises(ValueError, match="languageCode='en'"):
+        build_compute_routes_payload((28.6675, 77.2282), (28.5494, 77.2510), depart, language_code="bn")
+
+    response = {
+        "routes": [
+            _google_route(1800, ["SUBWAY"], ["Yellow Line"]),
+            _google_route(2100, ["BUS", "SUBWAY"], ["425", "Magenta Line"]),
+            _google_route(3400, ["BUS", "BUS"], ["419", "529"]),
+            _google_route(2950, ["BUS"], ["425"]),
+            {"duration": "900s", "legs": [{"steps": [{"travelMode": "WALK", "staticDuration": "900s"}]}]},
+        ]
+    }
+    parsed = extract_bus_only_itineraries(response)
+    assert parsed["raw_route_count"] == 5
+    assert parsed["bus_only_count"] == 2
+    assert parsed["excluded_non_bus_count"] == 3
+    assert set(parsed["excluded_vehicle_types"]) == {"SUBWAY", "WALK_ONLY"}
+    assert parsed["best_bus_route"]["duration_s"] == 2950
+    assert parsed["best_bus_route"]["route_names"] == ["425"]
+    assert parsed["best_bus_route"]["vehicle_types"] == ["BUS"]
+    assert parse_google_duration_s("3846s") == 3846
+    assert parse_google_duration_s("12.6s") == 13
+
+
+def test_client_caches_before_call_redacts_key_and_enforces_hard_cap(tmp_path: Path) -> None:
+    calls_seen: list[dict] = []
+    secret_key = "SUPER_SECRET_TEST_GOOGLE_KEY_999"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls_seen.append(
+            {
+                "url": str(request.url),
+                "headers": dict(request.headers),
+                "body": json.loads(request.content.decode("utf-8")),
+            }
+        )
+        return httpx.Response(200, json={"routes": [_google_route(2500, ["BUS"], ["717A"])]})
+
+    transport = httpx.MockTransport(handler)
+    client = GoogleRoutesClient(
+        cache_dir=tmp_path / "google",
+        api_key=secret_key,
+        hard_cap=3,
+        prior_mission_calls=2,
+        transport=transport,
+    )
+    now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
+    depart1 = datetime(2026, 11, 24, 8, 30, tzinfo=IST)
+    depart2 = datetime(2026, 11, 24, 14, 0, tzinfo=IST)
+
+    # First call hits network (total calls: 2 prior + 1 = 3 == hard_cap)
+    res1 = client.compute_bus_routes(
+        (28.49313, 77.30373), (28.52143, 77.08203), depart1, od_id="od_02", slot_label="morning_peak", now=now
+    )
+    assert res1["from_cache"] is False
+    assert res1["parsed"]["best_bus_route"]["duration_s"] == 2500
+    assert res1["call_accounting"]["total_mission_calls"] == 3
+    assert len(calls_seen) == 1
+    assert calls_seen[0]["headers"]["x-goog-fieldmask"] == DEFAULT_FIELD_MASK
+    assert calls_seen[0]["body"]["languageCode"] == "en"
+    assert calls_seen[0]["body"]["transitPreferences"]["allowedTravelModes"] == ["BUS"]
+
+    # Second call for the SAME slot MUST hit cache and NOT fail budget cap or issue HTTP
+    res1_cached = client.compute_bus_routes(
+        (28.49313, 77.30373), (28.52143, 77.08203), depart1, od_id="od_02", slot_label="morning_peak", now=now
+    )
+    assert res1_cached["from_cache"] is True
+    assert len(calls_seen) == 1
+    assert res1_cached["call_accounting"]["total_mission_calls"] == 3
+
+    # Ensure API key never appears in any file under cache_dir
+    for path in (tmp_path / "google").rglob("*"):
+        if path.is_file():
+            assert secret_key not in path.read_text(encoding="utf-8")
+
+    # Uncached call exceeding hard_cap MUST raise BEFORE sending HTTP
+    with pytest.raises(GoogleBudgetExceededError, match="3/3"):
+        client.compute_bus_routes(
+            (28.49313, 77.30373), (28.52143, 77.08203), depart2, od_id="od_02", slot_label="midday", now=now
+        )
+    assert len(calls_seen) == 1
+
+    # Cache-only mode rejects uncached slots without network
+    with pytest.raises(GoogleClientError, match="cache_only"):
+        client.compute_bus_routes(
+            (28.49313, 77.30373),
+            (28.52143, 77.08203),
+            depart2 + timedelta(hours=1),
+            now=now,
+            cache_only=True,
+        )
+
+
+def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_path: Path) -> None:
+    compare_mod = _load_compare_module()
+    od_pairs = compare_mod.DEFAULT_OD_PAIRS[:2]  # brief_example + 717A UP
+    slots = compare_mod.DEFAULT_TIME_SLOTS
+
+    def fake_our_api(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "mode": "live",
+                "selected_rung": "4",
+                "options": [
+                    {
+                        "total_duration_s": 3600,
+                        "total_window_p10_s": 3000,
+                        "total_window_p90_s": 4300,
+                        "legs": [
+                            {"type": "walk", "estimated_duration_s": 200},
+                            {"type": "board", "estimated_duration_s": 180},
+                            {
+                                "type": "ride",
+                                "route_name": "717AUP",
+                                "estimated_duration_s": 3100,
+                                "source": "historical",
+                                "timing_source": "historical_fallback",
+                            },
+                            {"type": "walk", "estimated_duration_s": 120},
+                        ],
+                    }
+                ],
+            },
+        )
+
+    call_idx = {"n": 0}
+
+    def fake_google_api(request: httpx.Request) -> httpx.Response:
+        call_idx["n"] += 1
+        # Make slot 3 return only SUBWAY (so bus-only filter excludes it -> missing row)
+        if call_idx["n"] == 3:
+            return httpx.Response(200, json={"routes": [_google_route(1900, ["SUBWAY"], ["Violet Line"])]})
+        # Make slot 6 return HTTP 500 error
+        if call_idx["n"] == 6:
+            return httpx.Response(500, json={"error": {"status": "INTERNAL", "message": "temporary upstream error"}})
+        return httpx.Response(
+            200,
+            json={
+                "routes": [
+                    _google_route(1700, ["SUBWAY"], ["Yellow Line"]),
+                    _google_route(3300, ["BUS"], ["425"]),
+                ]
+            },
+        )
+
+    google_client = GoogleRoutesClient(
+        cache_dir=tmp_path / "data" / "google",
+        api_key="DUMMY_TEST_KEY",
+        hard_cap=300,
+        prior_mission_calls=2,
+        transport=httpx.MockTransport(fake_google_api),
+    )
+    now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
+    report_dir = tmp_path / "reports"
+
+    rows, manifest = compare_mod.run_comparison(
+        target_date=date(2026, 11, 24),
+        api_url="http://127.0.0.1:3100",
+        google_client=google_client,
+        report_dir=report_dir,
+        od_pairs=od_pairs,
+        time_slots=slots,
+        api_transport=httpx.MockTransport(fake_our_api),
+        now=now,
+    )
+
+    assert len(rows) == 6
+    assert manifest["corpus_summary"]["planned_slots"] == 6
+    assert manifest["corpus_summary"]["compared_rows"] == 4
+    assert manifest["corpus_summary"]["missing_or_error_rows"] == 2
+    assert manifest["corpus_summary"]["google_non_bus_itineraries_filtered"] == 5
+    assert manifest["call_accounting"]["total_mission_calls"] == 8  # 2 prior + 6 calls
+    assert manifest["language_code"] == "en"
+    assert manifest["travel_mode"] == "TRANSIT"
+    assert manifest["allowed_travel_modes"] == ["BUS"]
+
+    # Every compared row must be strictly BUS-only
+    for entry in manifest["entries"]:
+        assert entry["language_code"] == "en"
+        assert not entry["departure_time_ist"].startswith("2026-10")
+        if entry["row_status"] == "compared":
+            assert entry["google_vehicle_types_compared"] == ["BUS"]
+
+    # CSV contains all 6 rows (missing/error rows NOT omitted)
+    with (report_dir / "google-comparator.csv").open(encoding="utf-8") as handle:
+        csv_rows = list(csv.DictReader(handle))
+    assert len(csv_rows) == 6
+    statuses = {r["row_status"] for r in csv_rows}
+    assert "compared" in statuses
+    assert "google_no_bus_only_route" in statuses
+    assert "google_http_500" in statuses
+
+    # Markdown report contains explicit caveats, our duration, Google duration, difference, and missing rows
+    md_text = (report_dir / "google-comparator.md").read_text(encoding="utf-8")
+    assert "NOT ground truth" in md_text
+    assert "October 2026 backtesting against Google is impossible" in md_text
+    assert "+300 s" in md_text
+    assert "google_no_bus_only_route" in md_text
+    assert "google_http_500" in md_text
+
+    # Re-running with --cache-only issues 0 additional Google calls
+    rows_cached, manifest_cached = compare_mod.run_comparison(
+        target_date=date(2026, 11, 24),
+        api_url="http://127.0.0.1:3100",
+        google_client=google_client,
+        report_dir=report_dir,
+        od_pairs=od_pairs,
+        time_slots=slots,
+        cache_only=True,
+        api_transport=httpx.MockTransport(fake_our_api),
+        now=now,
+    )
+    assert len(rows_cached) == 6
+    assert manifest_cached["call_accounting"]["network_calls_this_run"] == 0
+    assert manifest_cached["call_accounting"]["cache_hits_this_run"] == 6
+    assert manifest_cached["call_accounting"]["total_mission_calls"] == 8
