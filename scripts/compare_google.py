@@ -7,7 +7,7 @@ import csv
 import json
 import statistics
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,11 @@ from ps1.google_client import (
     DEFAULT_LANGUAGE_CODE,
     GOOGLE_ROUTES_URL,
     IST,
+    GoogleBudgetExceededError,
+    GoogleClientError,
     GoogleRoutesClient,
+    build_compute_routes_payload,
+    make_cache_key,
     upcoming_weekday_date,
     validate_departure_time,
 )
@@ -515,8 +519,11 @@ def evaluate_slot_comparison(
     best_google = parsed.get("best_bus_route")
     google_http = google_res.get("http_status")
     google_err = google_res.get("error")
+    unavailable_reason = google_res.get("unavailable_reason")
 
-    if google_err or google_http != 200:
+    if unavailable_reason:
+        google_status = f"unavailable_{unavailable_reason}"
+    elif google_err or google_http != 200:
         google_status = f"http_{google_http}" if google_http and google_http != 200 else "error"
     elif best_google is not None:
         google_status = "ok"
@@ -740,8 +747,9 @@ def render_markdown_report(
             "first boarding wait, model-timed bus ride(s), joint-scenario transfer risk/wait, and egress walk. "
             "Google's `routes.duration` measures door-to-door travel from leaving origin to arriving at destination "
             "(excluding pre-departure waiting at origin before walking), and OTP vs Google may select different bus "
-            "lines or transfer points. Both total duration and wait-excluded differences are tracked in "
-            f"`{csv_rel_path}`."
+            "lines or transfer points. The CSV also tracks `diff_excl_board_s`, an optional diagnostic computed "
+            "from the sum of marginal walk/ride/transfer leg medians excluding boarding (not the joint total minus "
+            f"boarding wait). See `{csv_rel_path}`."
         ),
         "",
         "## Collection Contract & Call Accounting",
@@ -805,8 +813,8 @@ def render_markdown_report(
     _add_summary_row("**All OD × Time Slots**", overall)
     for grp_id, grp_label in (
         ("brief_example", "Brief Example (Kashmere Gate -> Nehru Place)"),
-        ("corridor_717a_up", "717A Corridor UP (Route 2171, Rung 4)"),
-        ("corridor_717a_down", "717A Corridor DOWN (Route 2170, Rung 4)"),
+        ("corridor_717a_up", "717A Corridor UP OD Group"),
+        ("corridor_717a_down", "717A Corridor DOWN OD Group"),
         ("city_wide", "City-Wide Corridors (19 OD pairs)"),
     ):
         grp_rows = [r for r in rows if r["group"] == grp_id]
@@ -877,12 +885,14 @@ def render_markdown_report(
     lines.extend(
         [
             "",
-            "## Reproducing From Cache (0 Additional Google API Calls)",
+            "## Reproducing From Frozen Inputs (0 Planner or Google Calls)",
+            "",
+            "The checked-in inputs freeze both our planner estimates and the cached Google observations. Rendering does not query either service.",
             "",
             "```bash",
             "cd /home/factory-user/repos/Transport-Stack-Hackathon && \\",
             "  /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py \\",
-            f"  --date {manifest['target_date_ist']} --cache-only",
+            "  --render-only --inputs reports/google-comparator-inputs.json",
             "```",
             "",
         ]
@@ -890,28 +900,85 @@ def render_markdown_report(
     return "\n".join(lines)
 
 
-def run_comparison(
+def validate_comparison_schedule(
+    target_date: date,
+    time_slots: tuple[TimeSlot, ...],
+    *,
+    now: datetime | None,
+    cache_only: bool,
+) -> list[tuple[TimeSlot, datetime]]:
+    """Validate the declared Tuesday and every canonical slot before any client call."""
+    if target_date.weekday() != TARGET_WEEKDAY_TUESDAY:
+        raise ValueError(
+            f"Google comparator date must be a Tuesday matching the held-out weekday; "
+            f"got {target_date.isoformat()} ({target_date.strftime('%A')})"
+        )
+    canonical_slots = {slot.slot_id: slot for slot in DEFAULT_TIME_SLOTS}
+    slot_datetimes: list[tuple[TimeSlot, datetime]] = []
+    for slot in time_slots:
+        canonical = canonical_slots.get(slot.slot_id)
+        if canonical != slot:
+            raise ValueError(f"Comparator slot {slot.slot_id!r} does not match its declared weekday time")
+        depart = datetime.combine(target_date, time(slot.hour, slot.minute), tzinfo=IST)
+        validate_departure_time(depart, now=now, allow_past_for_cache=cache_only)
+        slot_datetimes.append((slot, depart))
+    return slot_datetimes
+
+
+def _unavailable_google_response(
+    google_client: GoogleRoutesClient,
+    od: ODPair,
+    slot: TimeSlot,
+    depart: datetime,
+    exc: GoogleClientError,
+    reason: str,
+) -> dict[str, Any]:
+    payload = build_compute_routes_payload(
+        (od.from_lat, od.from_lng),
+        (od.to_lat, od.to_lng),
+        depart,
+    )
+    cache_key = make_cache_key(payload, google_client.field_mask)
+    return {
+        "cache_key": cache_key,
+        "cache_path": str(google_client.responses_dir / f"{cache_key}.json"),
+        "from_cache": False,
+        "fetched_at": None,
+        "http_status": None,
+        "error": str(exc),
+        "unavailable_reason": reason,
+        "request": payload,
+        "field_mask": google_client.field_mask,
+        "parsed": {
+            "raw_route_count": 0,
+            "bus_only_count": 0,
+            "excluded_non_bus_count": 0,
+            "excluded_vehicle_types": [],
+            "bus_only_routes": [],
+            "best_bus_route": None,
+        },
+    }
+
+
+def collect_comparison_inputs(
     *,
     target_date: date,
     api_url: str,
     google_client: GoogleRoutesClient,
-    report_dir: Path,
     od_pairs: tuple[ODPair, ...] = DEFAULT_OD_PAIRS,
     time_slots: tuple[TimeSlot, ...] = DEFAULT_TIME_SLOTS,
     cache_only: bool = False,
     api_transport: httpx.BaseTransport | None = None,
     now: datetime | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Execute the full OD × time comparison and write report, CSV, and manifests."""
-    # Pre-validate every departure slot before doing any work.
-    slot_datetimes: list[tuple[TimeSlot, datetime]] = []
-    for slot in time_slots:
-        depart = datetime.combine(target_date, time(slot.hour, slot.minute), tzinfo=IST)
-        validate_departure_time(depart, now=now, allow_past_for_cache=cache_only)
-        slot_datetimes.append((slot, depart))
-
-    rows: list[dict[str, Any]] = []
-    manifest_entries: list[dict[str, Any]] = []
+) -> dict[str, Any]:
+    """Collect planner and Google observations without rendering any reports."""
+    slot_datetimes = validate_comparison_schedule(
+        target_date,
+        time_slots,
+        now=now,
+        cache_only=cache_only,
+    )
+    collected_slots: list[dict[str, Any]] = []
     cache_hits_this_run = 0
     network_calls_this_run = 0
 
@@ -919,29 +986,43 @@ def run_comparison(
         for od in od_pairs:
             for slot, depart in slot_datetimes:
                 our_res = query_our_api(api_client, api_url, od, depart)
-                google_res = google_client.compute_bus_routes(
-                    (od.from_lat, od.from_lng),
-                    (od.to_lat, od.to_lng),
-                    depart,
-                    od_id=od.od_id,
-                    slot_label=slot.slot_id,
-                    now=now,
-                    cache_only=cache_only,
-                )
+                try:
+                    google_res = google_client.compute_bus_routes(
+                        (od.from_lat, od.from_lng),
+                        (od.to_lat, od.to_lng),
+                        depart,
+                        od_id=od.od_id,
+                        slot_label=slot.slot_id,
+                        now=now,
+                        cache_only=cache_only,
+                    )
+                except GoogleBudgetExceededError as exc:
+                    google_res = _unavailable_google_response(
+                        google_client, od, slot, depart, exc, "quota_exhausted"
+                    )
+                except GoogleClientError as exc:
+                    reason = "cache_miss" if cache_only else "client_error"
+                    google_res = _unavailable_google_response(
+                        google_client, od, slot, depart, exc, reason
+                    )
                 if google_res["from_cache"]:
                     cache_hits_this_run += 1
-                else:
+                elif not google_res.get("unavailable_reason"):
                     network_calls_this_run += 1
-                row, entry = evaluate_slot_comparison(od, slot, depart, our_res, google_res)
-                rows.append(row)
-                manifest_entries.append(entry)
+                collected_slots.append(
+                    {
+                        "od": asdict(od),
+                        "slot": asdict(slot),
+                        "departure_time": depart.isoformat(),
+                        "our": our_res,
+                        "google": google_res,
+                    }
+                )
 
     counter = google_client.read_call_counter()
-    compared_count = sum(1 for r in rows if r["row_status"] == "compared")
-    non_bus_filtered = sum(int(r["google_excluded_non_bus_count"] or 0) for r in rows)
-
-    manifest = {
-        "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    return {
+        "schema_version": 1,
+        "collected_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "target_date_ist": target_date.isoformat(),
         "target_weekday": target_date.strftime("%A"),
         "matching_october_weekday_note": (
@@ -969,40 +1050,148 @@ def run_comparison(
             "cache_hits_this_run": cache_hits_this_run,
             "network_calls_this_run": network_calls_this_run,
         },
-        "corpus_summary": {
-            "od_pair_count": len(od_pairs),
-            "time_slots_per_pair": len(time_slots),
-            "planned_slots": len(rows),
-            "compared_rows": compared_count,
-            "missing_or_error_rows": len(rows) - compared_count,
-            "google_non_bus_itineraries_filtered": non_bus_filtered,
-        },
-        "entries": manifest_entries,
+        "slots": collected_slots,
     }
 
-    report_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = report_dir / "google-comparator.csv"
-    md_path = report_dir / "google-comparator.md"
-    repo_manifest_path = report_dir / "google-manifest.json"
 
-    # Write CSV table
-    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+def _write_comparison_outputs(
+    rows: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    report_dir: Path,
+    scratch_manifest_path: Path | None,
+) -> None:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    with (report_dir / "google-comparator.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(CSV_COLUMNS))
         writer.writeheader()
-        for r in rows:
-            writer.writerow({k: r.get(k) for k in CSV_COLUMNS})
+        for row in rows:
+            writer.writerow({key: row.get(key) for key in CSV_COLUMNS})
 
-    # Write request manifest to both scratch cache dir and committed reports/
     manifest_json = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
-    google_client.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    google_client.manifest_path.write_text(manifest_json, encoding="utf-8")
-    repo_manifest_path.write_text(manifest_json, encoding="utf-8")
-
-    # Write Markdown comparator report
+    (report_dir / "google-manifest.json").write_text(manifest_json, encoding="utf-8")
+    if scratch_manifest_path is not None:
+        scratch_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        scratch_manifest_path.write_text(manifest_json, encoding="utf-8")
     md_text = render_markdown_report(rows, manifest)
-    md_path.write_text(md_text, encoding="utf-8")
+    (report_dir / "google-comparator.md").write_text(md_text, encoding="utf-8")
 
+
+def _render_frozen_inputs(
+    inputs: dict[str, Any],
+    *,
+    inputs_path: Path,
+    report_dir: Path,
+    scratch_manifest_path: Path | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    manifest_entries: list[dict[str, Any]] = []
+    for collected in inputs["slots"]:
+        od = ODPair(**collected["od"])
+        slot = TimeSlot(**collected["slot"])
+        depart = datetime.fromisoformat(collected["departure_time"])
+        row, entry = evaluate_slot_comparison(
+            od,
+            slot,
+            depart,
+            collected["our"],
+            collected["google"],
+        )
+        rows.append(row)
+        manifest_entries.append(entry)
+
+    compared_count = sum(1 for row in rows if row["row_status"] == "compared")
+    non_bus_filtered = sum(int(row["google_excluded_non_bus_count"] or 0) for row in rows)
+    od_pair_count = len({row["od_id"] for row in rows})
+    slot_count = len({row["slot_id"] for row in rows})
+    manifest = {
+        key: inputs[key]
+        for key in (
+            "target_date_ist",
+            "target_weekday",
+            "matching_october_weekday_note",
+            "time_slots",
+            "api_url",
+            "google_endpoint",
+            "google_field_mask",
+            "language_code",
+            "travel_mode",
+            "allowed_travel_modes",
+            "bus_only_filter_applied",
+            "cache_dir",
+            "call_counter_path",
+            "scratch_manifest_path",
+            "call_accounting",
+        )
+    }
+    manifest.update(
+        {
+            "generated_at": inputs["collected_at"],
+            "rendered_from_frozen_inputs": True,
+            "frozen_inputs_path": str(inputs_path),
+            "corpus_summary": {
+                "od_pair_count": od_pair_count,
+                "time_slots_per_pair": slot_count,
+                "planned_slots": len(rows),
+                "compared_rows": compared_count,
+                "missing_or_error_rows": len(rows) - compared_count,
+                "google_non_bus_itineraries_filtered": non_bus_filtered,
+            },
+            "entries": manifest_entries,
+        }
+    )
+    _write_comparison_outputs(rows, manifest, report_dir, scratch_manifest_path)
     return rows, manifest
+
+
+def render_comparison(
+    *,
+    inputs_path: Path,
+    report_dir: Path,
+    scratch_manifest_path: Path | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Render reports exclusively from committed frozen inputs, with no network clients."""
+    inputs = json.loads(inputs_path.read_text(encoding="utf-8"))
+    return _render_frozen_inputs(
+        inputs,
+        inputs_path=inputs_path,
+        report_dir=report_dir,
+        scratch_manifest_path=scratch_manifest_path,
+    )
+
+
+def run_comparison(
+    *,
+    target_date: date,
+    api_url: str,
+    google_client: GoogleRoutesClient,
+    report_dir: Path,
+    od_pairs: tuple[ODPair, ...] = DEFAULT_OD_PAIRS,
+    time_slots: tuple[TimeSlot, ...] = DEFAULT_TIME_SLOTS,
+    cache_only: bool = False,
+    api_transport: httpx.BaseTransport | None = None,
+    now: datetime | None = None,
+    inputs_path: Path | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Collect fresh inputs, freeze them, then render the reports from that snapshot."""
+    inputs = collect_comparison_inputs(
+        target_date=target_date,
+        api_url=api_url,
+        google_client=google_client,
+        od_pairs=od_pairs,
+        time_slots=time_slots,
+        cache_only=cache_only,
+        api_transport=api_transport,
+        now=now,
+    )
+    frozen_path = inputs_path or (report_dir / "google-comparator-inputs.json")
+    frozen_path.parent.mkdir(parents=True, exist_ok=True)
+    frozen_path.write_text(json.dumps(inputs, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return _render_frozen_inputs(
+        inputs,
+        inputs_path=frozen_path,
+        report_dir=report_dir,
+        scratch_manifest_path=google_client.manifest_path,
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -1040,30 +1229,50 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--cache-only",
         action="store_true",
-        help="Use only existing cached Google responses (0 network calls).",
+        help="During collection, use only cached Google responses and retain cache misses as unavailable rows.",
+    )
+    parser.add_argument(
+        "--render-only",
+        action="store_true",
+        help="Render exclusively from frozen inputs; do not contact the planner or Google.",
+    )
+    parser.add_argument(
+        "--inputs",
+        type=Path,
+        default=REPO_ROOT / "reports" / "google-comparator-inputs.json",
+        help="Frozen comparison inputs for --render-only (default: reports/google-comparator-inputs.json).",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.date:
-        target_date = date.fromisoformat(args.date)
+    if args.render_only:
+        if args.cache_only:
+            raise ValueError("--cache-only is a collection option and cannot be combined with --render-only")
+        _rows, manifest = render_comparison(
+            inputs_path=Path(args.inputs),
+            report_dir=Path(args.report_dir),
+        )
     else:
-        target_date = upcoming_weekday_date(TARGET_WEEKDAY_TUESDAY, min_time_ist=(8, 30))
+        if args.date:
+            target_date = date.fromisoformat(args.date)
+        else:
+            target_date = upcoming_weekday_date(TARGET_WEEKDAY_TUESDAY, min_time_ist=(8, 30))
 
-    client = GoogleRoutesClient(
-        cache_dir=Path(args.data_dir) / GOOGLE_DIR,
-        hard_cap=args.hard_cap,
-        field_mask=DEFAULT_FIELD_MASK,
-    )
-    _rows, manifest = run_comparison(
-        target_date=target_date,
-        api_url=args.api_url,
-        google_client=client,
-        report_dir=Path(args.report_dir),
-        cache_only=args.cache_only,
-    )
+        client = GoogleRoutesClient(
+            cache_dir=Path(args.data_dir) / GOOGLE_DIR,
+            hard_cap=args.hard_cap,
+            field_mask=DEFAULT_FIELD_MASK,
+        )
+        _rows, manifest = run_comparison(
+            target_date=target_date,
+            api_url=args.api_url,
+            google_client=client,
+            report_dir=Path(args.report_dir),
+            cache_only=args.cache_only,
+            inputs_path=Path(args.inputs),
+        )
     acc = manifest["call_accounting"]
     corpus = manifest["corpus_summary"]
     print(

@@ -1,10 +1,12 @@
 """Cached Google Routes API v2 transit (bus-only) comparator client."""
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import re
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -12,7 +14,12 @@ from typing import Any
 import httpx
 from dotenv import dotenv_values
 
-from ps1.config import DATA_DIR, GOOGLE_DIR, GOOGLE_HARD_CALL_CAP
+from ps1.config import (
+    DATA_DIR,
+    GOOGLE_DIR,
+    GOOGLE_HARD_CALL_CAP,
+    GOOGLE_MISSION_LEDGER_PATH,
+)
 
 GOOGLE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 DEFAULT_FIELD_MASK = (
@@ -295,12 +302,14 @@ class GoogleRoutesClient:
         field_mask: str = DEFAULT_FIELD_MASK,
         timeout_s: float = 45.0,
         transport: httpx.BaseTransport | None = None,
+        mission_ledger_path: Path | None = None,
     ) -> None:
         if hard_cap > GOOGLE_HARD_CALL_CAP:
             raise ValueError(f"hard_cap cannot exceed mission cap of {GOOGLE_HARD_CALL_CAP}")
         self.cache_dir = Path(cache_dir or (DATA_DIR / GOOGLE_DIR))
         self.responses_dir = self.cache_dir / "responses"
-        self.counter_path = self.cache_dir / "call_counter.json"
+        self.counter_path = Path(mission_ledger_path or GOOGLE_MISSION_LEDGER_PATH)
+        self.counter_lock_path = self.counter_path.with_suffix(self.counter_path.suffix + ".lock")
         self.manifest_path = self.cache_dir / "manifest.json"
         self._api_key = api_key
         self.hard_cap = int(hard_cap)
@@ -321,12 +330,23 @@ class GoogleRoutesClient:
             "calls": [],
         }
 
-    def read_call_counter(self) -> dict[str, Any]:
-        if not self.counter_path.exists():
-            return self._default_counter()
-        data = json.loads(self.counter_path.read_text(encoding="utf-8"))
+    @contextmanager
+    def _ledger_lock(self):
+        self.counter_lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.counter_lock_path.open("a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    def _normalise_counter(self, data: dict[str, Any]) -> dict[str, Any]:
+        calls = data.setdefault("calls", [])
+        for call in calls:
+            call.setdefault("status", "completed")
         prior = int(data.get("prior_mission_calls", self.prior_mission_calls))
-        made = int(data.get("api_calls_made", len(data.get("calls", []))))
+        made = int(data.get("api_calls_made", len(calls)))
+        made = max(made, len(calls))
         cap = min(self.hard_cap, int(data.get("hard_cap", self.hard_cap)))
         total = prior + made
         data["hard_cap"] = cap
@@ -336,36 +356,75 @@ class GoogleRoutesClient:
         data["remaining_budget"] = max(0, cap - total)
         return data
 
-    def _record_network_call(
+    def _read_call_counter_unlocked(self) -> dict[str, Any]:
+        if not self.counter_path.exists():
+            legacy_path = DATA_DIR / GOOGLE_DIR / "call_counter.json"
+            if self.counter_path == GOOGLE_MISSION_LEDGER_PATH and legacy_path.exists():
+                legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+                counter = self._normalise_counter(legacy)
+                _atomic_write_json(self.counter_path, counter)
+                return counter
+            return self._default_counter()
+        data = json.loads(self.counter_path.read_text(encoding="utf-8"))
+        return self._normalise_counter(data)
+
+    def read_call_counter(self) -> dict[str, Any]:
+        with self._ledger_lock():
+            return self._read_call_counter_unlocked()
+
+    def _reserve_network_call(
         self,
         *,
         cache_key: str,
         od_id: str,
         slot_label: str,
         departure_time_utc: str,
+    ) -> tuple[dict[str, Any], int]:
+        with self._ledger_lock():
+            counter = self._read_call_counter_unlocked()
+            if int(counter["total_mission_calls"]) + 1 > int(counter["hard_cap"]):
+                raise GoogleBudgetExceededError(
+                    f"Google Routes mission call cap reached: "
+                    f"{counter['total_mission_calls']}/{counter['hard_cap']} calls used"
+                )
+            total = int(counter["total_mission_calls"]) + 1
+            counter["api_calls_made"] = int(counter["api_calls_made"]) + 1
+            counter["total_mission_calls"] = total
+            counter["remaining_budget"] = max(0, int(counter["hard_cap"]) - total)
+            reserved_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            counter["calls"].append(
+                {
+                    "call_number": total,
+                    "timestamp": reserved_at,
+                    "reserved_at": reserved_at,
+                    "status": "reserved",
+                    "cache_key": cache_key,
+                    "od_id": od_id,
+                    "slot_label": slot_label,
+                    "departure_time_utc": departure_time_utc,
+                    "http_status": None,
+                    "error": None,
+                }
+            )
+            _atomic_write_json(self.counter_path, counter)
+            return counter, total
+
+    def _complete_network_call(
+        self,
+        call_number: int,
+        *,
         http_status: int | None,
         error: str | None,
     ) -> dict[str, Any]:
-        counter = self.read_call_counter()
-        made = int(counter["api_calls_made"]) + 1
-        total = int(counter["prior_mission_calls"]) + made
-        counter["api_calls_made"] = made
-        counter["total_mission_calls"] = total
-        counter["remaining_budget"] = max(0, int(counter["hard_cap"]) - total)
-        counter.setdefault("calls", []).append(
-            {
-                "call_number": total,
-                "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "cache_key": cache_key,
-                "od_id": od_id,
-                "slot_label": slot_label,
-                "departure_time_utc": departure_time_utc,
-                "http_status": http_status,
-                "error": error,
-            }
-        )
-        _atomic_write_json(self.counter_path, counter)
-        return counter
+        with self._ledger_lock():
+            counter = self._read_call_counter_unlocked()
+            call = next(c for c in counter["calls"] if int(c["call_number"]) == call_number)
+            call["status"] = "completed"
+            call["completed_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            call["http_status"] = http_status
+            call["error"] = error
+            _atomic_write_json(self.counter_path, counter)
+            return counter
 
     def compute_bus_routes(
         self,
@@ -427,13 +486,6 @@ class GoogleRoutesClient:
         # Live network requests strictly require an upcoming departure time.
         validate_departure_time(depart, now=now, allow_past_for_cache=False)
 
-        counter = self.read_call_counter()
-        if int(counter["total_mission_calls"]) + 1 > int(counter["hard_cap"]):
-            raise GoogleBudgetExceededError(
-                f"Google Routes mission call cap reached: "
-                f"{counter['total_mission_calls']}/{counter['hard_cap']} calls used"
-            )
-
         api_key = self._api_key or load_google_api_key()
         if not api_key:
             raise GoogleClientError("GOOGLE_MAPS_API_KEY is not configured in environment or .env")
@@ -443,6 +495,12 @@ class GoogleRoutesClient:
             "X-Goog-FieldMask": self.field_mask,
             "Content-Type": "application/json",
         }
+        _reservation, call_number = self._reserve_network_call(
+            cache_key=cache_key,
+            od_id=od_id,
+            slot_label=slot_label,
+            departure_time_utc=payload["departureTime"],
+        )
         fetched_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         http_status: int | None = None
         error_msg: str | None = None
@@ -466,11 +524,8 @@ class GoogleRoutesClient:
         except httpx.HTTPError as exc:
             error_msg = f"network error: {type(exc).__name__}: {exc}"
 
-        updated_counter = self._record_network_call(
-            cache_key=cache_key,
-            od_id=od_id,
-            slot_label=slot_label,
-            departure_time_utc=payload["departureTime"],
+        updated_counter = self._complete_network_call(
+            call_number,
             http_status=http_status,
             error=error_msg,
         )

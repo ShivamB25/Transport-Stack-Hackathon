@@ -5,6 +5,8 @@ import csv
 import importlib.util
 import json
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -144,6 +146,7 @@ def test_client_caches_before_call_redacts_key_and_enforces_hard_cap(tmp_path: P
     transport = httpx.MockTransport(handler)
     client = GoogleRoutesClient(
         cache_dir=tmp_path / "google",
+        mission_ledger_path=tmp_path / "mission-ledger.json",
         api_key=secret_key,
         hard_cap=3,
         prior_mission_calls=2,
@@ -252,6 +255,7 @@ def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_p
 
     google_client = GoogleRoutesClient(
         cache_dir=tmp_path / "data" / "google",
+        mission_ledger_path=tmp_path / "mission-ledger.json",
         api_key="DUMMY_TEST_KEY",
         hard_cap=300,
         prior_mission_calls=2,
@@ -321,3 +325,252 @@ def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_p
     assert manifest_cached["call_accounting"]["network_calls_this_run"] == 0
     assert manifest_cached["call_accounting"]["cache_hits_this_run"] == 6
     assert manifest_cached["call_accounting"]["total_mission_calls"] == 8
+
+    # Rendering is pure: two independent output directories are byte-identical.
+    inputs_path = report_dir / "google-comparator-inputs.json"
+    render_a = tmp_path / "render-a"
+    render_b = tmp_path / "render-b"
+    compare_mod.render_comparison(inputs_path=inputs_path, report_dir=render_a)
+    compare_mod.render_comparison(inputs_path=inputs_path, report_dir=render_b)
+    for filename in ("google-comparator.md", "google-comparator.csv", "google-manifest.json"):
+        assert (render_a / filename).read_bytes() == (render_b / filename).read_bytes()
+    assert "717A Corridor UP OD Group" in (render_a / "google-comparator.md").read_text(encoding="utf-8")
+
+
+def test_mission_ledger_survives_cache_dir_change_and_counts_interruption(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "fixed-mission-ledger.json"
+    now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
+    depart = datetime(2026, 11, 24, 8, 30, tzinfo=IST)
+
+    def interrupt(_request: httpx.Request) -> httpx.Response:
+        raise KeyboardInterrupt
+
+    interrupted_client = GoogleRoutesClient(
+        cache_dir=tmp_path / "cache-a",
+        mission_ledger_path=ledger_path,
+        api_key="DUMMY_TEST_KEY",
+        hard_cap=3,
+        prior_mission_calls=2,
+        transport=httpx.MockTransport(interrupt),
+    )
+    with pytest.raises(KeyboardInterrupt):
+        interrupted_client.compute_bus_routes(
+            (28.1, 77.1), (28.2, 77.2), depart, now=now, od_id="interrupted"
+        )
+
+    counter = interrupted_client.read_call_counter()
+    assert counter["total_mission_calls"] == 3
+    assert counter["calls"][0]["status"] == "reserved"
+    assert counter["calls"][0]["http_status"] is None
+
+    other_cache_client = GoogleRoutesClient(
+        cache_dir=tmp_path / "cache-b",
+        mission_ledger_path=ledger_path,
+        api_key="DUMMY_TEST_KEY",
+        hard_cap=3,
+        prior_mission_calls=2,
+        transport=httpx.MockTransport(lambda _request: pytest.fail("network must not be called")),
+    )
+    with pytest.raises(GoogleBudgetExceededError, match="3/3"):
+        other_cache_client.compute_bus_routes(
+            (28.3, 77.3),
+            (28.4, 77.4),
+            depart + timedelta(hours=1),
+            now=now,
+            od_id="must-not-reset",
+        )
+    assert other_cache_client.counter_path == ledger_path
+
+
+def test_concurrent_network_reservations_stop_at_mission_cap(tmp_path: Path) -> None:
+    network_count = 0
+    network_lock = threading.Lock()
+    ledger_path = tmp_path / "fixed-mission-ledger.json"
+    now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal network_count
+        with network_lock:
+            network_count += 1
+        return httpx.Response(200, json={"routes": [_google_route(2500, ["BUS"], ["717A"])]})
+
+    client = GoogleRoutesClient(
+        cache_dir=tmp_path / "cache",
+        mission_ledger_path=ledger_path,
+        api_key="DUMMY_TEST_KEY",
+        hard_cap=5,
+        prior_mission_calls=2,
+        transport=httpx.MockTransport(handler),
+    )
+
+    def request(index: int) -> str:
+        try:
+            client.compute_bus_routes(
+                (28.0 + index / 1000, 77.0),
+                (28.5, 77.5),
+                datetime(2026, 11, 24, 8, 30, tzinfo=IST),
+                now=now,
+                od_id=f"od_{index}",
+            )
+        except GoogleBudgetExceededError:
+            return "budget"
+        return "network"
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        outcomes = list(executor.map(request, range(12)))
+
+    assert outcomes.count("network") == 3
+    assert outcomes.count("budget") == 9
+    assert network_count == 3
+    counter = client.read_call_counter()
+    assert counter["total_mission_calls"] == 5
+    assert counter["api_calls_made"] == 3
+    assert len(counter["calls"]) == 3
+    assert all(call["status"] == "completed" for call in counter["calls"])
+
+
+def test_wrong_weekday_or_slot_is_rejected_before_any_network(tmp_path: Path) -> None:
+    compare_mod = _load_compare_module()
+    calls = {"google": 0, "planner": 0}
+
+    def google_handler(_request: httpx.Request) -> httpx.Response:
+        calls["google"] += 1
+        return httpx.Response(200, json={"routes": []})
+
+    def planner_handler(_request: httpx.Request) -> httpx.Response:
+        calls["planner"] += 1
+        return httpx.Response(500)
+
+    client = GoogleRoutesClient(
+        cache_dir=tmp_path / "cache",
+        mission_ledger_path=tmp_path / "ledger.json",
+        api_key="DUMMY_TEST_KEY",
+        transport=httpx.MockTransport(google_handler),
+    )
+    common = {
+        "api_url": "http://127.0.0.1:3100",
+        "google_client": client,
+        "report_dir": tmp_path / "reports",
+        "od_pairs": compare_mod.DEFAULT_OD_PAIRS[:1],
+        "api_transport": httpx.MockTransport(planner_handler),
+        "now": datetime(2026, 11, 24, 1, 0, tzinfo=IST),
+    }
+    with pytest.raises(ValueError, match="must be a Tuesday"):
+        compare_mod.run_comparison(target_date=date(2026, 11, 25), **common)
+    bad_slot = compare_mod.TimeSlot("morning_peak", "09:00 IST", 9, 0)
+    with pytest.raises(ValueError, match="declared weekday time"):
+        compare_mod.run_comparison(
+            target_date=date(2026, 11, 24),
+            time_slots=(bad_slot,),
+            **common,
+        )
+    assert calls == {"google": 0, "planner": 0}
+    assert client.read_call_counter()["total_mission_calls"] == 2
+
+
+def _planner_success(_request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "status": "ok",
+            "mode": "live",
+            "selected_rung": "4",
+            "options": [
+                {
+                    "total_duration_s": 3600,
+                    "total_window_p10_s": 3000,
+                    "total_window_p90_s": 4300,
+                    "legs": [
+                        {"type": "walk", "estimated_duration_s": 200},
+                        {"type": "board", "estimated_duration_s": 180},
+                        {
+                            "type": "ride",
+                            "route_name": "717AUP",
+                            "estimated_duration_s": 3100,
+                            "timing_source": "model_live",
+                        },
+                        {"type": "walk", "estimated_duration_s": 120},
+                    ],
+                }
+            ],
+        },
+    )
+
+
+def test_cache_miss_retains_unavailable_row_and_existing_results(tmp_path: Path) -> None:
+    compare_mod = _load_compare_module()
+    ledger_path = tmp_path / "ledger.json"
+    now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
+    client = GoogleRoutesClient(
+        cache_dir=tmp_path / "cache",
+        mission_ledger_path=ledger_path,
+        api_key="DUMMY_TEST_KEY",
+        hard_cap=3,
+        prior_mission_calls=2,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"routes": [_google_route(3300, ["BUS"], ["717A"])]})
+        ),
+    )
+    compare_mod.run_comparison(
+        target_date=date(2026, 11, 24),
+        api_url="http://127.0.0.1:3100",
+        google_client=client,
+        report_dir=tmp_path / "seed",
+        od_pairs=compare_mod.DEFAULT_OD_PAIRS[:1],
+        time_slots=compare_mod.DEFAULT_TIME_SLOTS[:1],
+        api_transport=httpx.MockTransport(_planner_success),
+        now=now,
+    )
+
+    rows, manifest = compare_mod.run_comparison(
+        target_date=date(2026, 11, 24),
+        api_url="http://127.0.0.1:3100",
+        google_client=client,
+        report_dir=tmp_path / "partial",
+        od_pairs=compare_mod.DEFAULT_OD_PAIRS[:2],
+        time_slots=compare_mod.DEFAULT_TIME_SLOTS[:1],
+        cache_only=True,
+        api_transport=httpx.MockTransport(_planner_success),
+        now=now,
+    )
+    assert len(rows) == 2
+    assert rows[0]["row_status"] == "compared"
+    assert rows[1]["row_status"] == "google_unavailable_cache_miss"
+    assert rows[1]["our_total_duration_s"] == 3600
+    assert manifest["corpus_summary"]["planned_slots"] == 2
+    assert manifest["corpus_summary"]["compared_rows"] == 1
+    assert manifest["call_accounting"]["total_mission_calls"] == 3
+
+
+def test_cap_exhaustion_retains_collected_and_unavailable_rows(tmp_path: Path) -> None:
+    compare_mod = _load_compare_module()
+    client = GoogleRoutesClient(
+        cache_dir=tmp_path / "cache",
+        mission_ledger_path=tmp_path / "ledger.json",
+        api_key="DUMMY_TEST_KEY",
+        hard_cap=4,
+        prior_mission_calls=2,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"routes": [_google_route(3300, ["BUS"], ["717A"])]})
+        ),
+    )
+    rows, manifest = compare_mod.run_comparison(
+        target_date=date(2026, 11, 24),
+        api_url="http://127.0.0.1:3100",
+        google_client=client,
+        report_dir=tmp_path / "reports",
+        od_pairs=compare_mod.DEFAULT_OD_PAIRS[:3],
+        time_slots=compare_mod.DEFAULT_TIME_SLOTS[:1],
+        api_transport=httpx.MockTransport(_planner_success),
+        now=datetime(2026, 11, 24, 1, 0, tzinfo=IST),
+    )
+    assert len(rows) == 3
+    assert [row["row_status"] for row in rows] == [
+        "compared",
+        "compared",
+        "google_unavailable_quota_exhausted",
+    ]
+    assert all(row["our_total_duration_s"] == 3600 for row in rows)
+    assert manifest["corpus_summary"]["planned_slots"] == 3
+    assert manifest["call_accounting"]["total_mission_calls"] == 4
+    assert manifest["call_accounting"]["network_calls_this_run"] == 2

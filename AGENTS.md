@@ -23,11 +23,11 @@ Real-time bus travel-time modeling and journey planning for Delhi DTC buses usin
   - `retime.py`: Re-times OTP candidate transit legs using the selected model artifact and fallback chain, computes waits, joint-scenario transfer risk, and door-to-door `[p10, p90]` windows.
   - `replay_demo.py`: Scripted October 22 marginal-transfer replay scenario for the UI demo.
   - `api.py`: FastAPI service (`GET /journeys`, `GET /health`, `GET /live/status`, `POST /live/pause`, `POST /live/resume`, `/docs`, static UI).
-  - `google_client.py`: Cached, field-masked Google Routes API (`TRANSIT` / `BUS`) client with call-budget accounting.
+  - `google_client.py`: Cached, field-masked Google Routes API (`TRANSIT` / `BUS`) client with atomic pre-request reservations in the fixed mission-wide ledger `/home/factory-user/ps1-scratch/google-mission-call-ledger.json`.
   - `static/index.html`: Single-file Leaflet (CDN) UI with live/replay badge, feed age, abstention state, and replay demo controls.
 - `scripts/`: `otp_build.sh`, `otp_serve.sh`, `live_poller.sh`, `compare_google.py`.
 - `tests/`: Pytest suite split across `tests/data/`, `tests/model/`, `tests/api/`, `tests/comparator/`.
-- `reports/`: Committed CSV/Markdown/JSON outputs (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-manifest.json`, `otp-smoke.md`).
+- `reports/`: Committed CSV/Markdown/JSON outputs (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`).
 - `docs/`: `eval-protocol.md`, `otp.md`, `technical-note.md`.
 - `demo/`: `record_demo.sh` and recorded walkthrough `demo.webm`.
 
@@ -65,7 +65,8 @@ Run from repo root `/home/factory-user/repos/Transport-Stack-Hackathon`:
 - **OTP serve (port 3102):** `scripts/otp_serve.sh`
 - **API serve (port 3100):** `PS1_DATA_DIR=/home/factory-user/ps1-scratch/data PS1_OTP_URL=http://localhost:3102/otp/gtfs/v1 /home/factory-user/ps1-scratch/venv/bin/python -m uvicorn ps1.api:app --app-dir src --host 127.0.0.1 --port 3100`
 - **Live poller (single poll):** `scripts/live_poller.sh --once`
-- **Google comparator (cache-only):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --cache-only`
+- **Google comparator (deterministic render, no planner/Google calls):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --render-only`
+- **Google comparator (fresh planner collection, cache-only Google):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --date 2026-11-24 --cache-only`
 - **Demo recording:** `demo/record_demo.sh`
 
 ## Key Rules
@@ -75,7 +76,7 @@ Run from repo root `/home/factory-user/repos/Transport-Stack-Hackathon`:
 - **Clock & service dates:** Normalize request times to `Asia/Kolkata` (`+05:30`) before service-date, profile-hour, and quiet-hour logic. GTFS service dates for midnight-crossing runs are resolved across adjacent service dates (`day-1`, `day`, `day+1`), never assumed equal to the archive partition date.
 - **Evaluation & splits:** Whole-day splits only (train: Oct 5–8, 13–15; held-out: Oct 22, 27, 28; holidays Oct 2/20/26 excluded from normal-day training; Oct 7 never an eval day). Gate and model selection run on the `observed-only` stratum; never sum per-leg p90s into end-to-end p90s.
 - **No GPS↔GTFS trip_id join:** Stop matching is strictly geometric; never join GPS `trip_id` to GTFS `trip_id`, and never fuzzy-match stop names city-wide.
-- **Google comparator:** Hard cap of 300 calls mission-wide; cache every response under `data/google/`; never query past/October departure times (Google returns zero transit routes); always `languageCode="en"` and post-filter strictly bus-only itineraries. Google is a comparator, not ground truth.
+- **Google comparator:** Hard cap of 300 calls mission-wide in the fixed ledger above, atomically reserved before each request and unaffected by `--data-dir`; interrupted reservations remain counted. Cache every response under `data/google/`; never query past/October departure times (Google returns zero transit routes); always `languageCode="en"` and post-filter strictly bus-only itineraries. Validate Tuesday and all slots before any request, retain unavailable rows, and render only from frozen committed inputs. Google is a comparator, not ground truth.
 - **Honesty, provenance & abstention:** Always label `mode` (`live` vs `replay`) separately from per-leg ride/wait provenance (`model_live`, `model_replay`, `historical_fallback`, `timetable_fallback`) and observed coverage. Live entities older than the effective freshness threshold cannot drive timing. Abstain visibly (`status="insufficient_data"`) for stale/insufficient GPS, no supported candidate route, or no reconstructed replay observations as of the cutoff; never synthesize a fresh replay timestamp. Poller errors use fixed categories only. Never print or log API keys.
 - **Commit cadence:** Commit and push to `origin/main` after each passing coherent sub-step; keep repo `AGENTS.md` updated in the same commit.
 

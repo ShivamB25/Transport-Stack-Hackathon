@@ -26,6 +26,7 @@ GPS_DIR = "gps"
 LIVE_DIR = "live"
 GOOGLE_DIR = "google"
 GOOGLE_HARD_CALL_CAP = 300
+GOOGLE_MISSION_LEDGER_PATH = Path("/home/factory-user/ps1-scratch/google-mission-call-ledger.json")
 
 LIVE_FEED_URL = os.environ.get(
     "PS1_LIVE_FEED_URL",
