@@ -101,15 +101,13 @@ def test_schedule_proportional_interpolation_and_endpoint_extrapolation():
     assert passages[1].schedule_error_s == 440
     assert passages[0].schedule_error_s == 440
 
-
-def test_interpolation_is_monotonic_and_counts_reconcile():
-    stops = [stop(i, i * 60) for i in range(5)]
-    anchors = [Anchor(0, 100, 5), Anchor(4, 700, 5)]
-    passages = build_passages(stops, anchors, schedule_start_ts=0)
-    assert [p.ts for p in passages] == [100, 250, 400, 550, 700]
-    assert sum(p.observed for p in passages) == 2
-    assert sum(not p.observed for p in passages) == 3
-    assert len(passages) == 5
+    interior = build_passages(
+        [stop(i, i * 60) for i in range(5)],
+        [Anchor(0, 100, 5), Anchor(4, 700, 5)],
+        schedule_start_ts=0,
+    )
+    assert [p.ts for p in interior] == [100, 250, 400, 550, 700]
+    assert [p.observed for p in interior] == [True, False, False, False, True]
 
 
 def test_reconstruction_requires_two_ordered_anchors():

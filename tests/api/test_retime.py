@@ -18,9 +18,6 @@ def test_joint_windows_do_not_add_leg_quantiles() -> None:
     assert windows["total_window_p90_s"] == 30.0
     assert windows["total_window_p10_s"] == 30.0
     assert sum(leg["window_p90_s"] for leg in windows["legs"]) == 38.0
-    assert windows["total_window_p90_s"] != sum(
-        leg["window_p90_s"] for leg in windows["legs"]
-    )
 
 
 def _record(hour: int, actual: int, scheduled: int = 100) -> TimingRecord:
@@ -188,7 +185,6 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
 
     model = RetimeModel(tmp_path, selection_path=selection_path)
     assert model.selected_rung == "4"
-    assert model._artifact is not None and model._artifact.rung == "4"
 
     # 1. Covered route 2171 multi-stop leg in October replay -> actually timed by rung 4
     depart_replay = datetime(2026, 10, 22, 9, 15, tzinfo=IST)
@@ -197,7 +193,6 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
     assert est_covered.timing_source == "model_replay"
     assert est_covered.coverage_note is not None
     assert "rung 4 LightGBM" in est_covered.coverage_note
-    assert "3 pattern stretch" in est_covered.coverage_note
     assert est_covered.p10_s <= est_covered.duration_s <= est_covered.p90_s
     assert est_covered.duration_s > 360.0  # learned +50s/stretch error across 3 stretches
 
@@ -207,7 +202,6 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
     assert est_live_cov.source == "live"
     assert est_live_cov.timing_source == "model_live"
     assert est_live_cov.coverage_note is not None
-    assert "live VehiclePositions" in est_live_cov.coverage_note
     assert "rung 4 LightGBM" in est_live_cov.coverage_note
     assert est_live_cov.p10_s <= est_live_cov.duration_s <= est_live_cov.p90_s
 

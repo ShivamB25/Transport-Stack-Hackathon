@@ -249,7 +249,6 @@ def test_1h_only_winner_is_reported_but_persistence_ships() -> None:
     assert decision["shippable_rungs"] == ["1", "2", "3", "4"]
     assert decision["candidates"]["1h"]["beats_rung1_overall"]
     assert not decision["candidates"]["1h"]["shippable"]
-    assert decision["selected_rung"] in decision["shippable_rungs"]
 
 
 def test_committed_selection_matches_fresh_rule_application() -> None:

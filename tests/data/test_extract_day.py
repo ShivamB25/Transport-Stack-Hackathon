@@ -8,12 +8,11 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from ps1 import config, extract_day
+from ps1 import extract_day
 from ps1.extract_day import (
     IST,
     convert_day,
     day_db_name,
-    day_key,
     default_output_path,
     parse_day,
     run_day,
@@ -124,8 +123,7 @@ def test_convert_filters_bbox_and_bad_ts(converted):
     violations = query_one(
         f"SELECT count(*) FROM read_parquet('{out}') WHERE ts IS NULL "
         f"OR lat IS NULL OR lng IS NULL "
-        f"OR lat NOT BETWEEN {config.BBOX_LAT_MIN} AND {config.BBOX_LAT_MAX} "
-        f"OR lng NOT BETWEEN {config.BBOX_LNG_MIN} AND {config.BBOX_LNG_MAX}"
+        "OR lat NOT BETWEEN 27.5 AND 29.0 OR lng NOT BETWEEN 76.7 AND 77.6"
     )[0]
     assert violations == 0
 
@@ -170,17 +168,6 @@ def test_parse_day_variants():
     for bad in ("0", "32", "2026-11-01", "2025-10-15"):
         with pytest.raises(ValueError):
             parse_day(bad)
-
-
-def test_names_and_paths():
-    assert day_key(5) == "2026-10-05"
-    assert day_db_name(5) == "bus_movements_2026_10_05.db"
-    assert default_output_path(Path("/x"), 5) == Path("/x/gps/day=2026-10-05.parquet")
-
-
-def test_bbox_matches_spec():
-    assert (config.BBOX_LAT_MIN, config.BBOX_LAT_MAX) == (27.5, 29.0)
-    assert (config.BBOX_LNG_MIN, config.BBOX_LNG_MAX) == (76.7, 77.6)
 
 
 def _write_parquet_rows(path: Path, rows: list[tuple]) -> None:

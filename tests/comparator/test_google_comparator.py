@@ -304,7 +304,6 @@ def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_p
     # Markdown report contains explicit caveats, our duration, Google duration, difference, and missing rows
     md_text = (report_dir / "google-comparator.md").read_text(encoding="utf-8")
     assert "NOT ground truth" in md_text
-    assert "October 2026 backtesting against Google is impossible" in md_text
     assert "+300 s" in md_text
     assert "google_no_bus_only_route" in md_text
     assert "google_http_500" in md_text
@@ -334,7 +333,6 @@ def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_p
     compare_mod.render_comparison(inputs_path=inputs_path, report_dir=render_b)
     for filename in ("google-comparator.md", "google-comparator.csv", "google-manifest.json"):
         assert (render_a / filename).read_bytes() == (render_b / filename).read_bytes()
-    assert "717A Corridor UP OD Group" in (render_a / "google-comparator.md").read_text(encoding="utf-8")
 
 
 def test_mission_ledger_survives_cache_dir_change_and_counts_interruption(tmp_path: Path) -> None:

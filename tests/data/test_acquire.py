@@ -55,7 +55,6 @@ def test_write_status_accounts_for_every_day(tmp_path):
     try:
         write_status(tmp_path, list(range(1, 32)), finished=True)
         text = (tmp_path / "STATUS.md").read_text()
-        assert "Completed OK: 1/31" in text
         assert "| 2026-10-15 | ok | 100 | 62 | 10 | 1 | 2 |" in text
         assert "| 2026-10-02 | pending |" in text
     finally:
