@@ -24,10 +24,10 @@ def write_archive_gps(in_dir: Path, output: Path) -> dict[str, int]:
         raise FileNotFoundError(f"no recorded snapshots under {Path(in_dir) / 'gps'}")
     con = duckdb.connect()
     try:
-        raw_rows = con.execute(
-            "select count(*) from read_parquet(?)", [[str(path) for path in snapshots]]
-        ).fetchone()[0]
-        table = con.execute(
+        raw_rows = con.sql(
+            "select count(*) from read_parquet(?)", params=[[str(path) for path in snapshots]]
+        ).fetchall()[0][0]
+        table = con.sql(
             """
             select vehicle_id, route_id, trip_id, ts, lat, lng, speed
             from read_parquet(?, filename = true)
@@ -37,7 +37,7 @@ def write_archive_gps(in_dir: Path, output: Path) -> dict[str, int]:
             ) = 1
             order by vehicle_id, ts
             """,
-            [[str(path) for path in snapshots]],
+            params=[[str(path) for path in snapshots]],
         ).to_arrow_table()
     finally:
         con.close()

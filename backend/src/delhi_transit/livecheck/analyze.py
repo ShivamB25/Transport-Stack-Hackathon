@@ -6,8 +6,8 @@ the ride (walks and waits), and a stop-arrival time: the same without the wait. 
 the first reconstructed run of the same route whose passage at B is at or after
 max(stop arrival, predicted boarding - BOARD_TOLERANCE_S). The actual ride time is that run's
 passage time at A minus its passage time at B. The leg is unmatched (with a reason) when a stop is
-not on the reconstructed pattern, no run passes B within MAX_BOARD_DELAY_S of the predicted
-boarding, or either passage of the chosen run lies outside its observed span (extrapolated).
+not on the reconstructed pattern, every reconstructed run passed B before that bound, no run passes
+B within MAX_BOARD_DELAY_S of the predicted boarding, or either passage of the chosen run lies outside its observed span (extrapolated).
 """
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ def match_leg(leg: dict[str, Any], runs: dict[int, list[ActualRun]]) -> dict[str
     earliest = max(leg["stop_arrival_ts"], leg["predicted_board_ts"] - BOARD_TOLERANCE_S)
     candidates = [run for run in route_runs if run.stops[board].ts >= earliest]
     if not candidates:
-        return {**out, "unmatched_reason": "no_run_after_boarding"}
+        return {**out, "unmatched_reason": "boarding_after_recorded_runs"}
     run = min(candidates, key=lambda item: (item.stops[board].ts, item.vehicle_id, item.run_id))
     start, end = run.stops[board], run.stops[alight]
     out.update(
