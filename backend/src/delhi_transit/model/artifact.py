@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -18,6 +19,8 @@ from delhi_transit.model.rungs import (
     Rung2DayTypeModel,
     StretchKey,
 )
+
+logger = logging.getLogger(__name__)
 
 ArtifactModel = BaselineModel | Rung2DayTypeModel | Rung4QuantileLightGBMModel
 
@@ -144,13 +147,20 @@ def _load_model(rung: str, model_dir: Path) -> ArtifactModel:
 
 
 def load_model_artifact(model_dir: Path) -> LoadedModelArtifact | None:
-    """Load the persisted selected-rung model artifact if present."""
+    """Load the persisted selected-rung model artifact if present.
+
+    An artifact for a rung this code no longer supports (for example one saved before that rung
+    was removed from the ladder) is treated as absent so callers fall back to the causal chain.
+    """
     model_dir = Path(model_dir)
     metadata_path = model_dir / "metadata.json"
     if not metadata_path.exists():
         return None
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     rung = str(metadata["selected_rung"])
+    if rung != "4" and rung not in _TABLE_RUNG_TYPES:
+        logger.warning("ignoring model artifact in %s: unsupported rung '%s'", model_dir, rung)
+        return None
     return LoadedModelArtifact(
         rung=rung,
         model=_load_model(rung, model_dir),
