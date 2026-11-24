@@ -10,21 +10,20 @@ import duckdb
 import pytest
 
 from delhi_transit.core.config import REPO_ROOT
+from delhi_transit.model.artifact import (
+    artifact_cutoff_metadata,
+    load_model_artifact,
+    model_artifact_eligible_as_of,
+    save_model_artifact,
+)
 from delhi_transit.model.features import (
     IST,
     PassageRow,
     build_replay_queries,
     build_stretch_errors,
 )
-from delhi_transit.model.rungs import (
-    Rung2DayTypeModel,
-    Rung3LastDelayModel,
-    Rung4QuantileLightGBMModel,
-    artifact_cutoff_metadata,
-    load_model_artifact,
-    model_artifact_eligible_as_of,
-    save_model_artifact,
-)
+from delhi_transit.model.lgbm import Rung4QuantileLightGBMModel
+from delhi_transit.model.rungs import Rung2DayTypeModel, Rung3LastDelayModel
 from delhi_transit.model.selection import (
     load_eval_csv,
     select_shipped_rung,

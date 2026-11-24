@@ -18,6 +18,7 @@ from typing import Any
 from delhi_transit.core.config import IST, REPO_ROOT
 from delhi_transit.live.freshness import effective_entity_max_age_s, refresh_route_stat
 from delhi_transit.live.poller import read_live_route_stats
+from delhi_transit.model.artifact import LoadedModelArtifact, load_model_artifact
 from delhi_transit.model.features import (
     CausalFeatures,
     PassageRow,
@@ -28,12 +29,8 @@ from delhi_transit.model.features import (
     day_type_for_timestamp,
     load_passages,
 )
-from delhi_transit.model.rungs import (
-    LoadedModelArtifact,
-    Prediction,
-    load_model_artifact,
-)
-from delhi_transit.model.selection import SHIP_STRATUM
+from delhi_transit.model.rungs import Prediction
+from delhi_transit.model.selection import load_selected_rung
 
 SCENARIOS = 192
 
@@ -146,15 +143,7 @@ class RetimeModel:
         self.data_dir = Path(data_dir)
         self.selection_path = selection_path or REPO_ROOT / "reports" / "selection.json"
         self.model_dir = Path(model_dir) if model_dir is not None else self.data_dir / "model"
-        self.selected_rung = "1"
-        if self.selection_path.exists():
-            selection = json.loads(self.selection_path.read_text())
-            if selection.get("stratum") != SHIP_STRATUM:
-                raise ValueError(
-                    f"refusing {self.selection_path}: stratum {selection.get('stratum')!r} is not "
-                    f"{SHIP_STRATUM!r}"
-                )
-            self.selected_rung = str(selection["selected_rung"])
+        self.selected_rung = load_selected_rung(self.selection_path)
         self.records: list[TimingRecord] = []
         self.exact: dict[tuple[int, str, str], list[TimingRecord]] = defaultdict(list)
         self.route_hour: dict[tuple[int, int], list[TimingRecord]] = defaultdict(list)

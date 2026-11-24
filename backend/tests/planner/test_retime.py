@@ -75,16 +75,16 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
     import pyarrow.parquet as pq
 
     from delhi_transit.data.stop_passages import PASSAGE_SCHEMA
+    from delhi_transit.model.artifact import (
+        artifact_cutoff_metadata,
+        save_model_artifact,
+    )
     from delhi_transit.model.features import (
         PassageRow,
         build_replay_queries,
         build_stretch_errors,
     )
-    from delhi_transit.model.rungs import (
-        Rung4QuantileLightGBMModel,
-        artifact_cutoff_metadata,
-        save_model_artifact,
-    )
+    from delhi_transit.model.lgbm import Rung4QuantileLightGBMModel
 
     def make_day(day: str, err: int, runs: int = 8) -> list[PassageRow]:
         y, m, d = (int(p) for p in day.split("-"))

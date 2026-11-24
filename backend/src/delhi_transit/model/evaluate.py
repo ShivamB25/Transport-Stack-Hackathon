@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -12,51 +11,40 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from delhi_transit.core.config import DATA_DIR, REPO_ROOT
+from delhi_transit.model.artifact import artifact_cutoff_metadata, save_model_artifact
 from delhi_transit.model.features import (
     ReplayQuery,
     build_replay_queries,
     build_stretch_errors,
     load_passages,
 )
+from delhi_transit.model.lgbm import Rung4QuantileLightGBMModel
+from delhi_transit.model.reports import (
+    persistence_gate,
+    write_baseline_reports,
+    write_full_reports,
+)
 from delhi_transit.model.rungs import (
     ALL_RUNGS,
+    BASELINE_RUNGS,
     BaselineModel,
     Prediction,
     Rung2DayTypeModel,
     Rung3LastDelayModel,
-    Rung4QuantileLightGBMModel,
-    artifact_cutoff_metadata,
-    save_model_artifact,
 )
-from delhi_transit.model.selection import select_shipped_rung, write_selection
+from delhi_transit.model.selection import select_shipped_rung
 
 FIT_DAYS = tuple(f"2026-10-{day:02d}" for day in (5, 6, 7, 8, 13, 14))
 CALIBRATION_DAYS = ("2026-10-15",)
 TRAIN_DAYS = FIT_DAYS + CALIBRATION_DAYS
 HOLDOUT_DAYS = tuple(f"2026-10-{day:02d}" for day in (22, 27, 28))
 ROUTES = {2170: "DOWN", 2171: "UP"}
-RUNGS = ("0", "1", "1h")
 STRATA = ("all-stop", "observed-only")
-METRIC_FIELDS = (
-    "day",
-    "direction",
-    "route_id",
-    "rung",
-    "stratum",
-    "queries",
-    "mae_s",
-    "median_ae_s",
-    "p90_ae_s",
-    "share_gt_60_pct",
-    "observed_queries",
-    "interpolated_queries",
-    "observed_coverage_pct",
-    "interpolated_coverage_pct",
-    "history_fallback_queries",
-    "interval_coverage_pct",
-    "mean_interval_width_s",
-    "median_interval_width_s",
-)
+# Days whose data each selected rung's artifact was fitted or calibrated on.
+ARTIFACT_DATA_DAYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "4": (FIT_DAYS, CALIBRATION_DAYS),
+    **{rung: (TRAIN_DAYS, ()) for rung in ("1h", "2", "3")},
+}
 
 PREDICTION_SCHEMA = pa.schema(
     [
@@ -193,220 +181,6 @@ def summarize(
     }
 
 
-def persistence_gate(rows: Sequence[dict[str, object]]) -> dict[str, bool]:
-    """Return the strict October 22 rung-1-versus-rung-0 result by direction."""
-    result = {}
-    for direction in ("UP", "DOWN"):
-        scoped = {
-            str(row["rung"]): row
-            for row in rows
-            if row["day"] == "2026-10-22"
-            and row["direction"] == direction
-            and row["stratum"] == "observed-only"
-        }
-        result[direction] = float(scoped["1"]["mae_s"]) < float(scoped["0"]["mae_s"])
-    return result
-
-
-def write_reports(rows: Sequence[dict[str, object]], output_dir: Path) -> None:
-    """Write the frozen baseline CSV and markdown reports (rungs 0, 1, 1h)."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = output_dir / "eval-baselines.csv"
-    with csv_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=METRIC_FIELDS, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
-
-    gate = persistence_gate(rows)
-    lines = [
-        "# 717A held-out baseline evaluation",
-        "",
-        (
-            "Protocol: [docs/eval-protocol.md](../docs/eval-protocol.md). "
-            "All rungs use the same causal persistence-eligible queries within each stratum and group. "
-            "Every source passage has event time and available_at strictly before the query."
-        ),
-        "",
-        (
-            "**Ground-truth caveat:** all-stop metrics include schedule-interpolated "
-            "pseudo-ground-truth derived from the timetable. This is circular and biases "
-            "comparisons toward rung 0. Only observed-only metrics, whose target stretch "
-            "endpoints are both directly observed, are used for the persistence gate."
-        ),
-        "",
-        "| Day | Direction | Rung | Stratum | Queries | MAE s | Median AE s | p90 AE s | >60 s % | Observed % | Interpolated/partial % | History fallbacks |",
-        "|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
-    for row in rows:
-        lines.append(
-            f"| {row['day']} | {row['direction']} | {row['rung']} | {row['stratum']} | "
-            f"{row['queries']} | {row['mae_s']:.3f} | {row['median_ae_s']:.3f} | {row['p90_ae_s']:.3f} | "
-            f"{row['share_gt_60_pct']:.3f} | {row['observed_coverage_pct']:.3f} | "
-            f"{row['interpolated_coverage_pct']:.3f} | {row['history_fallback_queries']} |"
-        )
-    lines.extend(["", "## October 22 observed-only persistence gate", ""])
-    for direction in ("UP", "DOWN"):
-        scoped = {
-            str(row["rung"]): row
-            for row in rows
-            if row["day"] == "2026-10-22"
-            and row["direction"] == direction
-            and row["stratum"] == "observed-only"
-        }
-        comparison = "PASS" if gate[direction] else "FAIL"
-        lines.append(
-            f"- {direction}: **{comparison}** — rung 1 MAE {scoped['1']['mae_s']:.3f} s "
-            f"vs rung 0 MAE {scoped['0']['mae_s']:.3f} s; "
-            f"{scoped['0']['queries']} observed-only paired queries in each rung."
-        )
-    if not all(gate.values()):
-        lines.extend(
-            [
-                "",
-                (
-                    "**Negative result:** persistence did not beat the timetable in both "
-                    "directions on directly observed ground truth. No held-out tuning was applied."
-                ),
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            (
-                "The historical approximately 30% improvement is a reference only. "
-                "The gate is the strict direction-by-direction MAE comparison above."
-            ),
-            "",
-        ]
-    )
-    (output_dir / "eval-baselines.md").write_text("\n".join(lines), encoding="utf-8")
-
-
-def _fmt_opt(value: object) -> str:
-    if value is None or value == "":
-        return "-"
-    return f"{float(value):.3f}"
-
-
-def write_full_reports(
-    rows: Sequence[dict[str, object]],
-    decision: dict[str, Any],
-    output_dir: Path,
-    *,
-    predictions_path: Path | None = None,
-) -> None:
-    """Write full rungs 0-4 CSV, markdown report, and selection.json."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = output_dir / "eval-full.csv"
-    with csv_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=METRIC_FIELDS, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
-
-    write_selection(decision, output_dir / "selection.json")
-
-    lines = [
-        "# 717A held-out full ladder evaluation (rungs 0–4)",
-        "",
-        (
-            "Protocol: [docs/eval-protocol.md](../docs/eval-protocol.md). "
-            "All rungs (0, 1, 1h, 2, 3, 4) are scored on identical causal persistence-eligible "
-            "queries within each stratum, day, and direction. Every source passage has event "
-            "time and available_at strictly before the query."
-        ),
-        "",
-        "## Whole-day partitions",
-        "",
-        f"- **Training days (rungs 1h, 2, 3):** {', '.join(TRAIN_DAYS)}",
-        f"- **Rung 4 LightGBM fit days:** {', '.join(FIT_DAYS)}",
-        f"- **Rung 4 split-conformal calibration day:** {', '.join(CALIBRATION_DAYS)} (strictly later training day; never touches held-out days)",
-        f"- **Held-out evaluation days:** {', '.join(HOLDOUT_DAYS)}",
-        "- **Excluded holidays:** 2026-10-02, 2026-10-20, 2026-10-26",
-        "",
-        (
-            "**Ground-truth caveat:** `all-stop` rows include schedule-interpolated pseudo-ground-truth "
-            "derived from the timetable (circular bias toward rung 0). The persistence gate and model "
-            "selection rule are applied exclusively on the `observed-only` stratum."
-        ),
-        "",
-        "## Per-day, per-direction metrics",
-        "",
-        "| Day | Direction | Rung | Stratum | Queries | MAE s | Median AE s | p90 AE s | >60 s % | Observed % | Interp % | Fallbacks | Interval cov % | Mean width s | Median width s |",
-        "|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
-    for row in rows:
-        lines.append(
-            f"| {row['day']} | {row['direction']} | {row['rung']} | {row['stratum']} | "
-            f"{row['queries']} | {row['mae_s']:.3f} | {row['median_ae_s']:.3f} | {row['p90_ae_s']:.3f} | "
-            f"{row['share_gt_60_pct']:.3f} | {row['observed_coverage_pct']:.3f} | "
-            f"{row['interpolated_coverage_pct']:.3f} | {row['history_fallback_queries']} | "
-            f"{_fmt_opt(row['interval_coverage_pct'])} | {_fmt_opt(row['mean_interval_width_s'])} | "
-            f"{_fmt_opt(row['median_interval_width_s'])} |"
-        )
-
-    lines.extend(["", "## Model selection (observed-only stratum)", ""])
-    lines.append(f"- **Rule:** {decision['rule']}")
-    lines.append(
-        f"- **Selected rung:** **`{decision['selected_rung']}`** "
-        f"(held-out observed-only MAE {decision['selected_overall_mae_s']:.3f} s vs "
-        f"rung 1 persistence {decision['baseline_overall_mae_s']:.3f} s; "
-        f"delta {decision['delta_vs_rung1_s']:+.3f} s across {decision['total_observed_queries']} observed-only queries)"
-    )
-    lines.extend(
-        [
-            "",
-            "| Rung | Observed queries | Overall MAE s | Delta vs rung 1 s | Coverage matches rung 1 | Groups beating rung 1 | Interval cov % | Mean width s | Weighted mean group median width s |",
-            "|---:|---:|---:|---:|---|---:|---:|---:|---:|",
-        ]
-    )
-    for rung in decision["ladder_order"]:
-        cand = decision["candidates"].get(rung)
-        if not cand:
-            continue
-        lines.append(
-            f"| {rung} | {cand['queries']} | {_fmt_opt(cand['overall_mae_s'])} | "
-            f"{cand['delta_vs_rung1_s']:+.3f} | "
-            f"{'yes' if cand['coverage_matches_rung1'] else 'no'} | "
-            f"{cand['groups_beating_rung1']}/{cand['total_groups']} | "
-            f"{_fmt_opt(cand['interval_coverage_pct'])} | "
-            f"{_fmt_opt(cand['mean_interval_width_s'])} | "
-            f"{_fmt_opt(cand['weighted_mean_group_median_width_s'])} |"
-        )
-
-    pooled = decision.get("pooled_interval_metrics")
-    if pooled:
-        lines.extend(
-            [
-                "",
-                "## Pooled held-out observed-only rung 4 intervals",
-                "",
-                (
-                    f"- Exact pooled query median width: **{pooled['median_interval_width_s']:.3f} s** "
-                    f"across {pooled['queries']} queries (mean width {pooled['mean_interval_width_s']:.3f} s, "
-                    f"coverage {pooled['interval_coverage_pct']:.3f}%)."
-                ),
-            ]
-        )
-
-    cal = decision.get("calibration")
-    if cal:
-        lines.extend(["", "## Rung 4 split-conformal calibration", ""])
-        lines.append(f"- **Method:** {cal['method']} (nominal p10–p90 coverage {100 * cal['nominal_coverage']:.0f}%)")
-        lines.append(f"- **Fit days ({cal['fit_queries']} observed queries):** {', '.join(cal['fit_days'])}")
-        lines.append(f"- **Calibration day ({cal['calibration_queries']} observed queries):** {', '.join(cal['calibration_days'])}")
-        lines.append(f"- **Conformal offset q_conf:** {cal['conformal_quantile_s']:.3f} s")
-        lines.append(
-            f"- **Calibration-day coverage:** {cal['raw_calibration_coverage_pct']:.3f}% raw -> "
-            f"{cal['calibrated_calibration_coverage_pct']:.3f}% calibrated "
-            f"(mean width {cal['calibration_mean_width_s']:.3f} s, median width {cal['calibration_median_width_s']:.3f} s)"
-        )
-        if predictions_path is not None:
-            lines.append(f"- **Saved held-out predictions:** `{predictions_path}`")
-
-    lines.append("")
-    (output_dir / "eval-full.md").write_text("\n".join(lines), encoding="utf-8")
-
-
 def save_rung4_predictions(
     holdout_queries_by_day: dict[str, list[ReplayQuery]],
     model: Rung4QuantileLightGBMModel,
@@ -513,7 +287,7 @@ def run_evaluation(
         holdout_queries[day] = build_replay_queries(stretches, passages)
 
     models: dict[str, Any] = {
-        rung: BaselineModel(rung).fit(training_stretches) for rung in RUNGS
+        rung: BaselineModel(rung).fit(training_stretches) for rung in BASELINE_RUNGS
     }
     if not baselines_only:
         models["2"] = Rung2DayTypeModel().fit(training_stretches)
@@ -522,7 +296,7 @@ def run_evaluation(
             fit_stretches, fit_queries, cal_queries
         )
 
-    active_rungs = RUNGS if baselines_only else ALL_RUNGS
+    active_rungs = BASELINE_RUNGS if baselines_only else ALL_RUNGS
 
     full_rows: list[dict[str, object]] = []
     baseline_rows: list[dict[str, object]] = []
@@ -545,10 +319,10 @@ def run_evaluation(
                         day, route_id, rung, scoped, predictions, stratum=stratum
                     )
                     full_rows.append(row)
-                    if rung in RUNGS:
+                    if rung in BASELINE_RUNGS:
                         baseline_rows.append(row)
 
-    write_reports(baseline_rows, output_dir)
+    write_baseline_reports(baseline_rows, output_dir)
 
     if not baselines_only:
         resolved_model_dir = Path(model_dir) if model_dir is not None else data_dir / "model"
@@ -567,18 +341,23 @@ def run_evaluation(
             pooled_interval_metrics=pooled_intervals,
         )
         decision["persistence_gate_oct22"] = persistence_gate(full_rows)
-        write_full_reports(full_rows, decision, output_dir, predictions_path=pred_path)
+        write_full_reports(
+            full_rows,
+            decision,
+            output_dir,
+            partitions={
+                "train": TRAIN_DAYS,
+                "fit": FIT_DAYS,
+                "calibration": CALIBRATION_DAYS,
+                "holdout": HOLDOUT_DAYS,
+            },
+            predictions_path=pred_path,
+        )
 
         selected_rung = str(decision["selected_rung"])
-        if selected_rung == "4":
-            artifact_training_days = FIT_DAYS
-            artifact_calibration_days = CALIBRATION_DAYS
-        elif selected_rung in {"1h", "2", "3"}:
-            artifact_training_days = TRAIN_DAYS
-            artifact_calibration_days = ()
-        else:
-            artifact_training_days = ()
-            artifact_calibration_days = ()
+        artifact_training_days, artifact_calibration_days = ARTIFACT_DATA_DAYS.get(
+            selected_rung, ((), ())
+        )
         latest_training_available = max(
             (availability_by_day[day] for day in artifact_training_days),
             default=None,

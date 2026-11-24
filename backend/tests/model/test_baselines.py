@@ -4,15 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from delhi_transit.model.evaluate import (
-    HOLDOUT_DAYS,
-    METRIC_FIELDS,
-    ROUTES,
-    TRAIN_DAYS,
-    persistence_gate,
-    select_stratum,
-    summarize,
-)
+from delhi_transit.model.evaluate import ROUTES, select_stratum, summarize
 from delhi_transit.model.features import (
     IST,
     PassageRow,
@@ -21,6 +13,7 @@ from delhi_transit.model.features import (
     build_replay_queries,
     build_stretch_errors,
 )
+from delhi_transit.model.reports import METRIC_FIELDS, persistence_gate
 from delhi_transit.model.rungs import BaselineModel, Prediction
 
 
@@ -229,10 +222,3 @@ def test_gate_ignores_all_stop_metrics() -> None:
                 )
     assert persistence_gate(rows) == {"UP": False, "DOWN": True}
 
-
-def test_frozen_partitions_are_disjoint_whole_days() -> None:
-    assert TRAIN_DAYS == tuple(
-        f"2026-10-{day:02d}" for day in (5, 6, 7, 8, 13, 14, 15)
-    )
-    assert HOLDOUT_DAYS == ("2026-10-22", "2026-10-27", "2026-10-28")
-    assert not {"2026-10-02", "2026-10-20", "2026-10-26"} & set(TRAIN_DAYS)

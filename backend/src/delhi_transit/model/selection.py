@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -26,34 +26,37 @@ def _to_int(value: Any) -> int:
     return int(float(value))
 
 
+_EVAL_COLUMN_TYPES: dict[str, Callable[[Any], Any]] = {
+    "day": str,
+    "direction": str,
+    "route_id": _to_int,
+    "rung": str,
+    "stratum": str,
+    "queries": _to_int,
+    "mae_s": float,
+    "median_ae_s": float,
+    "p90_ae_s": float,
+    "share_gt_60_pct": float,
+    "observed_queries": _to_int,
+    "interpolated_queries": _to_int,
+    "observed_coverage_pct": float,
+    "interpolated_coverage_pct": float,
+    "history_fallback_queries": _to_int,
+}
+# Interval columns are empty for rungs without quantiles.
+_OPTIONAL_EVAL_COLUMNS = ("interval_coverage_pct", "mean_interval_width_s", "median_interval_width_s")
+
+
 def load_eval_csv(csv_path: Path) -> list[dict[str, Any]]:
     """Read an evaluation CSV into typed metric row dicts."""
-    rows: list[dict[str, Any]] = []
     with Path(csv_path).open(newline="", encoding="utf-8") as handle:
-        for raw in csv.DictReader(handle):
-            rows.append(
-                {
-                    "day": str(raw["day"]),
-                    "direction": str(raw["direction"]),
-                    "route_id": _to_int(raw["route_id"]),
-                    "rung": str(raw["rung"]),
-                    "stratum": str(raw["stratum"]),
-                    "queries": _to_int(raw["queries"]),
-                    "mae_s": float(raw["mae_s"]),
-                    "median_ae_s": float(raw["median_ae_s"]),
-                    "p90_ae_s": float(raw["p90_ae_s"]),
-                    "share_gt_60_pct": float(raw["share_gt_60_pct"]),
-                    "observed_queries": _to_int(raw["observed_queries"]),
-                    "interpolated_queries": _to_int(raw["interpolated_queries"]),
-                    "observed_coverage_pct": float(raw["observed_coverage_pct"]),
-                    "interpolated_coverage_pct": float(raw["interpolated_coverage_pct"]),
-                    "history_fallback_queries": _to_int(raw["history_fallback_queries"]),
-                    "interval_coverage_pct": _to_float(raw.get("interval_coverage_pct")),
-                    "mean_interval_width_s": _to_float(raw.get("mean_interval_width_s")),
-                    "median_interval_width_s": _to_float(raw.get("median_interval_width_s")),
-                }
-            )
-    return rows
+        return [
+            {
+                **{column: cast(raw[column]) for column, cast in _EVAL_COLUMN_TYPES.items()},
+                **{column: _to_float(raw.get(column)) for column in _OPTIONAL_EVAL_COLUMNS},
+            }
+            for raw in csv.DictReader(handle)
+        ]
 
 
 def select_shipped_rung(
@@ -222,6 +225,19 @@ def write_selection(decision: dict[str, Any], output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
     return output_path
+
+
+def load_selected_rung(selection_path: Path) -> str:
+    """Read the shipped rung; refuse a selection.json that was not decided on observed-only data."""
+    if not selection_path.exists():
+        return "1"
+    selection = json.loads(selection_path.read_text())
+    if selection.get("stratum") != SHIP_STRATUM:
+        raise ValueError(
+            f"refusing {selection_path}: stratum {selection.get('stratum')!r} is not "
+            f"{SHIP_STRATUM!r}"
+        )
+    return str(selection["selected_rung"])
 
 
 def main(argv: Sequence[str] | None = None) -> int:
