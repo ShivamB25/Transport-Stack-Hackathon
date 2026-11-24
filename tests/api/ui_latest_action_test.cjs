@@ -76,6 +76,7 @@ function demo() {
     }
   };
   return {
+    status: "ok",
     fixture_day: "2026-10-22",
     run_id: "run",
     vehicle_id: "vehicle",

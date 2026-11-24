@@ -33,7 +33,7 @@ def _candidate_with_coords() -> dict:
                     "stop": {"gtfsId": "DTC:2300"},
                 },
                 "route": {"gtfsId": "DTC:2171", "shortName": "717AUP"},
-                "trip": {"gtfsId": "DTC:2171_17_09_490"},
+                "trip": {"gtfsId": "DTC:2171_FULL_17_09"},
                 "legGeometry": {"points": "encoded-717a"},
             },
             {
@@ -55,7 +55,7 @@ def _candidate_with_coords() -> dict:
                     "stop": {"gtfsId": "DTC:2559"},
                 },
                 "route": {"gtfsId": "DTC:1416", "shortName": "OMS(+)BURARI-DHAULAKUAN"},
-                "trip": {"gtfsId": "DTC:1416_15_08"},
+                "trip": {"gtfsId": "DTC:1416_FULL_15_08"},
                 "legGeometry": {"points": "encoded-d7702"},
             },
         ],
@@ -92,9 +92,23 @@ def _direct_candidate() -> dict:
     }
 
 
+def _substitute_candidate() -> dict:
+    """Same first bus and transfer stop, different connecting trip (448DOWN)."""
+    cand = _candidate_with_coords()
+    cand["duration"] = 3700
+    connecting = cand["legs"][1]
+    connecting["route"] = {"gtfsId": "DTC:1957", "shortName": "448DOWN"}
+    connecting["trip"] = {"gtfsId": "DTC:1957_FULL_17_30"}
+    connecting["start"] = {"scheduledTime": "2026-10-22T17:30:00+05:30"}
+    return cand
+
+
 class StubOTP:
+    def __init__(self, candidates: list[dict] | None = None) -> None:
+        self.candidates = candidates or [_candidate_with_coords(), _direct_candidate()]
+
     async def plan(self, origin, destination, depart):
-        return [deepcopy(_candidate_with_coords()), deepcopy(_direct_candidate())]
+        return deepcopy(self.candidates)
 
 
 class StubModel:
@@ -109,7 +123,7 @@ class StubModel:
         return WaitEstimate(60.0, 300.0, 300.0, "historical", 0.5)
 
 
-def _make_client(tmp_path: Path) -> TestClient:
+def _make_client(tmp_path: Path, otp: StubOTP | None = None) -> TestClient:
     gtfs = tmp_path / "gtfs"
     gtfs.mkdir(parents=True, exist_ok=True)
     (gtfs / "stops.txt").write_text(
@@ -121,7 +135,7 @@ def _make_client(tmp_path: Path) -> TestClient:
 """,
         encoding="utf-8",
     )
-    app = create_app(tmp_path, otp_url="http://unused", otp=StubOTP(), model=StubModel(), enable_poller=False)
+    app = create_app(tmp_path, otp_url="http://unused", otp=otp or StubOTP(), model=StubModel(), enable_poller=False)
     return TestClient(app)
 
 
@@ -170,6 +184,25 @@ def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Pat
     # The first three stages grow monotonically; the observed final stop can recover slightly.
     assert delays[0] < delays[1] < delays[2]
     assert delays[3] > delays[0]
+
+
+def test_replay_demo_selects_scripted_pair_regardless_of_candidate_order(tmp_path: Path) -> None:
+    reordered = StubOTP([_substitute_candidate(), _direct_candidate(), _candidate_with_coords()])
+    body = _make_client(tmp_path, reordered).get("/replay/demo").json()
+    assert body["status"] == "ok"
+    assert body["transfer_stop"]["connecting_scheduled_depart"].endswith("17:32:42+05:30")
+    assert [leg["route_name"] for leg in body["geometries"]["transfer_legs"]] == [
+        "717AUP",
+        "OMS(+)BURARI-DHAULAKUAN",
+    ]
+
+    substitute_only = StubOTP([_substitute_candidate(), _direct_candidate()])
+    resp = _make_client(tmp_path, substitute_only).get("/replay/demo")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "unavailable"
+    assert body["stages"] == []
+    assert "scripted" in body["message"]
 
 
 def test_replay_demo_uses_real_oct22_parquet_when_available() -> None:

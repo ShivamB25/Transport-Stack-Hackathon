@@ -21,7 +21,7 @@ Real-time bus travel-time modeling and journey planning for Delhi DTC buses usin
   - `live_poller.py`: Polls live Delhi GTFS-RT `VehiclePositions.pb`, writes snapshots/route stats under `data/live/` (with per-entity fresh timestamps), gates entities by their own timestamps, and persists only sanitized error categories. Route and fleet aggregates are recomputed at request time so entities that expire between polls cannot drive timing or fleet coverage.
   - `otp_client.py`: GraphQL `planConnection` client for OTP 2.8.1 (`/otp/gtfs/v1`).
   - `retime.py`: Re-times OTP candidate transit legs using the selected model artifact and fallback chain (refuses a `selection.json` whose `stratum` is not `observed-only`), computes waits, joint-scenario transfer risk, and door-to-door `[p10, p90]` windows.
-  - `replay_demo.py`: Scripted October 22 marginal-transfer replay scenario for the UI demo.
+  - `replay_demo.py`: Scripted October 22 marginal-transfer replay scenario for the UI demo. The outcome is computed only for the OTP trip pair `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300, using the archived runs verified against it; if OTP does not return that pair the endpoint reports `status="unavailable"` with a message.
   - `api.py`: FastAPI service (`GET /journeys`, `GET /health`, `GET /live/status`, `POST /live/pause`, `POST /live/resume`, `/docs`, static UI).
   - `google_client.py`: Cached, field-masked Google Routes API (`TRANSIT` / `BUS`) client with atomic pre-request reservations in the fixed mission-wide ledger `/home/factory-user/ps1-scratch/google-mission-call-ledger.json`.
   - `static/index.html`: Single-file Leaflet (CDN) UI with live/replay badge, feed age, abstention state, and replay demo controls.

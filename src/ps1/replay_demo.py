@@ -39,6 +39,10 @@ DEMO_CONNECTING_ROUTE = "OMS(+)BURARI-DHAULAKUAN"
 DEMO_CONNECTING_ROUTE_ID = 1416
 DEMO_CONNECTING_VEHICLE_ID = "DL51EV4293"
 DEMO_DIRECT_ROUTE = "774UP"
+# OTP trips of the scripted pair and the archived GPS runs verified against them geometrically at stop 2300.
+DEMO_FIRST_TRIP_ID = "DTC:2171_FULL_17_09"
+DEMO_CONNECTING_TRIP_ID = "DTC:1416_FULL_15_08"
+DEMO_CONNECTING_RUN_ID = "1416_15_08"
 
 # Fallback passage snapshots from real Oct 22 2026 run 2171_17_09_490 (used only if parquet absent in unit tests)
 _FALLBACK_PASSAGES: list[dict[str, Any]] = [
@@ -90,7 +94,7 @@ _FALLBACK_PASSAGES: list[dict[str, Any]] = [
 
 _FALLBACK_CONNECTING_PASSAGE: dict[str, Any] = {
     "vehicle_id": DEMO_CONNECTING_VEHICLE_ID,
-    "run_id": "1416_15_08",
+    "run_id": DEMO_CONNECTING_RUN_ID,
     "observed": True,
     "ts": 1792670734,
     "lat": 28.5120754241943,
@@ -146,8 +150,8 @@ def _load_oct22_run_passages(data_dir: Path) -> tuple[list[dict[str, Any]], str]
 
 def _load_oct22_connecting_passage(
     data_dir: Path, scheduled_depart_ts: int
-) -> tuple[dict[str, Any], str]:
-    """Find the matched vehicle's minimum-distance observed stop passage, without a GTFS trip join."""
+) -> tuple[dict[str, Any] | None, str]:
+    """Find the verified archived run's minimum-distance passage at the transfer stop, without a GTFS trip join."""
     parquet_path = data_dir / "gps" / f"day={DEMO_DAY}.parquet"
     if not parquet_path.exists():
         return dict(_FALLBACK_CONNECTING_PASSAGE), "fallback_fixture"
@@ -163,7 +167,7 @@ def _load_oct22_connecting_passage(
                            * power(sin(radians(lng - ?) / 2), 2)
                        )) AS distance_m
                 FROM read_parquet(?)
-                WHERE route_id = ? AND vehicle_id = ? AND ts BETWEEN ? AND ?
+                WHERE route_id = ? AND vehicle_id = ? AND trip_id = ? AND ts BETWEEN ? AND ?
             )
             SELECT vehicle_id, trip_id, ts, lat, lng, distance_m
             FROM nearby
@@ -178,6 +182,7 @@ def _load_oct22_connecting_passage(
                 str(parquet_path),
                 DEMO_CONNECTING_ROUTE_ID,
                 DEMO_CONNECTING_VEHICLE_ID,
+                DEMO_CONNECTING_RUN_ID,
                 scheduled_depart_ts - 900,
                 scheduled_depart_ts + 1800,
             ],
@@ -185,7 +190,7 @@ def _load_oct22_connecting_passage(
     finally:
         con.close()
     if row is None:
-        raise RuntimeError("Observed connecting-bus passage is unavailable for the replay demo")
+        return None, str(parquet_path)
     return (
         {
             "vehicle_id": str(row[0]),
@@ -200,23 +205,39 @@ def _load_oct22_connecting_passage(
     )
 
 
+def _transit_legs(cand: dict[str, Any]) -> list[dict[str, Any]]:
+    return [leg for leg in cand.get("legs") or [] if leg.get("transitLeg")]
+
+
+def _place_stop_id(place: dict[str, Any] | None) -> str:
+    return str(((place or {}).get("stop") or {}).get("gtfsId") or "").split(":")[-1]
+
+
+def _is_scripted_pair(cand: dict[str, Any]) -> bool:
+    transit = _transit_legs(cand)
+    if len(transit) < 2:
+        return False
+    first, connecting = transit[0], transit[1]
+    return (
+        (first.get("trip") or {}).get("gtfsId") == DEMO_FIRST_TRIP_ID
+        and (connecting.get("trip") or {}).get("gtfsId") == DEMO_CONNECTING_TRIP_ID
+        and _place_stop_id(first.get("to")) == DEMO_TRANSFER_STOP_ID
+        and _place_stop_id(connecting.get("from")) == DEMO_TRANSFER_STOP_ID
+    )
+
+
+def _scripted_transfer_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The shortest OTP itinerary that rides the scripted trip pair through the transfer stop."""
+    matches = [cand for cand in candidates if _is_scripted_pair(cand)]
+    return min(matches, key=lambda cand: float(cand.get("duration") or 0), default=None)
+
+
 def _extract_geometries(
-    candidates: list[dict[str, Any]], direct_candidates: list[dict[str, Any]] | None = None
+    transfer_cand: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    direct_candidates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    transfer_cand: dict[str, Any] | None = None
-    direct_cand: dict[str, Any] | None = None
-    for cand in candidates:
-        legs = cand.get("legs") or []
-        transit = [leg for leg in legs if leg.get("transitLeg")]
-        if not transit:
-            continue
-        first_route = ((transit[0].get("route") or {}).get("shortName") or "").upper()
-        if transfer_cand is None and first_route == DEMO_ROUTE_NAME and len(transit) >= 2:
-            transfer_cand = cand
-        if direct_cand is None and len(transit) == 1:
-            direct_cand = cand
-    if transfer_cand is None and candidates:
-        transfer_cand = candidates[0]
+    direct_cand = next((cand for cand in candidates if len(_transit_legs(cand)) == 1), None)
     for cand in direct_candidates or []:
         transit = [leg for leg in cand.get("legs") or [] if leg.get("transitLeg")]
         if len(transit) == 1:
@@ -250,25 +271,15 @@ def _extract_geometries(
             )
         return result
 
-    transfer_scheduled_s = 3793
-    transfer_gap_s = 235
-    connect_sched_iso = "2026-10-22T17:32:42+05:30"
-    transfer_route_summary = "717AUP -> OMS(+)BURARI-DHAULAKUAN -> 502DOWN"
-    if transfer_cand:
-        t_legs = [leg for leg in transfer_cand.get("legs") or [] if leg.get("transitLeg")]
-        if transfer_cand.get("duration"):
-            transfer_scheduled_s = round(float(transfer_cand["duration"]))
-        if len(t_legs) >= 2:
-            t_arr = datetime.fromisoformat(t_legs[0]["end"]["scheduledTime"])
-            t_dep = datetime.fromisoformat(t_legs[1]["start"]["scheduledTime"])
-            gap = round((t_dep - t_arr).total_seconds())
-            if gap > 0:
-                transfer_gap_s = gap
-                connect_sched_iso = t_legs[1]["start"]["scheduledTime"]
-            route_names = [
-                (leg.get("route") or {}).get("shortName") or "BUS" for leg in t_legs
-            ]
-            transfer_route_summary = " -> ".join(route_names)
+    t_legs = _transit_legs(transfer_cand)
+    t_arr = datetime.fromisoformat(t_legs[0]["end"]["scheduledTime"])
+    t_dep = datetime.fromisoformat(t_legs[1]["start"]["scheduledTime"])
+    transfer_scheduled_s = round(float(transfer_cand.get("duration") or (t_dep - t_arr).total_seconds()))
+    transfer_gap_s = round((t_dep - t_arr).total_seconds())
+    connect_sched_iso = t_legs[1]["start"]["scheduledTime"]
+    transfer_route_summary = " -> ".join(
+        (leg.get("route") or {}).get("shortName") or "BUS" for leg in t_legs
+    )
 
     direct_scheduled_s = 3930
     direct_route_summary = DEMO_DIRECT_ROUTE
@@ -332,6 +343,17 @@ def _simulate_transfer_stage(
     }
 
 
+def _demo_unavailable(message: str) -> dict[str, Any]:
+    return {
+        "status": "unavailable",
+        "mode": "replay",
+        "live_feed_contacted": False,
+        "fixture_day": DEMO_DAY,
+        "message": message,
+        "stages": [],
+    }
+
+
 async def build_marginal_transfer_demo(
     data_dir: Path,
     otp_client: Any,
@@ -358,7 +380,14 @@ async def build_marginal_transfer_demo(
     except OTPClientError:
         direct_candidates = []
 
-    geom = _extract_geometries(candidates, direct_candidates)
+    transfer_cand = _scripted_transfer_candidate(candidates)
+    if transfer_cand is None:
+        return _demo_unavailable(
+            f"Replay demo unavailable: OTP did not return the scripted {DEMO_ROUTE_NAME} -> "
+            f"{DEMO_CONNECTING_ROUTE} trip pair through {DEMO_TRANSFER_STOP_NAME} "
+            f"(stop {DEMO_TRANSFER_STOP_ID}), so no observed outcome is shown."
+        )
+    geom = _extract_geometries(transfer_cand, candidates, direct_candidates)
     transfer_sched_s = geom["transfer_scheduled_s"]
     direct_sched_s = geom["direct_scheduled_s"]
     transfer_gap_s = geom["transfer_gap_s"]
@@ -374,8 +403,11 @@ async def build_marginal_transfer_demo(
     p_xfer = by_seq.get(DEMO_TRANSFER_STOP_SEQ, _FALLBACK_PASSAGES[3])
 
     # Compare two directly observed passages at the same transfer stop, never schedule with observation.
-    if not p_xfer["observed"] or not connecting_passage["observed"]:
-        raise RuntimeError("Replay outcome requires observed passages for both buses")
+    if connecting_passage is None or not p_xfer["observed"]:
+        return _demo_unavailable(
+            f"Replay demo unavailable: observed passages of both scripted buses at "
+            f"{DEMO_TRANSFER_STOP_NAME} (stop {DEMO_TRANSFER_STOP_ID}) were not found in the October 22 archive."
+        )
     actual_arrival_ts = int(p_xfer["ts"])
     actual_connecting_depart_ts = int(connecting_passage["ts"])
     scheduled_arrival_ts = int(p_xfer["scheduled_ts"])

@@ -1566,6 +1566,10 @@
             showError("Failed to load replay demo: " + (body.detail || resp.status));
             return;
           }
+          if (body.status !== "ok") {
+            showError(body.message || "Replay demo unavailable.");
+            return;
+          }
           demoData = body;
           replayDemoPanel.classList.remove("hidden");
           renderReplayDemoStage(0);
