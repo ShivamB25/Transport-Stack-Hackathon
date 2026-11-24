@@ -9,7 +9,7 @@ Real-time bus travel-time modeling and journey planning for Delhi DTC buses usin
 ## Repository Layout
 
 - `src/ps1/`
-  - `config.py`: Env-driven paths, ports, Delhi bbox (`27.5–29.0 N`, `76.7–77.6 E`), archive URL/UA, live feed settings, Google 300-call cap.
+  - `config.py`: Env-driven paths, OTP URL, shared `IST` (`+05:30`) timezone, Delhi bbox (`27.5–29.0 N`, `76.7–77.6 E`), archive URL/UA, live feed settings, Google 300-call cap.
   - `range_reader.py`: Bounded seekable HTTP range reader (`HTTPRangeFile`) for remote 7z archives; rejects non-206 and oversized responses before buffering the body.
   - `extract_day.py`: Range-extracts one archive day's SQLite member, deterministically deduplicates on `(vehicle_id, ts, lat, lng)` by SQLite `rowid` (keep first), filters bbox/ts, casts `route_id` to `INTEGER`, stages and verifies (`verify_day`) before atomic Parquet publication, and removes temporary SQLite files.
   - `acquire.py`: Resumable 31-day orchestrator (priority days first, 2 workers); verifies existing Parquets in place via `verify_day`, never deletes canonical Parquets on refresh failure, and writes `download.log` + `STATUS.md`.
