@@ -387,6 +387,10 @@ class GoogleRoutesClient:
         data = json.loads(self.counter_path.read_text(encoding="utf-8"))
         return self._normalise_counter(data)
 
+    def _prior_usage_unknown(self) -> bool:
+        """The fixed ledger is missing and was not seeded from the canonical counter."""
+        return self.counter_path == GOOGLE_MISSION_LEDGER_PATH and not self.counter_path.exists()
+
     def read_call_counter(self) -> dict[str, Any]:
         with self._ledger_lock():
             return self._read_call_counter_unlocked()
@@ -401,6 +405,11 @@ class GoogleRoutesClient:
     ) -> int:
         with self._ledger_lock():
             counter = self._read_call_counter_unlocked()
+            if self._prior_usage_unknown():
+                raise GoogleClientError(
+                    f"Refusing a paid Google request: mission ledger {self.counter_path} is missing and "
+                    f"the canonical counter {GOOGLE_LEGACY_COUNTER_PATH} cannot establish prior usage"
+                )
             if int(counter["total_mission_calls"]) + 1 > int(counter["hard_cap"]):
                 raise GoogleBudgetExceededError(
                     f"Google Routes mission call cap reached: "

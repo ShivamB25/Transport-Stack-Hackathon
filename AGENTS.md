@@ -23,7 +23,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
   - `retime.py`: re-times OTP transit legs with the selected rung and fallback chain, waits, joint-scenario transfer risk and windows. Reads `reports/selection.json` relative to the package and refuses a non-observed-only selection.
   - `replay_demo.py`: scripted Oct 22 missed-transfer replay for OTP trips `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300; returns `status="unavailable"` if OTP does not return that pair.
   - `api.py`: FastAPI app (`GET /journeys`, `/health`, `/live/status`, `POST /live/pause`, `POST /live/resume`, `GET /replay/demo`, `/docs`, UI at `/`). `depart` is optional: it defaults to now in Asia/Kolkata in live mode, or to 2026-10-22T08:30+05:30 when replay is explicit (`mode=replay`, or `mode=auto` with `PS1_MODE=replay`).
-  - `google_client.py`: cached, field-masked Google Routes client with atomic reservations in the mission-wide ledger. A missing fixed ledger is seeded from the canonical `data/google/call_counter.json`, never restarted from zero.
+  - `google_client.py`: cached, field-masked Google Routes client with atomic reservations in the mission-wide ledger. A missing fixed ledger is seeded from the canonical `data/google/call_counter.json`, never restarted from zero; if neither exists, paid cache misses are refused while cache reads keep working.
   - `static/index.html`: single-file Leaflet UI (badge, feed age, abstention panel, presets, replay demo).
 - `scripts/`: `otp_build.sh`, `otp_serve.sh`, `live_poller.sh`, `compare_google.py`.
 - `tests/`: pytest suites in `tests/data`, `tests/model`, `tests/api`, `tests/comparator`.

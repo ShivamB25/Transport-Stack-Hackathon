@@ -453,6 +453,30 @@ def test_missing_fixed_ledger_is_seeded_from_canonical_counter(tmp_path: Path, m
     assert json.loads(ledger_path.read_text())["total_mission_calls"] == 3
 
 
+def test_paid_call_is_refused_when_no_ledger_establishes_prior_usage(tmp_path: Path, monkeypatch) -> None:
+    from ps1 import google_client
+
+    ledger_path = tmp_path / "fixed-mission-ledger.json"
+    monkeypatch.setattr(google_client, "GOOGLE_MISSION_LEDGER_PATH", ledger_path)
+    monkeypatch.setattr(google_client, "GOOGLE_LEGACY_COUNTER_PATH", tmp_path / "missing" / "call_counter.json")
+    client = GoogleRoutesClient(
+        cache_dir=tmp_path / "google",
+        api_key="DUMMY_TEST_KEY",
+        transport=httpx.MockTransport(lambda _request: pytest.fail("network must not be called")),
+    )
+    now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
+    cached_depart = datetime(2026, 11, 24, 8, 30, tzinfo=IST)
+    payload = build_compute_routes_payload((28.1, 77.1), (28.2, 77.2), cached_depart)
+    cache_file = client.responses_dir / f"{google_client.make_cache_key(payload)}.json"
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text(json.dumps({"http_status": 200, "request": payload, "response": {"routes": []}}))
+
+    assert client.compute_bus_routes((28.1, 77.1), (28.2, 77.2), cached_depart, now=now)["from_cache"]
+    with pytest.raises(GoogleClientError, match="prior usage"):
+        client.compute_bus_routes((28.1, 77.1), (28.2, 77.2), cached_depart + timedelta(hours=1), now=now)
+    assert not ledger_path.exists()
+
+
 def test_wrong_weekday_or_slot_is_rejected_before_any_network(tmp_path: Path) -> None:
     compare_mod = _load_compare_module()
     calls = {"google": 0, "planner": 0}
