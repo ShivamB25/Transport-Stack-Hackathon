@@ -542,7 +542,8 @@ class GoogleRoutesClient:
                 else:
                     error_msg = error_msg or f"HTTP {http_status}"
         except httpx.HTTPError as exc:
-            error_msg = f"network error: {type(exc).__name__}: {exc}"
+            # Transport messages can echo request headers, so only the class name is kept.
+            error_msg = f"network error: {type(exc).__name__}"
 
         updated_counter = self._complete_network_call(
             call_number,

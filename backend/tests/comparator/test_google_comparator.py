@@ -134,22 +134,26 @@ def test_client_caches_before_call_redacts_key_and_enforces_hard_cap(tmp_path: P
                 "body": json.loads(request.content.decode("utf-8")),
             }
         )
+        if len(calls_seen) == 2:
+            raise httpx.ConnectError(f"rejected header X-Goog-Api-Key: {secret_key}", request=request)
         return httpx.Response(200, json={"routes": [_google_route(2500, ["BUS"], ["717A"])]})
 
     transport = httpx.MockTransport(handler)
+    ledger_path = tmp_path / "mission-ledger.json"
     client = GoogleRoutesClient(
         cache_dir=tmp_path / "google",
-        mission_ledger_path=tmp_path / "mission-ledger.json",
+        mission_ledger_path=ledger_path,
         api_key=secret_key,
-        hard_cap=3,
+        hard_cap=4,
         prior_mission_calls=2,
         transport=transport,
     )
     now = datetime(2026, 11, 24, 1, 0, tzinfo=IST)
     depart1 = datetime(2026, 11, 24, 8, 30, tzinfo=IST)
     depart2 = datetime(2026, 11, 24, 14, 0, tzinfo=IST)
+    depart3 = datetime(2026, 11, 24, 18, 0, tzinfo=IST)
 
-    # First call hits network (total calls: 2 prior + 1 = 3 == hard_cap)
+    # First call hits network (total calls: 2 prior + 1 = 3)
     res1 = client.compute_bus_routes(
         (28.49313, 77.30373), (28.52143, 77.08203), depart1, od_id="od_02", slot_label="morning_peak", now=now
     )
@@ -169,17 +173,26 @@ def test_client_caches_before_call_redacts_key_and_enforces_hard_cap(tmp_path: P
     assert len(calls_seen) == 1
     assert res1_cached["call_accounting"]["total_mission_calls"] == 3
 
-    # Ensure API key never appears in any file under cache_dir
-    for path in (tmp_path / "google").rglob("*"):
-        if path.is_file():
-            assert secret_key not in path.read_text(encoding="utf-8")
+    # A transport error whose text carries the key is stored as its class name only
+    failed = client.compute_bus_routes(
+        (28.49313, 77.30373), (28.52143, 77.08203), depart2, od_id="od_02", slot_label="midday", now=now
+    )
+    assert failed["error"] == "network error: ConnectError"
+    assert secret_key not in json.dumps(failed)
+    assert failed["call_accounting"]["total_mission_calls"] == 4
+
+    # Ensure API key never appears in the cache or the ledger
+    persisted = [ledger_path, *(tmp_path / "google").rglob("*.json")]
+    assert len(persisted) == 3
+    for path in persisted:
+        assert secret_key not in path.read_text(encoding="utf-8")
 
     # Uncached call exceeding hard_cap MUST raise BEFORE sending HTTP
-    with pytest.raises(GoogleBudgetExceededError, match="3/3"):
+    with pytest.raises(GoogleBudgetExceededError, match="4/4"):
         client.compute_bus_routes(
-            (28.49313, 77.30373), (28.52143, 77.08203), depart2, od_id="od_02", slot_label="midday", now=now
+            (28.49313, 77.30373), (28.52143, 77.08203), depart3, od_id="od_02", slot_label="evening", now=now
         )
-    assert len(calls_seen) == 1
+    assert len(calls_seen) == 2
 
     # Cache-only mode rejects uncached slots without network
     with pytest.raises(GoogleClientError, match="cache_only"):
