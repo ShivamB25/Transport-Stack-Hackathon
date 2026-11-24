@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from delhi_transit.api.app import create_app
 from delhi_transit.core.config import IST
-from delhi_transit.planner.retime import TimingEstimate, WaitEstimate
+from delhi_transit.planner.provenance import TimingEstimate, WaitEstimate
 
 
 def _walk(start: str, end: str, destination: bool = False) -> dict:

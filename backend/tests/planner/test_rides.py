@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from delhi_transit.model.features import StretchError
-from delhi_transit.planner.retime import RetimeModel, TimingRecord, scenario_windows
+from delhi_transit.planner.causal_context import TimingRecord
+from delhi_transit.planner.rides import RetimeModel
+from delhi_transit.planner.risk import scenario_windows
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -50,7 +52,7 @@ def _model(records: list[TimingRecord], tmp_path: Path) -> RetimeModel:
     return model
 
 
-def test_observed_historical_profile_changes_time_of_day(tmp_path: Path) -> None:
+def test_fallback_chain_historical_then_timetable(tmp_path: Path) -> None:
     model = _model([_record(9, 140), _record(23, 70)], tmp_path)
     peak = model.predict_ride(99, "x", "y", 1000, datetime(2026, 10, 22, 9, tzinfo=IST), "replay")
     quiet = model.predict_ride(99, "x", "y", 1000, datetime(2026, 10, 22, 23, tzinfo=IST), "replay")
@@ -59,10 +61,8 @@ def test_observed_historical_profile_changes_time_of_day(tmp_path: Path) -> None
     assert peak.source == quiet.source == "historical"
     assert peak.observed_coverage == quiet.observed_coverage == 0.0
 
-
-def test_timetable_is_explicit_last_fallback(tmp_path: Path) -> None:
-    model = _model([], tmp_path)
-    estimate = model.predict_ride(1, "a", "b", 500, datetime(2026, 10, 22, 9, tzinfo=IST), "replay")
+    empty = _model([], tmp_path)
+    estimate = empty.predict_ride(1, "a", "b", 500, datetime(2026, 10, 22, 9, tzinfo=IST), "replay")
     assert estimate.duration_s == 500
     assert estimate.source == "timetable"
     assert estimate.observed_coverage == 0.0

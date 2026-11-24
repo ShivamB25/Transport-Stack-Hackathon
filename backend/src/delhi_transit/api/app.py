@@ -43,8 +43,9 @@ from delhi_transit.live.poller import (
     read_live_state,
     resume_feed,
 )
+from delhi_transit.planner.itinerary import retime_itinerary
 from delhi_transit.planner.otp_client import OTPClient, OTPClientError
-from delhi_transit.planner.retime import RetimeModel, retime_itinerary
+from delhi_transit.planner.rides import RetimeModel
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEFAULT_REPLAY_DEPART = datetime(2026, 10, 22, 8, 30, tzinfo=IST)

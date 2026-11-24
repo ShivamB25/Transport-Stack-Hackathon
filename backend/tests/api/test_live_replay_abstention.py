@@ -16,7 +16,8 @@ from delhi_transit.live.poller import (
     persist_decoded_feed,
 )
 from delhi_transit.model.features import StretchError
-from delhi_transit.planner.retime import RetimeModel, TimingRecord
+from delhi_transit.planner.causal_context import TimingRecord
+from delhi_transit.planner.rides import RetimeModel
 
 IST = timezone(timedelta(hours=5, minutes=30))
 

@@ -9,6 +9,7 @@ from typing import Any
 import duckdb
 
 from delhi_transit.core.time import hhmmss_ist, iso_ist
+from delhi_transit.planner.itinerary import place_stop_id
 from delhi_transit.planner.otp_client import OTPClientError
 
 DEMO_DAY = "2026-10-22"
@@ -200,10 +201,6 @@ def _transit_legs(cand: dict[str, Any]) -> list[dict[str, Any]]:
     return [leg for leg in cand.get("legs") or [] if leg.get("transitLeg")]
 
 
-def _place_stop_id(place: dict[str, Any] | None) -> str:
-    return str(((place or {}).get("stop") or {}).get("gtfsId") or "").split(":")[-1]
-
-
 def _is_scripted_pair(cand: dict[str, Any]) -> bool:
     transit = _transit_legs(cand)
     if len(transit) < 2:
@@ -212,8 +209,8 @@ def _is_scripted_pair(cand: dict[str, Any]) -> bool:
     return (
         (first.get("trip") or {}).get("gtfsId") == DEMO_FIRST_TRIP_ID
         and (connecting.get("trip") or {}).get("gtfsId") == DEMO_CONNECTING_TRIP_ID
-        and _place_stop_id(first.get("to")) == DEMO_TRANSFER_STOP_ID
-        and _place_stop_id(connecting.get("from")) == DEMO_TRANSFER_STOP_ID
+        and place_stop_id(first.get("to"), fallback_to_name=False) == DEMO_TRANSFER_STOP_ID
+        and place_stop_id(connecting.get("from"), fallback_to_name=False) == DEMO_TRANSFER_STOP_ID
     )
 
 
