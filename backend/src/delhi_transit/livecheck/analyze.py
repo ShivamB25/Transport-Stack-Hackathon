@@ -318,6 +318,48 @@ def google_rows(calls: list[dict[str, Any]], legs: list[dict[str, Any]]) -> list
     return rows
 
 
+def slots_from_records(records: list[dict[str, Any]], summary_slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Summary slots, plus any slot whose responses were saved after the summary's last update."""
+    known = {slot["slot"] for slot in summary_slots}
+    extra: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        if record["slot"] not in known:
+            extra[record["slot"]].append(record)
+    return summary_slots + [
+        {
+            "slot": slot,
+            "started_at": min(r["requested_at_iso"] for r in rows),
+            "queries": len(rows),
+            "statuses": dict(Counter(r["status"] for r in rows)),
+            "feed_age_at_slot_start_s": None,
+        }
+        for slot, rows in sorted(extra.items())
+    ]
+
+
+def window_coverage(legs: list[dict[str, Any]], polls: list[dict[str, Any]]) -> dict[str, Any]:
+    """Recorded window and, per slot, predicted 717A ride legs whose predicted end falls after the last ok poll."""
+    times = [poll["attempted_at"] for poll in polls if poll["ok"]]
+    if not times:
+        return {}
+    last = times[-1]
+    per_slot: dict[str, dict[str, int]] = defaultdict(lambda: {"legs": 0, "end_after_window": 0})
+    for leg in legs:
+        counts = per_slot[str(leg["slot"])]
+        counts["legs"] += 1
+        counts["end_after_window"] += int(leg["predicted_board_ts"] + leg["predicted_s"] > last)
+    return {
+        "first_ok": iso_ist(times[0]),
+        "last_ok": iso_ist(last),
+        "minutes": round((last - times[0]) / 60, 1),
+        "legs_by_slot": dict(sorted(per_slot.items())),
+    }
+
+
+def google_calls_made(calls: list[dict[str, Any]]) -> int:
+    return sum(1 for call in calls if (call.get("google") or {}).get("from_cache") is False)
+
+
 def _read_jsonl(paths: list[Path]) -> list[dict[str, Any]]:
     records = []
     for path in paths:
@@ -341,7 +383,8 @@ def analyze(in_dir: Path) -> dict[str, Any]:
     return {
         "day": summary["day"],
         "run": {key: summary.get(key) for key in ("status", "started_at", "updated_at", "until", "journeys_until", "slot_minutes", "poll_interval_s")},
-        "slots": summary.get("slots", []),
+        "slots": slots_from_records(records, summary.get("slots", [])),
+        "window": window_coverage(legs, polls),
         "matching_rule": {
             "board_tolerance_s": BOARD_TOLERANCE_S,
             "max_board_delay_s": MAX_BOARD_DELAY_S,
@@ -351,6 +394,10 @@ def analyze(in_dir: Path) -> dict[str, Any]:
         "responses": response_stats(records),
         "actuals": actuals,
         "accuracy": accuracy_tables(legs),
-        "google": {"summary": summary.get("google"), "rows": google_rows(calls, legs)},
+        "google": {
+            "summary": summary.get("google"),
+            "calls_in_log": google_calls_made(calls),
+            "rows": google_rows(calls, legs),
+        },
         "legs": legs,
     }

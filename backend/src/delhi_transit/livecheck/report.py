@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,30 @@ def _accuracy_rows(groups: dict[str, dict[str, Any]]) -> list[list[Any]]:
 ACCURACY_HEADERS = ["stratum", "legs", "MAE s", "bias s", "median AE s", "timetable MAE s", "[p10, p90] coverage", "small sample"]
 
 
+def _limitations(result: dict[str, Any]) -> list[str]:
+    window, acc = result.get("window") or {}, result["accuracy"]
+    if not window:
+        return []
+    lines = [
+        "## Window and limitations",
+        "",
+        (f"- Recorded window: {window['first_ok']} to {window['last_ok']} (first to last successful poll, "
+         f"{window['minutes']} min); planned end was {result['run'].get('until')}."),
+    ]
+    if datetime.fromisoformat(window["first_ok"]).hour >= 20:
+        lines.append("- The window starts after the evening peak, so it says nothing about peak-hour accuracy.")
+    lines += [
+        f"- Slot {slot}: {c['legs']} predicted 717A ride legs, {c['end_after_window']} predicted to end after the last poll "
+        "(their actual ride cannot be rebuilt from this recording)."
+        for slot, c in window["legs_by_slot"].items()
+    ]
+    lines.append(
+        f"- Small sample: {acc['legs_matched']} matched legs of {acc['legs_total']}; the accuracy numbers below are "
+        "indicative only."
+    )
+    return lines + [""]
+
+
 def render_markdown(result: dict[str, Any]) -> str:
     run, health, responses = result["run"], result["feed_health"], result["responses"]
     acc, actuals = result["accuracy"], result.get("actuals") or {}
@@ -60,6 +85,9 @@ def render_markdown(result: dict[str, Any]) -> str:
         "Accuracy compares predicted 717A ride legs from live `/journeys` responses with ride times "
         "rebuilt from the same day's recorded GPS. Google is a comparator, not ground truth."),
         "",
+    ]
+    lines += _limitations(result)
+    lines += [
         "## Recording",
         "",
         (f"- Run status: {run.get('status')}; started {run.get('started_at')}, last update {run.get('updated_at')} "
@@ -128,8 +156,8 @@ def render_markdown(result: dict[str, Any]) -> str:
         "",
         "## Google comparison",
         "",
-        (f"- Paid calls this run: {summary.get('calls_made')} (max {summary.get('max_calls')}); ledger "
-        f"{summary.get('ledger_before')} before, {summary.get('ledger_after')} after; stop reason: {summary.get('stopped_reason') or 'none'}."),
+        (f"- Paid (uncached) calls in this run's Google log: {google.get('calls_in_log')}; ledger before the run "
+        f"{summary.get('ledger_before')}; run limit {summary.get('max_calls')} calls."),
         "- Google durations are door to door for a bus-only itinerary; they are a comparator, not ground truth.",
         "",
     ]

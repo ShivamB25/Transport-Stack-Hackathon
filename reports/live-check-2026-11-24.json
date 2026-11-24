@@ -1,0 +1,212 @@
+{
+  "day": "2026-11-24",
+  "run": {
+    "status": "running",
+    "started_at": "2026-11-24T21:04:15.504575+05:30",
+    "updated_at": "2026-11-24T21:25:06.452760+05:30",
+    "until": "2026-11-24T23:30:00+05:30",
+    "journeys_until": "2026-11-24T23:00:00+05:30",
+    "slot_minutes": 20.0,
+    "poll_interval_s": 25.0
+  },
+  "slots": [
+    {
+      "slot": 0,
+      "started_at": "2026-11-24T21:04:16.115635+05:30",
+      "finished_at": "2026-11-24T21:05:07.419827+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 77.12,
+      "file": "/home/factory-user/ps1-scratch/live-check/2026-11-24/journeys/slot_000.jsonl"
+    },
+    {
+      "slot": 1,
+      "started_at": "2026-11-24T21:24:17.477928+05:30",
+      "finished_at": "2026-11-24T21:25:06.452259+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 47.48,
+      "file": "/home/factory-user/ps1-scratch/live-check/2026-11-24/journeys/slot_001.jsonl"
+    },
+    {
+      "slot": 2,
+      "started_at": "2026-11-24T21:44:16.521612+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": null
+    }
+  ],
+  "window": {
+    "first_ok": "2026-11-24T21:04:16.113000+05:30",
+    "last_ok": "2026-11-24T21:44:41.134000+05:30",
+    "minutes": 40.4,
+    "legs_by_slot": {
+      "0": {
+        "legs": 24,
+        "end_after_window": 10
+      },
+      "1": {
+        "legs": 19,
+        "end_after_window": 18
+      },
+      "2": {
+        "legs": 23,
+        "end_after_window": 23
+      }
+    }
+  },
+  "matching_rule": {
+    "board_tolerance_s": 120,
+    "max_board_delay_s": 1800,
+    "text": "A predicted ride leg (route 2170/2171, boarding stop B, alighting stop A) has a\npredicted boarding time: the request's `depart` plus the estimated durations of the legs before\nthe ride (walks and waits), and a stop-arrival time: the same without the wait. The actual run is\nthe first reconstructed run of the same route whose passage at B is at or after\nmax(stop arrival, predicted boarding - BOARD_TOLERANCE_S). The actual ride time is that run's\npassage time at A minus its passage time at B. The leg is unmatched (with a reason) when a stop is\nnot on the reconstructed pattern, every reconstructed run passed B before that bound, no run passes\nB within MAX_BOARD_DELAY_S of the predicted boarding, or either passage of the chosen run lies outside its observed span (extrapolated)."
+  },
+  "feed_health": {
+    "polls": 98,
+    "ok": 98,
+    "success_rate": 1.0,
+    "errors": {},
+    "first_ok": "2026-11-24T21:04:16.113000+05:30",
+    "last_ok": "2026-11-24T21:44:41.134000+05:30",
+    "repeated_snapshots": 11,
+    "gaps_over_2_min": [],
+    "vehicles": {
+      "count": 98,
+      "min": 3723,
+      "median": 4238.5,
+      "max": 4632
+    },
+    "fresh_vehicles": {
+      "count": 98,
+      "min": 3702,
+      "median": 4220.0,
+      "max": 4616
+    },
+    "feed_age_at_poll_s": {
+      "count": 98,
+      "min": 8.4,
+      "median": 27.5,
+      "max": 66.8
+    }
+  },
+  "responses": {
+    "responses": 108,
+    "by_status": {
+      "ok": 108
+    },
+    "by_reason_code": {},
+    "ok_not_live_mode": 0,
+    "ok_with_stale_feed": 0,
+    "ok_ride_legs_missing_fields": 0,
+    "abstentions_without_code": 0,
+    "feed_age_s": {
+      "count": 108,
+      "min": 20.3,
+      "median": 47.9,
+      "max": 84.5
+    },
+    "by_slot": {
+      "0": {
+        "ok": 36
+      },
+      "1": {
+        "ok": 36
+      },
+      "2": {
+        "ok": 36
+      }
+    },
+    "stale_threshold_s": 600.0
+  },
+  "actuals": {
+    "day": "2026-11-24",
+    "gps": {
+      "snapshots": 87,
+      "raw_rows": 367345,
+      "clean_rows": 281853,
+      "path": "/home/factory-user/ps1-scratch/live-check/2026-11-24/archive-gps/day=2026-11-24.parquet"
+    },
+    "passages_path": "/home/factory-user/ps1-scratch/live-check/2026-11-24/passages/day=2026-11-24.parquet",
+    "radius_m": 60.0,
+    "runs": 20,
+    "excluded_runs": 11,
+    "by_direction": {
+      "DOWN": {
+        "route_id": 2170,
+        "runs": 15,
+        "passages": 690,
+        "observed": 128,
+        "observed_coverage": 0.1855
+      },
+      "UP": {
+        "route_id": 2171,
+        "runs": 5,
+        "passages": 260,
+        "observed": 33,
+        "observed_coverage": 0.1269
+      }
+    },
+    "note": null
+  },
+  "accuracy": {
+    "overall": {
+      "count": 0
+    },
+    "by_provenance": {},
+    "by_route": {},
+    "observed_only": {
+      "count": 0
+    },
+    "observed_only_by_provenance": {},
+    "legs_total": 66,
+    "legs_matched": 0,
+    "unmatched_by_reason": {
+      "actual_endpoint_extrapolated": 48,
+      "boarding_after_recorded_runs": 18
+    }
+  },
+  "google": {
+    "summary": {
+      "max_calls": 30,
+      "ledger_limit": 122,
+      "slots": [
+        "2026-11-24T21:45:00+05:30",
+        "2026-11-24T22:15:00+05:30",
+        "2026-11-24T22:45:00+05:30"
+      ],
+      "calls_made": 0,
+      "cache_hits": 0,
+      "unavailable": 0,
+      "stopped_reason": null,
+      "ledger_before": 92,
+      "ledger_total_now": 92
+    },
+    "calls_in_log": 1,
+    "rows": [
+      {
+        "slot": 2,
+        "od_id": "od_02",
+        "label": "Badarpur Border -> Kapashera Border",
+        "departure_time": "2026-11-24T21:51:00+05:30",
+        "from_cache": false,
+        "google_status": "ok",
+        "language_code": "en",
+        "our_status": "ok",
+        "our_total_s": 5519,
+        "our_p10_s": 3594,
+        "our_p90_s": 7634,
+        "google_s": 6315,
+        "google_in_our_window": true,
+        "google_routes": "717A",
+        "google_717a_ride_s": 5929,
+        "our_717a_ride_s": null,
+        "actual_717a_ride_s": null
+      }
+    ]
+  }
+}
