@@ -26,7 +26,9 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
   - `comparator/slots.py`: the 30 OD pairs (one compact table), three Tuesday slots and the schedule check run before any call. `comparator/compare.py`: planner queries, slot comparison, frozen-input collection and rendering. `comparator/report.py`: CSV, manifest and Markdown writers. `comparator/__main__.py`: CLI (`python -m delhi_transit.comparator`).
   - `api/app.py`: `create_app` (runtime wiring, background live poller) and the app exported as `delhi_transit.api:app`. `api/routes.py`: the routes (`GET /journeys`, `/health`, `/live/status`, `POST /live/pause`, `POST /live/resume`, `GET /replay/demo`, `/docs`, UI at `/` from `api/static.py`), exact stop-name resolution, depart/mode parsing, live-feed checks and the one abstention builder; request-time settings come from the `core/config.py` getters. `api/schemas.py`: response models. `depart` is optional: it defaults to now in Asia/Kolkata in live mode, or to 2026-10-22T08:30+05:30 when replay is explicit (`mode=replay`, or `mode=auto` with `DELHI_TRANSIT_MODE=replay`).
   - `api/replay_demo.py`: scripted Oct 22 missed-transfer replay for OTP trips `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300; returns `status="unavailable"` if OTP does not return that pair.
+  - `livecheck/`: the one-day live check, `python -m delhi_transit.livecheck {run,actuals,analyze}`. `record.py` (`run`): polls the feed through `LivePoller` into its own directory and copies every snapshot to `OUT/gps/`, queries `GET /journeys?mode=live` for the 30 comparator OD pairs plus six 717A stop pairs every slot (`OUT/journeys/slot_NNN.jsonl`, each with request time and feed age), and at the Google slots calls the comparator client for the ten 717A corridor pairs, stopping at `--google-max` paid calls or the `--google-ledger-limit` ledger total (`OUT/google/calls.jsonl`); writes `OUT/polls.jsonl`, `OUT/run.log`, `OUT/run-summary.json`. `actuals.py`: dedupes the snapshots to the archive GPS schema and runs `data/stop_passages.reconstruct_day` into `OUT/passages/`. `analyze.py`: the leg-to-actual matching rule (module docstring), accuracy by provenance and observed-only, response, abstention and feed-health stats. `report.py`: `reports/live-check-<day>.{md,csv,json}`.
   - `api/static.py`: serves the built UI from `FRONTEND_DIR` (default `frontend/dist`) at `/` and `/assets/*` (paths cannot escape the directory); if the UI is not built, `/` returns a short plain-text message.
+- `livecheck/launch.sh`: reuses a healthy OTP on 3102 (otherwise starts it and stops it afterwards), starts the API with the live poller on 3120, runs `livecheck run`, then stops what it started.
 - `frontend/`: the UI. Bun + Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui (`src/components/ui/`) + TanStack Query, with plain Leaflet through `hooks/useLeafletMap.ts` (no react-leaflet). `src/api/` holds the response types matching the API JSON, the fetch client and the query options; `hooks/useLatestAction.ts` gives every user action a new id and the results pane reads only the newest action's query. Components: `JourneyForm` (presets), `ModeBadge` (live/replay and feed age), `OptionList`, `LegBreakdown` (windows, provenance, coverage), `RouteMap`, `AbstentionPanel` (reason code), `ReplayDemo` (stages, flip, outcome, quiet-hour comparison). `bun.lock` is committed; `dist/` and `node_modules/` are gitignored.
 - `backend/tests/`: pytest suites in `data`, `model`, `planner`, `live`, `api`, `comparator` (`conftest.py` provides the VehiclePositions protobuf builder).
 - `otp/`: `build.sh`, `serve.sh`, `build-config.json` (copied into the graph directory by `build.sh`).
@@ -45,7 +47,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 
 ## Ports and data
 
-- Ports: `3100` (API and UI), `3102` (OTP), `3110` (Vite dev server, proxies API paths to 3100). Stay within `3100–3199`.
+- Ports: `3100` (API and UI), `3102` (OTP), `3110` (Vite dev server, proxies API paths to 3100), `3120` (API started by `livecheck/launch.sh` for the live check recording). Stay within `3100–3199`.
 - `DELHI_TRANSIT_DATA_DIR` (default `/home/factory-user/ps1-scratch/data`, outside the repo):
   - `gps/day=YYYY-MM-DD.parquet`: 31 deduplicated days.
   - `gtfs/`: static feed v32 (unzipped files plus `delhi_buses_static_gtfs_v1.zip`).
@@ -76,6 +78,8 @@ Python commands run from `backend/` (`cd /home/factory-user/repos/Transport-Stac
 - Google comparator render (no network): `uv run python -m delhi_transit.comparator --render-only`
 - Google comparator collection (planner calls, cached Google only): `uv run python -m delhi_transit.comparator --date 2026-11-24 --cache-only`
 - Demo recording (API started with `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45`; the normal default is 600 s): `demo/record_demo.sh`
+- Live check recording (from the repository root; raw data stays outside the repo): `livecheck/launch.sh /home/factory-user/ps1-scratch/live-check/2026-11-24 23:30` (extra options go to `livecheck run`, for example `--google-max 0`)
+- Live check actuals and report: `uv run python -m delhi_transit.livecheck actuals --in /home/factory-user/ps1-scratch/live-check/2026-11-24` then `uv run python -m delhi_transit.livecheck analyze --in /home/factory-user/ps1-scratch/live-check/2026-11-24 --report-dir ../reports`
 - Docker Compose: `docker compose --profile build run --rm otp-build` (graph build), `docker compose up -d --build`
 ## Rules
 
