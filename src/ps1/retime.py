@@ -165,7 +165,6 @@ class RetimeModel:
         self.stretch_typical_scheduled: dict[tuple[int, str, str], float] = {}
         self._live_stats_mtime: float | None = None
         self._live_stats_cache: dict[int, dict[str, Any]] = {}
-        self.stale_threshold_s: float | None = None
         self._loaded_passage_files: list[Path] = []
         loaded = load_model_artifact(self.model_dir)
         self._artifact: LoadedModelArtifact | None = (
@@ -175,7 +174,9 @@ class RetimeModel:
         )
         self._load()
 
-    def _live_route_stat(self, route_id: int) -> dict[str, Any] | None:
+    def _live_route_stat(
+        self, route_id: int, stale_threshold_s: float | None
+    ) -> dict[str, Any] | None:
         stats_path = self.data_dir / "live" / "route_stats.json"
         if not stats_path.exists():
             return None
@@ -190,7 +191,7 @@ class RetimeModel:
         if stat is None:
             return None
         return refresh_route_stat(
-            stat, now=time.time(), max_age_s=effective_entity_max_age_s(self.stale_threshold_s)
+            stat, now=time.time(), max_age_s=effective_entity_max_age_s(stale_threshold_s)
         )
 
     def replay_reference_info(self, depart: datetime) -> dict[str, Any]:
@@ -688,6 +689,7 @@ class RetimeModel:
         mode: str,
         replay_delay_s: float = 0.0,
         as_of: datetime | None = None,
+        stale_threshold_s: float | None = None,
     ) -> TimingEstimate:
         scheduled = max(1.0, scheduled_duration_s)
         depart = depart.astimezone(IST)
@@ -732,7 +734,7 @@ class RetimeModel:
             hist_reference = []
             hist_level = "none"
 
-        live_stat = self._live_route_stat(route_id) if mode == "live" else None
+        live_stat = self._live_route_stat(route_id, stale_threshold_s) if mode == "live" else None
         live_fresh = int(live_stat.get("fresh_vehicle_count", 0)) if live_stat else 0
 
         artifact = self._artifact
@@ -887,6 +889,7 @@ class RetimeModel:
         depart: datetime,
         mode: str,
         as_of: datetime | None = None,
+        stale_threshold_s: float | None = None,
     ) -> WaitEstimate:
         depart = depart.astimezone(IST)
         as_of_ts = int((as_of or depart).timestamp())
@@ -899,7 +902,7 @@ class RetimeModel:
         ]
         scheduled_wait = max(0.0, scheduled_wait_s)
         if not events:
-            live_stat = self._live_route_stat(route_id) if mode == "live" else None
+            live_stat = self._live_route_stat(route_id, stale_threshold_s) if mode == "live" else None
             live_fresh = int(live_stat.get("fresh_vehicle_count", 0)) if live_stat else 0
             if mode == "live" and live_fresh >= 1 and live_stat is not None:
                 headway = max(240.0, min(1200.0, 3600.0 / max(1, live_fresh)))
@@ -1020,6 +1023,8 @@ def retime_itinerary(
     mode: str,
     model: RetimeModel,
     replay_delay_s: float = 0.0,
+    *,
+    stale_threshold_s: float | None = None,
 ) -> dict[str, Any]:
     """Replace OTP timing and produce correlated, transfer-aware scenarios."""
     depart = depart.astimezone(IST)
@@ -1062,6 +1067,7 @@ def retime_itinerary(
                 transit_depart,
                 mode,
                 as_of=depart,
+                stale_threshold_s=stale_threshold_s,
             )
         else:
             scheduled_gap = _seconds_between(
@@ -1081,6 +1087,7 @@ def retime_itinerary(
                 transit_depart,
                 mode,
                 as_of=depart,
+                stale_threshold_s=stale_threshold_s,
             )
             previous_place = previous_transit.get("to") or {}
             next_place = raw.get("from") or {}
@@ -1138,6 +1145,7 @@ def retime_itinerary(
             mode,
             injected,
             as_of=depart,
+            stale_threshold_s=stale_threshold_s,
         )
         ride = _base_leg("ride", raw)
         ride_timing_source = estimate.timing_source or _default_timing_source(estimate.source)
@@ -1150,7 +1158,7 @@ def retime_itinerary(
             observation_count=estimate.observation_count,
             coverage_note=estimate.coverage_note,
         )
-        events.append({"leg": ride, "kind": "ride", "estimate": estimate})
+        events.append({"leg": ride, "kind": "ride", "estimate": estimate, "delay": injected})
         alight = _base_leg("alight", raw)
         alight.update(
             source=estimate.source,
@@ -1180,8 +1188,11 @@ def retime_itinerary(
                 duration = max(0.0, wait.duration_s + rng.gauss(0.0, wait.p90_s / 3.0))
             elif kind == "ride":
                 estimate: TimingEstimate = event["estimate"]
+                delay = event["delay"]
                 spread = (estimate.p90_s - estimate.p10_s) / 2.563
-                duration = max(1.0, estimate.duration_s + spread * (0.8 * shared + 0.6 * rng.gauss(0.0, 1.0)))
+                undelayed = estimate.duration_s - delay + spread * (0.8 * shared + 0.6 * rng.gauss(0.0, 1.0))
+                # Floor the undelayed draw so an injected delay translates the window exactly.
+                duration = max(1.0, undelayed) + delay
             else:
                 wait = event["wait"]
                 connection_departure = event["connection_departure_s"]
@@ -1221,6 +1232,7 @@ def retime_itinerary(
                 quiet_depart,
                 mode,
                 as_of=depart,
+                stale_threshold_s=stale_threshold_s,
             )
             quiet_total += quiet.duration_s
         elif event["kind"] == "transfer":

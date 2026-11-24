@@ -611,15 +611,24 @@ def test_entities_that_expire_after_the_poll_cannot_drive_live_timing(tmp_path: 
         + [(f"FRESH{i}", "999", 28.65, 77.22, 5.0, now - 12) for i in range(10)],
     )
     persist_decoded_feed(tmp_path, decode_vehicle_positions(short_limit, polled_at=now - 10))
-    strict_app = create_app(
-        tmp_path,
-        otp_url="http://unused",
-        otp=FakeOTP(),
-        model=_build_retime_model(tmp_path, []),
-        enable_poller=False,
-        stale_threshold_s=45.0,
-        min_live_vehicles=10,
+    shared_model = _build_retime_model(tmp_path, [])
+    strict_app, lenient_app = (
+        create_app(
+            tmp_path,
+            otp_url="http://unused",
+            otp=FakeOTP(),
+            model=shared_model,
+            enable_poller=False,
+            stale_threshold_s=threshold,
+            min_live_vehicles=10,
+        )
+        for threshold in (45.0, 600.0)
     )
+    lenient = TestClient(lenient_app).get("/journeys", params=params).json()
+    assert lenient["status"] == "ok"
+    lenient_rides = [leg for leg in lenient["options"][0]["legs"] if leg["type"] == "ride"]
+    assert lenient_rides[0]["route_id"] == 100
+    assert lenient_rides[0]["timing_source"] == "model_live"
     body = TestClient(strict_app).get("/journeys", params=params).json()
     assert body["feed_summary"]["fresh_vehicle_count"] == 10
     assert body["status"] == "insufficient_data"

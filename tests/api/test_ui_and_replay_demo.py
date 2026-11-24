@@ -116,11 +116,20 @@ class StubModel:
     selected_rung = "1"
 
     def predict_ride(
-        self, route_id, from_stop, to_stop, scheduled, depart, mode, replay_delay_s=0, as_of=None
+        self,
+        route_id,
+        from_stop,
+        to_stop,
+        scheduled,
+        depart,
+        mode,
+        replay_delay_s=0,
+        as_of=None,
+        stale_threshold_s=None,
     ):
         return TimingEstimate(scheduled + replay_delay_s, scheduled * 0.9, scheduled * 1.2, "replay", 0.75)
 
-    def predict_wait(self, route_id, stop_id, scheduled, depart, mode, as_of=None):
+    def predict_wait(self, route_id, stop_id, scheduled, depart, mode, as_of=None, stale_threshold_s=None):
         return WaitEstimate(60.0, 300.0, 300.0, "historical", 0.5)
 
     def replay_reference_info(self, depart):

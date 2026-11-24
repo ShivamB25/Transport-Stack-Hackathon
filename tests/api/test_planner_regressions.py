@@ -70,7 +70,7 @@ class DeterministicModel:
         self.connection_delay_s = connection_delay_s
 
     def predict_wait(
-        self, route_id, stop_id, scheduled, depart, mode, as_of=None
+        self, route_id, stop_id, scheduled, depart, mode, as_of=None, stale_threshold_s=None
     ) -> WaitEstimate:
         return WaitEstimate(
             scheduled,
@@ -91,9 +91,30 @@ class DeterministicModel:
         mode,
         replay_delay_s=0,
         as_of=None,
+        stale_threshold_s=None,
     ) -> TimingEstimate:
         duration = scheduled + replay_delay_s
         return TimingEstimate(duration, duration, duration, "timetable", 0.0)
+
+
+class ShortFallbackModel(DeterministicModel):
+    """A short fallback ride whose p10 sits on the 1 s duration floor."""
+
+    def predict_ride(
+        self,
+        route_id,
+        from_stop,
+        to_stop,
+        scheduled,
+        depart,
+        mode,
+        replay_delay_s=0,
+        as_of=None,
+        stale_threshold_s=None,
+    ) -> TimingEstimate:
+        return TimingEstimate(
+            36 + replay_delay_s, 1 + replay_delay_s, 126 + replay_delay_s, "historical", 0.0
+        )
 
 
 def _transfer_candidate(with_walk: bool) -> dict:
@@ -193,6 +214,22 @@ def test_connection_clock_next_bus_penalty_walk_and_endpoints(with_walk: bool) -
     assert delayed_transfer["estimated_duration_s"] == (420 if with_walk else 480)
     assert baseline["total_duration_s"] == 1380
     assert delayed["total_duration_s"] == 1980
+
+
+def test_replay_delay_shifts_short_fallback_ride_window_exactly() -> None:
+    origin = _place("Origin stop", "40", 28.6100, 77.2350)
+    destination = _place("Sunder Nagar", "50", 28.6000, 77.2350)
+    candidate = {
+        "legs": [_ride("2026-10-22T08:30:00+05:30", "2026-10-22T08:30:30+05:30", 100, origin, destination)]
+    }
+    baseline = retime_itinerary(candidate, REQUEST, "replay", ShortFallbackModel())
+    delayed = retime_itinerary(candidate, REQUEST, "replay", ShortFallbackModel(), replay_delay_s=300.0)
+    base_ride = next(leg for leg in baseline["legs"] if leg["type"] == "ride")
+    delayed_ride = next(leg for leg in delayed["legs"] if leg["type"] == "ride")
+
+    assert base_ride["window_p10_s"] == 1
+    for key in ("estimated_duration_s", "window_p10_s", "window_p90_s"):
+        assert delayed_ride[key] == base_ride[key] + 300
 
 
 def _stretch(

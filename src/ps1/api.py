@@ -341,8 +341,6 @@ def create_app(
     resolver = StopResolver(resolved_data_dir / "gtfs" / "stops.txt")
     otp_client = otp or OTPClient(otp_url or OTP_URL)
     timing_model = model or RetimeModel(resolved_data_dir)
-    if stale_threshold_s is not None:
-        timing_model.stale_threshold_s = stale_threshold_s
 
     if enable_poller is None:
         env_enabled = os.environ.get("PS1_ENABLE_LIVE_POLLER", "1").strip().lower() not in {"0", "false", "no"}
@@ -486,7 +484,14 @@ def create_app(
         except OTPClientError as exc:
             raise HTTPException(502, str(exc)) from exc
         options = [
-            retime_itinerary(candidate, departure, effective_mode, timing_model, replay_delay_s)
+            retime_itinerary(
+                candidate,
+                departure,
+                effective_mode,
+                timing_model,
+                replay_delay_s,
+                stale_threshold_s=threshold,
+            )
             for candidate in candidates
             if any(leg.get("transitLeg") for leg in candidate.get("legs", []))
         ]
