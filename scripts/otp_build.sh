@@ -28,12 +28,11 @@ for input in "$JAR" "$OSM" "$GTFS"; do
     exit 1
   fi
 done
-if [[ ! -e "$GRAPH/delhi.gtfs.zip" ]]; then
-  ln -s "$GTFS" "$GRAPH/delhi.gtfs.zip"
-fi
-if [[ ! -e "$GRAPH/NewDelhi.osm.pbf" ]]; then
-  ln -s "$OSM" "$GRAPH/NewDelhi.osm.pbf"
-fi
+# Keep the graph directory self-contained so it resolves when mounted elsewhere
+# (for example at /otp in the Compose otp service).
+rm -f "$GRAPH/delhi.gtfs.zip"
+cp "$GTFS" "$GRAPH/delhi.gtfs.zip"
+ln -sfn ../NewDelhi.osm.pbf "$GRAPH/NewDelhi.osm.pbf"
 cat > "$GRAPH/build-config.json" <<'JSON'
 {
   "osm": [

@@ -1,0 +1,54 @@
+# Host paths default to the native layout; override with PS1_HOST_DATA_DIR,
+# PS1_HOST_OTP_DIR and PS1_BIND_ADDR. Data and the OTP graph are bind-mounted,
+# never copied into an image. Keys come from .env at runtime.
+name: ps1
+
+services:
+  otp:
+    image: eclipse-temurin:21-jre
+    command: ["java", "-Xmx2500m", "-jar", "/otp/otp-shaded-2.8.1.jar", "--load", "--serve", "--port", "3102", "/otp/graph"]
+    volumes:
+      - ${PS1_HOST_OTP_DIR:-/home/factory-user/ps1-scratch/otp}:/otp
+    ports:
+      - "${PS1_BIND_ADDR:-127.0.0.1}:3102:3102"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-X", "POST", "http://localhost:3102/otp/gtfs/v1", "-H", "Content-Type: application/json", "-d", '{"query":"{ __schema { queryType { name } } }"}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+  otp-build:
+    profiles: ["build"]
+    image: eclipse-temurin:21-jre
+    command: ["bash", "/scripts/otp_build.sh"]
+    environment:
+      PS1_OTP_DIR: /otp
+      PS1_DATA_DIR: /data
+      PS1_JAVA: java
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${PS1_HOST_OTP_DIR:-/home/factory-user/ps1-scratch/otp}:/otp
+      - ${PS1_HOST_DATA_DIR:-/home/factory-user/ps1-scratch/data}:/data:ro
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      PS1_DATA_DIR: /data
+      PS1_OTP_URL: http://otp:3102/otp/gtfs/v1
+    volumes:
+      - ${PS1_HOST_DATA_DIR:-/home/factory-user/ps1-scratch/data}:/data
+    ports:
+      - "${PS1_BIND_ADDR:-127.0.0.1}:3100:3100"
+    depends_on:
+      otp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3100/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
