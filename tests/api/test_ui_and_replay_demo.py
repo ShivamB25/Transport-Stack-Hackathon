@@ -122,6 +122,20 @@ class StubModel:
     def predict_wait(self, route_id, stop_id, scheduled, depart, mode, as_of=None):
         return WaitEstimate(60.0, 300.0, 300.0, "historical", 0.5)
 
+    def replay_reference_info(self, depart):
+        return {
+            "replay_data_available": True,
+            "same_day_data_available": True,
+            "feed_age_seconds": 30.0,
+            "feed_timestamp": depart.isoformat(),
+            "reference_timestamp": depart.isoformat(),
+            "fixture_path": None,
+            "loaded_passage_files": [],
+            "visible_observations": 1,
+            "same_day_observations": 1,
+            "observed_same_day_stretches": 1,
+        }
+
 
 def _make_client(tmp_path: Path, otp: StubOTP | None = None) -> TestClient:
     gtfs = tmp_path / "gtfs"

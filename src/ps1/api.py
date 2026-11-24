@@ -388,6 +388,26 @@ def create_app(
         reference_timestamp: str | None = None
         feed_summary: dict[str, Any] | None = None
 
+        def respond(
+            status: str,
+            options: list[dict[str, Any]] | None = None,
+            abstention: dict[str, Any] | None = None,
+        ) -> JourneyResponse:
+            return JourneyResponse(
+                status=status,
+                mode=effective_mode,
+                feed_age_seconds=feed_age,
+                feed_timestamp=feed_timestamp,
+                reference_timestamp=reference_timestamp,
+                feed_summary=feed_summary,
+                selected_rung=timing_model.selected_rung,
+                depart=departure.isoformat(),
+                resolved_from=origin,
+                resolved_to=destination,
+                options=options or [],
+                abstention=abstention,
+            )
+
         if effective_mode == "live":
             state, feed_age, abstention = _evaluate_live_feed(
                 resolved_data_dir,
@@ -407,66 +427,36 @@ def create_app(
                     "paused": is_feed_paused(resolved_data_dir),
                 }
             if abstention is not None:
-                return JourneyResponse(
-                    status="insufficient_data",
-                    mode="live",
-                    feed_age_seconds=feed_age,
-                    feed_timestamp=feed_timestamp,
-                    reference_timestamp=reference_timestamp,
-                    feed_summary=feed_summary,
-                    selected_rung=timing_model.selected_rung,
-                    depart=departure.isoformat(),
-                    resolved_from=origin,
-                    resolved_to=destination,
-                    options=[],
-                    abstention=abstention,
-                )
+                return respond("insufficient_data", abstention=abstention)
         else:
-            replay_info_fn = getattr(timing_model, "replay_reference_info", None)
-            if callable(replay_info_fn):
-                replay_info = replay_info_fn(departure)
-                feed_age = replay_info["feed_age_seconds"]
-                feed_timestamp = replay_info["feed_timestamp"]
-                reference_timestamp = replay_info["reference_timestamp"]
-                feed_summary = {
-                    "fixture_path": replay_info["fixture_path"],
-                    "loaded_passage_files": replay_info.get("loaded_passage_files", []),
-                    "replay_data_available": replay_info.get("replay_data_available", True),
-                    "same_day_data_available": replay_info.get("same_day_data_available", False),
-                    "visible_observations": replay_info["visible_observations"],
-                    "same_day_observations": replay_info["same_day_observations"],
-                    "observed_same_day_stretches": replay_info["observed_same_day_stretches"],
-                    "live_feed_contacted": False,
-                }
-                if not replay_info.get("replay_data_available", True):
-                    return JourneyResponse(
-                        status="insufficient_data",
-                        mode="replay",
-                        feed_age_seconds=None,
-                        feed_timestamp=None,
-                        reference_timestamp=None,
-                        feed_summary=feed_summary,
-                        selected_rung=timing_model.selected_rung,
-                        depart=departure.isoformat(),
-                        resolved_from=origin,
-                        resolved_to=destination,
-                        options=[],
-                        abstention={
-                            "label": "not enough data",
-                            "code": "replay_data_unavailable",
-                            "reason": (
-                                "Not enough data: no reconstructed October observations were loaded "
-                                "before the requested replay cutoff."
-                            ),
-                            "requested_cutoff": departure.isoformat(),
-                            "visible_observations": 0,
-                        },
-                    )
-            else:
-                feed_age = 0.0
-                feed_timestamp = departure.isoformat()
-                reference_timestamp = departure.isoformat()
-                feed_summary = {"live_feed_contacted": False}
+            replay_info = timing_model.replay_reference_info(departure)
+            feed_age = replay_info["feed_age_seconds"]
+            feed_timestamp = replay_info["feed_timestamp"]
+            reference_timestamp = replay_info["reference_timestamp"]
+            feed_summary = {
+                "fixture_path": replay_info["fixture_path"],
+                "loaded_passage_files": replay_info["loaded_passage_files"],
+                "replay_data_available": replay_info["replay_data_available"],
+                "same_day_data_available": replay_info["same_day_data_available"],
+                "visible_observations": replay_info["visible_observations"],
+                "same_day_observations": replay_info["same_day_observations"],
+                "observed_same_day_stretches": replay_info["observed_same_day_stretches"],
+                "live_feed_contacted": False,
+            }
+            if not replay_info["replay_data_available"]:
+                return respond(
+                    "insufficient_data",
+                    abstention={
+                        "label": "not enough data",
+                        "code": "replay_data_unavailable",
+                        "reason": (
+                            "Not enough data: no reconstructed October observations were loaded "
+                            "before the requested replay cutoff."
+                        ),
+                        "requested_cutoff": departure.isoformat(),
+                        "visible_observations": 0,
+                    },
+                )
 
         try:
             candidates = await otp_client.plan(
@@ -485,20 +475,9 @@ def create_app(
             raise HTTPException(404, "no bus itineraries found for this request")
         options.sort(key=lambda option: option["total_duration_s"])
 
-        supported_options = sum(_option_has_supported_route(option) for option in options)
-        if supported_options == 0:
-            return JourneyResponse(
-                status="insufficient_data",
-                mode=effective_mode,
-                feed_age_seconds=feed_age,
-                feed_timestamp=feed_timestamp,
-                reference_timestamp=reference_timestamp,
-                feed_summary=feed_summary,
-                selected_rung=timing_model.selected_rung,
-                depart=departure.isoformat(),
-                resolved_from=origin,
-                resolved_to=destination,
-                options=[],
+        if not any(_option_has_supported_route(option) for option in options):
+            return respond(
+                "insufficient_data",
                 abstention={
                     "label": "not enough data",
                     "code": "insufficient_route_coverage",
@@ -516,18 +495,8 @@ def create_app(
         if coverage_floor > 0.0:
             best_cov = _max_option_ride_coverage(options)
             if best_cov < coverage_floor:
-                return JourneyResponse(
-                    status="insufficient_data",
-                    mode=effective_mode,
-                    feed_age_seconds=feed_age,
-                    feed_timestamp=feed_timestamp,
-                    reference_timestamp=reference_timestamp,
-                    feed_summary=feed_summary,
-                    selected_rung=timing_model.selected_rung,
-                    depart=departure.isoformat(),
-                    resolved_from=origin,
-                    resolved_to=destination,
-                    options=[],
+                return respond(
+                    "insufficient_data",
                     abstention={
                         "label": "not enough data",
                         "code": "insufficient_route_coverage",
@@ -541,19 +510,7 @@ def create_app(
                     },
                 )
 
-        return JourneyResponse(
-            status="ok",
-            mode=effective_mode,
-            feed_age_seconds=feed_age,
-            feed_timestamp=feed_timestamp,
-            reference_timestamp=reference_timestamp,
-            feed_summary=feed_summary,
-            selected_rung=timing_model.selected_rung,
-            depart=departure.isoformat(),
-            resolved_from=origin,
-            resolved_to=destination,
-            options=options,
-        )
+        return respond("ok", options)
 
     @app.get("/live/status")
     async def live_status() -> dict[str, Any]:
@@ -660,10 +617,7 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
-        index_path = STATIC_DIR / "index.html"
-        if not index_path.exists():
-            raise HTTPException(404, "UI index.html not found")
-        return FileResponse(index_path, media_type="text/html")
+        return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
 
     return app
 

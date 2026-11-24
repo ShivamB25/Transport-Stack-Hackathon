@@ -43,7 +43,7 @@ DEMO_FIRST_TRIP_ID = "DTC:2171_FULL_17_09"
 DEMO_CONNECTING_TRIP_ID = "DTC:1416_FULL_15_08"
 DEMO_CONNECTING_RUN_ID = "1416_15_08"
 
-# Fallback passage snapshots from real Oct 22 2026 run 2171_17_09_490 (used only if parquet absent in unit tests)
+# Real Oct 22 passages of run 2171_17_09_490, used when the passages Parquet is not available.
 _FALLBACK_PASSAGES: list[dict[str, Any]] = [
     {
         "stop_sequence": 0,
@@ -238,8 +238,7 @@ def _extract_geometries(
 ) -> dict[str, Any]:
     direct_cand = next((cand for cand in candidates if len(_transit_legs(cand)) == 1), None)
     for cand in direct_candidates or []:
-        transit = [leg for leg in cand.get("legs") or [] if leg.get("transitLeg")]
-        if len(transit) == 1:
+        if len(_transit_legs(cand)) == 1:
             direct_cand = cand
             break
     if direct_cand is None and len(candidates) > 1:
@@ -283,7 +282,7 @@ def _extract_geometries(
     direct_scheduled_s = 3930
     direct_route_summary = DEMO_DIRECT_ROUTE
     if direct_cand:
-        d_legs = [leg for leg in direct_cand.get("legs") or [] if leg.get("transitLeg")]
+        d_legs = _transit_legs(direct_cand)
         if direct_cand.get("duration"):
             direct_scheduled_s = round(float(direct_cand["duration"]))
         if d_legs:
@@ -312,9 +311,8 @@ def _simulate_transfer_stage(
 ) -> dict[str, Any]:
     """Monte Carlo joint-scenario connection risk given current observed delay."""
     rng = random.Random(seed + observed_delay_s)
-    # Remaining uncertainty scales with remaining stops along MB Road
     sigma = max(45.0, remaining_stops * 16.0)
-    # Mild persistence drift as delay compounds on congested stretches
+    # Delays above two minutes tend to keep growing on the congested MB Road stretches.
     drift = 0.0 if observed_delay_s < 120 else min(180.0, observed_delay_s * 0.15)
     n = 200
     missed = 0
@@ -322,7 +320,6 @@ def _simulate_transfer_stage(
     for _ in range(n):
         extra_delay = observed_delay_s + drift + rng.gauss(0.0, sigma)
         if extra_delay <= transfer_gap_s:
-            # Connection caught: wait shrinks by extra_delay, total stays close to schedule
             total = transfer_scheduled_s + max(0.0, extra_delay * 0.15) + rng.gauss(0.0, 90.0)
         else:
             missed += 1

@@ -57,7 +57,11 @@ SNAPSHOT_SCHEMA = pa.schema(
 
 
 class LiveFeedError(RuntimeError):
-    """Raised when fetching or decoding VehiclePositions fails."""
+    """A fetch or decode failure carrying the fixed public category that may be persisted."""
+
+    def __init__(self, category: str, message: str) -> None:
+        super().__init__(message)
+        self.category = category
 
 
 _ERROR_CATEGORIES = {
@@ -81,24 +85,11 @@ def sanitize_poll_error(error: BaseException | str) -> str:
     if isinstance(error, httpx.HTTPError):
         return "transport_error"
     if isinstance(error, LiveFeedError):
-        message = str(error).casefold()
-        if "not configured" in message:
-            return "auth_not_configured"
-        if "empty vehiclepositions" in message:
-            return "empty_upstream_payload"
-        if "non-protobuf" in message:
-            return "upstream_non_protobuf_payload"
-        if "failed to decode" in message:
-            return "protobuf_decode_error"
-        if "no header or vehicle timestamps" in message:
-            return "missing_feed_timestamps"
-        if "upstream returned http" in message:
-            return "upstream_http_error"
-        return "live_feed_error"
-    if isinstance(error, str):
-        if error in _ERROR_CATEGORIES or re.fullmatch(r"upstream_http_[0-9]{3}", error):
-            return error
-        return "poll_error"
+        return error.category
+    if isinstance(error, str) and (
+        error in _ERROR_CATEGORIES or re.fullmatch(r"upstream_http_[0-9]{3}", error)
+    ):
+        return error
     return "poll_error"
 
 
@@ -233,16 +224,19 @@ def decode_vehicle_positions(
 ) -> DecodedFeed:
     """Decode a GTFS-RT VehiclePositions protobuf payload into records and route stats."""
     if not payload:
-        raise LiveFeedError("empty VehiclePositions response payload")
+        raise LiveFeedError("empty_upstream_payload", "empty VehiclePositions response payload")
     prefix = payload.lstrip()[:32].lower()
     if prefix.startswith((b"<!doctype", b"<html", b"{\"error")):
-        raise LiveFeedError("upstream returned non-protobuf HTML/JSON payload instead of VehiclePositions.pb")
+        raise LiveFeedError(
+            "upstream_non_protobuf_payload",
+            "upstream returned non-protobuf HTML/JSON payload instead of VehiclePositions.pb",
+        )
 
     feed = gtfs_realtime_pb2.FeedMessage()
     try:
         feed.ParseFromString(payload)
     except DecodeError as exc:
-        raise LiveFeedError(f"failed to decode GTFS-RT protobuf: {exc}") from exc
+        raise LiveFeedError("protobuf_decode_error", f"failed to decode GTFS-RT protobuf: {exc}") from exc
 
     now = time.time() if polled_at is None else float(polled_at)
     max_entity_age = (
@@ -308,7 +302,9 @@ def decode_vehicle_positions(
         if max_vehicle_ts > 0:
             header_ts = max_vehicle_ts
         else:
-            raise LiveFeedError("VehiclePositions protobuf has no header or vehicle timestamps")
+            raise LiveFeedError(
+                "missing_feed_timestamps", "VehiclePositions protobuf has no header or vehicle timestamps"
+            )
 
     by_route: dict[int, list[dict[str, Any]]] = defaultdict(list)
     fresh_count = 0
@@ -510,15 +506,11 @@ def fresh_fleet_count(data_dir: Path, *, now: float, max_age_s: float) -> int:
 def live_feed_age_seconds(state: dict[str, Any] | None, *, now: float | None = None) -> float | None:
     if not state:
         return None
-    raw = state.get("header_timestamp", state.get("timestamp", state.get("feed_timestamp")))
-    if raw is None:
-        return None
-    try:
-        ts = float(raw)
-    except (ValueError, TypeError):
+    header_ts = state.get("header_timestamp")
+    if header_ts is None:
         return None
     reference = time.time() if now is None else float(now)
-    return round(max(0.0, reference - ts), 2)
+    return round(max(0.0, reference - float(header_ts)), 2)
 
 
 class LivePoller:
@@ -546,13 +538,27 @@ class LivePoller:
 
     def _headers(self) -> dict[str, str]:
         if not self._api_key:
-            raise LiveFeedError("DELHI_TS_API_KEY is not configured in environment or .env")
+            raise LiveFeedError(
+                "auth_not_configured", "DELHI_TS_API_KEY is not configured in environment or .env"
+            )
         return {"x-api-key": self._api_key}
+
+    def _paused_result(self) -> dict[str, Any]:
+        return {"status": "paused", "paused": True, "state": read_live_state(self.data_dir)}
+
+    def _persist_response(self, response: httpx.Response) -> dict[str, Any]:
+        if response.status_code != 200:
+            raise LiveFeedError(
+                "upstream_http_error",
+                f"VehiclePositions upstream returned HTTP {response.status_code}",
+            )
+        decoded = decode_vehicle_positions(response.content)
+        return persist_decoded_feed(self.data_dir, decoded, feed_url=self.feed_url)
 
     def poll_once(self, client: httpx.Client | None = None) -> dict[str, Any]:
         """Synchronously fetch, decode, and persist one VehiclePositions snapshot."""
         if is_feed_paused(self.data_dir):
-            return {"status": "paused", "paused": True, "state": read_live_state(self.data_dir)}
+            return self._paused_result()
         try:
             headers = self._headers()
             if client is not None:
@@ -560,17 +566,14 @@ class LivePoller:
             else:
                 with httpx.Client(timeout=self.timeout_s) as own_client:
                     response = own_client.get(self.feed_url, headers=headers)
-            if response.status_code != 200:
-                raise LiveFeedError(f"VehiclePositions upstream returned HTTP {response.status_code}")
-            decoded = decode_vehicle_positions(response.content)
-            return persist_decoded_feed(self.data_dir, decoded, feed_url=self.feed_url)
+            return self._persist_response(response)
         except (httpx.HTTPError, LiveFeedError) as exc:
             return record_poll_failure(self.data_dir, exc, feed_url=self.feed_url)
 
     async def apoll_once(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
         """Asynchronously fetch, decode, and persist one VehiclePositions snapshot."""
         if is_feed_paused(self.data_dir):
-            return {"status": "paused", "paused": True, "state": read_live_state(self.data_dir)}
+            return self._paused_result()
         try:
             headers = self._headers()
             if client is not None:
@@ -578,24 +581,17 @@ class LivePoller:
             else:
                 async with httpx.AsyncClient(timeout=self.timeout_s) as own_client:
                     response = await own_client.get(self.feed_url, headers=headers)
-            if response.status_code != 200:
-                raise LiveFeedError(f"VehiclePositions upstream returned HTTP {response.status_code}")
-            decoded = decode_vehicle_positions(response.content)
-            return persist_decoded_feed(self.data_dir, decoded, feed_url=self.feed_url)
+            return self._persist_response(response)
         except (httpx.HTTPError, LiveFeedError) as exc:
             return record_poll_failure(self.data_dir, exc, feed_url=self.feed_url)
 
     async def run_loop(self, stop_event: asyncio.Event | None = None) -> None:
-        """Continuously poll on interval_s; reacts quickly to resume after pause."""
-        was_paused = False
+        """Poll every interval_s; while paused, check once a second so a resume is picked up quickly."""
         async with httpx.AsyncClient(timeout=self.timeout_s) as client:
             while stop_event is None or not stop_event.is_set():
                 if is_feed_paused(self.data_dir):
-                    was_paused = True
                     await asyncio.sleep(1.0)
                     continue
-                if was_paused:
-                    was_paused = False
                 await self.apoll_once(client=client)
                 slept = 0.0
                 while slept < self.interval_s:
