@@ -8,7 +8,7 @@ from typing import Any
 
 import duckdb
 
-from delhi_transit.core.config import IST
+from delhi_transit.core.time import hhmmss_ist, iso_ist
 from delhi_transit.planner.otp_client import OTPClientError
 
 DEMO_DAY = "2026-10-22"
@@ -100,14 +100,6 @@ _FALLBACK_CONNECTING_PASSAGE: dict[str, Any] = {
     "lng": 77.2491607666016,
     "distance_m": 17.599111181044133,
 }
-
-
-def _iso(ts: int) -> str:
-    return datetime.fromtimestamp(ts, IST).isoformat()
-
-
-def _hhmmss(ts: int) -> str:
-    return datetime.fromtimestamp(ts, IST).strftime("%H:%M:%S")
 
 
 def _load_oct22_run_passages(data_dir: Path) -> tuple[list[dict[str, Any]], str]:
@@ -457,14 +449,14 @@ async def build_marginal_transfer_demo(
         elif stage_id == "delay_growing":
             headline = f"Caution: {DEMO_ROUTE_NAME} losing time — transfer buffer shrinking"
             explanation = (
-                f"At {passage['stop_name']} ({_hhmmss(passage['ts'])} IST), {DEMO_VEHICLE_ID} is {delay_s}s (+{delay_s // 60}m {delay_s % 60}s) late. "
+                f"At {passage['stop_name']} ({hhmmss_ist(passage['ts'])} IST), {DEMO_VEHICLE_ID} is {delay_s}s (+{delay_s // 60}m {delay_s % 60}s) late. "
                 f"Transfer buffer at {DEMO_TRANSFER_STOP_NAME} dropped to {remaining_buffer_s}s; miss risk rose to {int(sim['miss_probability'] * 100 + 0.5)}%."
             )
             status_badge = "MARGINAL · CONNECTION AT RISK"
         elif stage_id == "advice_flip":
             headline = f"Advice flipped: Switch to direct bus {geom['direct_route_summary']} (skip {DEMO_ROUTE_NAME} transfer)"
             explanation = (
-                f"At {passage['stop_name']} ({_hhmmss(passage['ts'])} IST), observed delay hit +{delay_s}s (+{delay_s // 60}m {delay_s % 60}s), "
+                f"At {passage['stop_name']} ({hhmmss_ist(passage['ts'])} IST), observed delay hit +{delay_s}s (+{delay_s // 60}m {delay_s % 60}s), "
                 f"exceeding the entire {transfer_gap_s}s ({transfer_gap_s // 60}m {transfer_gap_s % 60}s) transfer window. "
                 f"Connection miss probability jumped to {int(sim['miss_probability'] * 100 + 0.5)}%, pushing expected trip time past direct {geom['direct_route_summary']}."
             )
@@ -478,8 +470,8 @@ async def build_marginal_transfer_demo(
             )
             explanation = (
                 f"Observed GPS passages at {DEMO_TRANSFER_STOP_NAME} (stop {DEMO_TRANSFER_STOP_ID}): "
-                f"{DEMO_VEHICLE_ID} (run {DEMO_RUN_ID}) had scheduled arrival {_hhmmss(scheduled_arrival_ts)} IST and observed arrival {_hhmmss(actual_arrival_ts)} IST (+{actual_delay_s}s late); "
-                f"connecting {DEMO_CONNECTING_ROUTE} vehicle {DEMO_CONNECTING_VEHICLE_ID} (run {connecting_passage['run_id']}) had scheduled departure {_hhmmss(connecting_depart_ts)} IST and observed departure {_hhmmss(actual_connecting_depart_ts)} IST ({connecting_delay_s:+d}s). "
+                f"{DEMO_VEHICLE_ID} (run {DEMO_RUN_ID}) had scheduled arrival {hhmmss_ist(scheduled_arrival_ts)} IST and observed arrival {hhmmss_ist(actual_arrival_ts)} IST (+{actual_delay_s}s late); "
+                f"connecting {DEMO_CONNECTING_ROUTE} vehicle {DEMO_CONNECTING_VEHICLE_ID} (run {connecting_passage['run_id']}) had scheduled departure {hhmmss_ist(connecting_depart_ts)} IST and observed departure {hhmmss_ist(actual_connecting_depart_ts)} IST ({connecting_delay_s:+d}s). "
                 f"The first bus reached the transfer stop {missed_by_s}s after the connecting bus was observed there."
             )
             status_badge = f"OUTCOME REVEALED · {actual_outcome.upper()}"
@@ -492,8 +484,8 @@ async def build_marginal_transfer_demo(
                 "status_badge": status_badge,
                 "headline": headline,
                 "explanation": explanation,
-                "replay_timestamp": _iso(passage["ts"]),
-                "replay_time_ist": _hhmmss(passage["ts"]),
+                "replay_timestamp": iso_ist(passage["ts"]),
+                "replay_time_ist": hhmmss_ist(passage["ts"]),
                 "bus_stop_sequence": passage["stop_sequence"],
                 "bus_stop_name": passage["stop_name"],
                 "bus_lat": passage["stop_lat"],
@@ -550,17 +542,17 @@ async def build_marginal_transfer_demo(
             "stop_name": DEMO_TRANSFER_STOP_NAME,
             "lat": p_xfer["stop_lat"],
             "lng": p_xfer["stop_lng"],
-            "scheduled_arrival": _iso(scheduled_arrival_ts),
+            "scheduled_arrival": iso_ist(scheduled_arrival_ts),
             "connecting_route": DEMO_CONNECTING_ROUTE,
             "connecting_run_id": connecting_passage["run_id"],
             "connecting_vehicle_id": connecting_passage["vehicle_id"],
             "connecting_scheduled_depart": geom["connecting_scheduled_depart"],
-            "connecting_observed_depart": _iso(actual_connecting_depart_ts),
+            "connecting_observed_depart": iso_ist(actual_connecting_depart_ts),
             "connecting_observed": connecting_passage["observed"],
             "connecting_delay_s": connecting_delay_s,
             "connecting_distance_m": connecting_passage["distance_m"],
             "scheduled_gap_s": transfer_gap_s,
-            "actual_arrival": _iso(actual_arrival_ts),
+            "actual_arrival": iso_ist(actual_arrival_ts),
             "actual_arrival_observed": p_xfer["observed"],
             "actual_delay_s": actual_delay_s,
             "actual_outcome": actual_outcome,

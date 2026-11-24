@@ -192,7 +192,5 @@ Difference is defined as **Our Total Duration − Google Bus-Only Duration** (po
 The checked-in inputs freeze both our planner estimates and the cached Google observations. Rendering does not query either service.
 
 ```bash
-cd /home/factory-user/repos/Transport-Stack-Hackathon && \
-  /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py \
-  --render-only --inputs reports/google-comparator-inputs.json
+cd backend && uv run python -m delhi_transit.comparator --render-only
 ```

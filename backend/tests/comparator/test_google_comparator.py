@@ -25,6 +25,11 @@ from delhi_transit.comparator.client import (
     upcoming_weekday_date,
     validate_departure_time,
 )
+from delhi_transit.comparator.slots import (
+    DEFAULT_OD_PAIRS,
+    DEFAULT_TIME_SLOTS,
+    TimeSlot,
+)
 
 
 def _google_route(duration_s: int, vehicle_types: list[str], line_names: list[str] | None = None) -> dict:
@@ -188,8 +193,8 @@ def test_client_caches_before_call_redacts_key_and_enforces_hard_cap(tmp_path: P
 
 
 def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_path: Path) -> None:
-    od_pairs = compare_mod.DEFAULT_OD_PAIRS[:2]  # brief_example + 717A UP
-    slots = compare_mod.DEFAULT_TIME_SLOTS
+    od_pairs = DEFAULT_OD_PAIRS[:2]  # brief_example + 717A UP
+    slots = DEFAULT_TIME_SLOTS
 
     def fake_our_api(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -485,13 +490,13 @@ def test_wrong_weekday_or_slot_is_rejected_before_any_network(tmp_path: Path) ->
         "api_url": "http://127.0.0.1:3100",
         "google_client": client,
         "report_dir": tmp_path / "reports",
-        "od_pairs": compare_mod.DEFAULT_OD_PAIRS[:1],
+        "od_pairs": DEFAULT_OD_PAIRS[:1],
         "api_transport": httpx.MockTransport(planner_handler),
         "now": datetime(2026, 11, 24, 1, 0, tzinfo=IST),
     }
     with pytest.raises(ValueError, match="must be a Tuesday"):
         compare_mod.run_comparison(target_date=date(2026, 11, 25), **common)
-    bad_slot = compare_mod.TimeSlot("morning_peak", "09:00 IST", 9, 0)
+    bad_slot = TimeSlot("morning_peak", "09:00 IST", 9, 0)
     with pytest.raises(ValueError, match="declared weekday time"):
         compare_mod.run_comparison(
             target_date=date(2026, 11, 24),
@@ -549,8 +554,8 @@ def test_cache_miss_retains_unavailable_row_and_existing_results(tmp_path: Path)
         api_url="http://127.0.0.1:3100",
         google_client=client,
         report_dir=tmp_path / "seed",
-        od_pairs=compare_mod.DEFAULT_OD_PAIRS[:1],
-        time_slots=compare_mod.DEFAULT_TIME_SLOTS[:1],
+        od_pairs=DEFAULT_OD_PAIRS[:1],
+        time_slots=DEFAULT_TIME_SLOTS[:1],
         api_transport=httpx.MockTransport(_planner_success),
         now=now,
     )
@@ -560,8 +565,8 @@ def test_cache_miss_retains_unavailable_row_and_existing_results(tmp_path: Path)
         api_url="http://127.0.0.1:3100",
         google_client=client,
         report_dir=tmp_path / "partial",
-        od_pairs=compare_mod.DEFAULT_OD_PAIRS[:2],
-        time_slots=compare_mod.DEFAULT_TIME_SLOTS[:1],
+        od_pairs=DEFAULT_OD_PAIRS[:2],
+        time_slots=DEFAULT_TIME_SLOTS[:1],
         cache_only=True,
         api_transport=httpx.MockTransport(_planner_success),
         now=now,
@@ -591,8 +596,8 @@ def test_cap_exhaustion_retains_collected_and_unavailable_rows(tmp_path: Path) -
         api_url="http://127.0.0.1:3100",
         google_client=client,
         report_dir=tmp_path / "reports",
-        od_pairs=compare_mod.DEFAULT_OD_PAIRS[:3],
-        time_slots=compare_mod.DEFAULT_TIME_SLOTS[:1],
+        od_pairs=DEFAULT_OD_PAIRS[:3],
+        time_slots=DEFAULT_TIME_SLOTS[:1],
         api_transport=httpx.MockTransport(_planner_success),
         now=datetime(2026, 11, 24, 1, 0, tzinfo=IST),
     )

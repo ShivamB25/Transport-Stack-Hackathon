@@ -4,7 +4,6 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
-import os
 import re
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
@@ -12,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from dotenv import dotenv_values
 
 from delhi_transit.core.config import (
     DATA_DIR,
@@ -21,8 +19,10 @@ from delhi_transit.core.config import (
     GOOGLE_LEGACY_COUNTER_PATH,
     GOOGLE_MISSION_LEDGER_PATH,
     IST,
-    REPO_ROOT,
+    load_env_key,
 )
+from delhi_transit.core.io import atomic_write_json
+from delhi_transit.core.time import utc_z
 
 GOOGLE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 DEFAULT_FIELD_MASK = (
@@ -52,19 +52,6 @@ class GoogleBudgetExceededError(GoogleClientError):
 
 class InvalidDepartureTimeError(ValueError):
     """Raised when a past or October 2026 departure time is requested."""
-
-
-def load_google_api_key(env_path: Path | None = None) -> str | None:
-    """Load GOOGLE_MAPS_API_KEY from environment or repo .env without logging it."""
-    env_val = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
-    if env_val:
-        return env_val
-    dotenv_file = env_path or (REPO_ROOT / ".env")
-    if dotenv_file.exists():
-        val = (dotenv_values(dotenv_file).get("GOOGLE_MAPS_API_KEY") or "").strip()
-        if val:
-            return val
-    return None
 
 
 def validate_departure_time(
@@ -143,7 +130,7 @@ def build_compute_routes_payload(
             }
         },
         "travelMode": "TRANSIT",
-        "departureTime": depart.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "departureTime": utc_z(depart),
         "computeAlternativeRoutes": bool(compute_alternatives),
         "languageCode": language_code,
         "transitPreferences": {
@@ -286,27 +273,13 @@ def extract_bus_only_itineraries(response_body: dict[str, Any]) -> dict[str, Any
 def _parse_bus_routes(
     response_body: dict[str, Any], http_status: int | None, error: str | None
 ) -> dict[str, Any]:
-    if http_status == 200 and not error and "error" not in response_body:
-        return extract_bus_only_itineraries(response_body)
-    return {
-        "raw_route_count": 0,
-        "bus_only_count": 0,
-        "excluded_non_bus_count": 0,
-        "excluded_vehicle_types": [],
-        "bus_only_routes": [],
-        "best_bus_route": None,
-    }
+    """Bus-only itineraries of a successful response; the empty result for any failure."""
+    ok = http_status == 200 and not error and "error" not in response_body
+    return extract_bus_only_itineraries(response_body if ok else {})
 
 
-def _utc_now_z() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(tmp_path, path)
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    atomic_write_json(path, payload, ensure_ascii=False)
 
 
 class GoogleRoutesClient:
@@ -381,7 +354,7 @@ class GoogleRoutesClient:
             if self.counter_path == GOOGLE_MISSION_LEDGER_PATH and GOOGLE_LEGACY_COUNTER_PATH.exists():
                 legacy = json.loads(GOOGLE_LEGACY_COUNTER_PATH.read_text(encoding="utf-8"))
                 counter = self._normalise_counter(legacy)
-                _atomic_write_json(self.counter_path, counter)
+                _write_json(self.counter_path, counter)
                 return counter
             return self._default_counter()
         data = json.loads(self.counter_path.read_text(encoding="utf-8"))
@@ -419,7 +392,7 @@ class GoogleRoutesClient:
             counter["api_calls_made"] = int(counter["api_calls_made"]) + 1
             counter["total_mission_calls"] = total
             counter["remaining_budget"] = max(0, int(counter["hard_cap"]) - total)
-            reserved_at = _utc_now_z()
+            reserved_at = utc_z()
             counter["calls"].append(
                 {
                     "call_number": total,
@@ -434,7 +407,7 @@ class GoogleRoutesClient:
                     "error": None,
                 }
             )
-            _atomic_write_json(self.counter_path, counter)
+            _write_json(self.counter_path, counter)
             return total
 
     def _complete_network_call(
@@ -448,11 +421,51 @@ class GoogleRoutesClient:
             counter = self._read_call_counter_unlocked()
             call = next(c for c in counter["calls"] if int(c["call_number"]) == call_number)
             call["status"] = "completed"
-            call["completed_at"] = _utc_now_z()
+            call["completed_at"] = utc_z()
             call["http_status"] = http_status
             call["error"] = error
-            _atomic_write_json(self.counter_path, counter)
+            _write_json(self.counter_path, counter)
             return counter
+
+    def _request(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        depart: datetime,
+    ) -> tuple[dict[str, Any], str, Path]:
+        payload = build_compute_routes_payload(
+            origin,
+            destination,
+            depart,
+            language_code=DEFAULT_LANGUAGE_CODE,
+            compute_alternatives=True,
+        )
+        cache_key = make_cache_key(payload, self.field_mask)
+        return payload, cache_key, self.responses_dir / f"{cache_key}.json"
+
+    def unavailable_response(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        depart: datetime,
+        *,
+        error: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """A comparison input for a slot with no Google response (quota, cache miss, client error)."""
+        payload, cache_key, cache_file = self._request(origin, destination, depart)
+        return {
+            "cache_key": cache_key,
+            "cache_path": str(cache_file),
+            "from_cache": False,
+            "fetched_at": None,
+            "http_status": None,
+            "error": error,
+            "unavailable_reason": reason,
+            "request": payload,
+            "field_mask": self.field_mask,
+            "parsed": extract_bus_only_itineraries({}),
+        }
 
     def compute_bus_routes(
         self,
@@ -467,15 +480,7 @@ class GoogleRoutesClient:
     ) -> dict[str, Any]:
         """Fetch or load from disk cache a bus-only Google Routes v2 response."""
         validate_departure_time(depart, now=now, allow_past_for_cache=True)
-        payload = build_compute_routes_payload(
-            origin,
-            destination,
-            depart,
-            language_code=DEFAULT_LANGUAGE_CODE,
-            compute_alternatives=True,
-        )
-        cache_key = make_cache_key(payload, self.field_mask)
-        cache_file = self.responses_dir / f"{cache_key}.json"
+        payload, cache_key, cache_file = self._request(origin, destination, depart)
 
         if cache_file.exists():
             cached = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -501,7 +506,7 @@ class GoogleRoutesClient:
 
         validate_departure_time(depart, now=now, allow_past_for_cache=False)
 
-        api_key = self._api_key or load_google_api_key()
+        api_key = self._api_key or load_env_key("GOOGLE_MAPS_API_KEY")
         if not api_key:
             raise GoogleClientError("GOOGLE_MAPS_API_KEY is not configured in environment or .env")
 
@@ -516,7 +521,7 @@ class GoogleRoutesClient:
             slot_label=slot_label,
             departure_time_utc=payload["departureTime"],
         )
-        fetched_at = _utc_now_z()
+        fetched_at = utc_z()
         http_status: int | None = None
         error_msg: str | None = None
         response_body: dict[str, Any] = {}
@@ -558,7 +563,7 @@ class GoogleRoutesClient:
             "error": error_msg,
             "response": response_body,
         }
-        _atomic_write_json(cache_file, cache_record)
+        _write_json(cache_file, cache_record)
 
         parsed = _parse_bus_routes(response_body, http_status, error_msg)
         return {
