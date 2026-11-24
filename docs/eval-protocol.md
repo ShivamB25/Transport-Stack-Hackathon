@@ -4,6 +4,7 @@ Status: version 1.0 frozen on 2026-11-23 before baseline fitting, prediction, or
 Version: 1.1, amended on 2026-11-23 after the all-stop gate failure and before stratified results.
 Version: 1.2, amended on 2026-11-23 before causal re-evaluation on rebuilt passages (enforcing source-GPS `available_at` causality, shippable rung output domain `{"1", "2", "3", "4"}`, artifact as-of cutoff metadata, and explicit interval-width aggregation labels).
 Version: 1.3, amended on 2026-11-23 before regenerating results: `available_at` also waits for run qualification and raw-GPS prefix stability, and only `observed-only` decisions may be written to `selection.json`.
+Version: 1.4, amended on 2026-11-24 after a training-days-only diagnosis: rung 3 is removed from the ladder, so the shippable domain becomes `{"1", "2", "4"}`.
 
 ## Scope and directions
 
@@ -109,3 +110,14 @@ cd backend && uv run python -m delhi_transit.model.evaluate
 ```
 
 The gate is evaluated independently on 2026-10-22 for UP and DOWN using only the **observed-only** paired rows and identical coverage: **rung 1 MAE must be strictly less than rung 0 MAE in each direction**. The older-feed values and approximately 30% improvement are historical references only, not targets or pass thresholds. Failure in either direction is recorded as a negative result and escalated without held-out tuning, rather than hidden by pooling directions, days, or strata.
+
+## Amendment 1.4 — rung 3 removed from the ladder
+
+Issue #4 asked whether rung 3 (rung 2 plus a `HuberRegressor` adjustment from this bus's causal last stretch error, last stop delay, pace delta and a has-last-stretch flag) adds anything beyond rung 2. The question was answered on training days only (2026-10-05, 06, 07, 08, 13, 14, 15); no held-out result was used to decide.
+
+- **Coefficients (fit on all seven training days, 37,111 observed queries):** last stretch error 0.0045, last stop delay 0.00048, pace delta 0.0053 (seconds per second) and has-last-stretch 0.146 s, intercept -0.024 s. One training-day standard deviation of each feature moves the prediction by 0.57, 0.53, 0.46 and 0.04 s.
+- **Regularisation is not the cause:** refitting with `alpha = 1e-4` instead of `alpha = 10` gives the same coefficients to three significant figures, because the features are in seconds and the L2 penalty is negligible at that scale.
+- **Stability:** leave-one-training-day-out refits keep every coefficient positive (last stretch error 0.0036 to 0.0054, jackknife SE 0.0014), so the effect is consistently present but practically zero.
+- **Leave-one-training-day-out accuracy (observed-only, 14 day × direction groups, rung 2 and rung 3 fitted on the other six days):** rung 3 is worse than rung 2 in 14/14 groups; pooled MAE 64.985 s vs 64.914 s.
+
+Rung 3 is therefore removed. The ladder is `0`, `1`, `1h`, `2`, `4`; the shippable domain is `{"1", "2", "4"}` and the selection rule ships the highest rung in `(4, 2)` that beats rung 1 under the unchanged conditions. No other model, hyperparameter, fallback, split or stratum changed. The single held-out re-evaluation after the decision leaves every rung 0, 1, 1h, 2 and 4 number unchanged and the selected rung `4` unchanged; the rung 4 artifact and saved predictions are byte-identical.

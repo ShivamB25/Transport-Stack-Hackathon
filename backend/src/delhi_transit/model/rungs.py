@@ -1,4 +1,4 @@
-"""Model ladder rungs 0, 1, 1h, 2 and 3 with their historical median tables."""
+"""Model ladder rungs 0, 1, 1h and 2 with their historical median tables."""
 from __future__ import annotations
 
 import math
@@ -8,13 +8,10 @@ from dataclasses import dataclass
 from statistics import median
 from typing import Any
 
-import numpy as np
-from sklearn.linear_model import HuberRegressor
-
 from delhi_transit.model.causal_core import CausalFeatures
 from delhi_transit.model.features import ReplayQuery, StretchError
 
-ALL_RUNGS: tuple[str, ...] = ("0", "1", "1h", "2", "3", "4")
+ALL_RUNGS: tuple[str, ...] = ("0", "1", "1h", "2", "4")
 BASELINE_RUNGS: tuple[str, ...] = ("0", "1", "1h")
 
 StretchKey = tuple[int, str, str, str]
@@ -273,111 +270,4 @@ class Rung2DayTypeModel(RungModel):
     def from_dict(cls, payload: dict[str, Any]) -> Rung2DayTypeModel:
         model = cls()
         model.table = HistoricalMedianTable.from_dict(payload["table"])
-        return model
-
-
-def _rung3_delay_vector(features: CausalFeatures | None, scheduled_duration_s: float) -> list[float]:
-    if features is None:
-        return [0.0, 0.0, 0.0, 0.0]
-    last_stretch = (
-        max(-600.0, min(1200.0, features.last_stretch_error_s))
-        if math.isfinite(features.last_stretch_error_s)
-        else 0.0
-    )
-    has_last_stretch = 1.0 if math.isfinite(features.last_stretch_error_s) else 0.0
-    last_stop = (
-        max(-1800.0, min(3600.0, features.last_stop_delay_s))
-        if math.isfinite(features.last_stop_delay_s)
-        else 0.0
-    )
-    if math.isfinite(features.recent_vehicle_progress_ratio):
-        pace_delta = max(
-            -600.0,
-            min(1200.0, (features.recent_vehicle_progress_ratio - 1.0) * scheduled_duration_s),
-        )
-    else:
-        pace_delta = 0.0
-    return [last_stretch, last_stop, pace_delta, has_last_stretch]
-
-
-class Rung3LastDelayModel(RungModel):
-    """Rung 3: Rung 2 day-type baseline + robust linear adjustment from this bus's causal delay."""
-
-    rung = "3"
-
-    def __init__(self, min_day_type_samples: int = 3) -> None:
-        self.min_day_type_samples = min_day_type_samples
-        self.table = HistoricalMedianTable(min_day_type_samples=min_day_type_samples)
-        self.intercept: float = 0.0
-        self.coef: list[float] = [0.0, 0.0, 0.0, 0.0]
-
-    def fit(
-        self,
-        training_stretches: Iterable[StretchError],
-        training_queries: Sequence[ReplayQuery],
-    ) -> Rung3LastDelayModel:
-        stretches = list(training_stretches)
-        self.table, lodo_tables = lodo_historical_tables(
-            stretches, min_day_type_samples=self.min_day_type_samples
-        )
-        observed_q = [q for q in training_queries if q.stretch.target_observed]
-        pool = observed_q or list(training_queries)
-        if len(pool) < 10:
-            self.intercept = 0.0
-            self.coef = [0.0, 0.0, 0.0, 0.0]
-            return self
-
-        x_rows: list[list[float]] = []
-        residuals: list[float] = []
-        for q in pool:
-            s = q.stretch
-            base_table = lodo_tables.get(s.day, self.table)
-            base_val, _ = base_table.lookup(
-                s.stretch_key, s.day_of_week, s.coarse_day_type, s.query_hour
-            )
-            x_rows.append(_rung3_delay_vector(q.features, float(s.scheduled_duration_s)))
-            residuals.append(float(s.error_s) - base_val)
-
-        x_mat = np.asarray(x_rows, dtype=np.float64)
-        y_vec = np.asarray(residuals, dtype=np.float64)
-        reg = HuberRegressor(alpha=10.0, epsilon=1.25, max_iter=300)
-        reg.fit(x_mat, y_vec)
-        self.intercept = float(reg.intercept_)
-        self.coef = [float(c) for c in reg.coef_]
-        return self
-
-    def _adjust(self, base_val: float, features: CausalFeatures | None, scheduled_s: float) -> float:
-        vec = _rung3_delay_vector(features, scheduled_s)
-        delta = self.intercept + sum(w * x for w, x in zip(self.coef, vec, strict=True))
-        return base_val + delta
-
-    def predict(self, query: ReplayQuery) -> Prediction:
-        s = query.stretch
-        base_val, used_fallback = self.table.lookup(
-            s.stretch_key, s.day_of_week, s.coarse_day_type, s.query_hour
-        )
-        pred = self._adjust(base_val, query.features, float(s.scheduled_duration_s))
-        return Prediction(error_s=pred, used_fallback=used_fallback)
-
-    def predict_from_features(self, stretch_key: StretchKey, features: CausalFeatures) -> Prediction:
-        base_val, used_fallback = self.table.lookup(
-            stretch_key, features.day_of_week, features.coarse_day_type, features.hour
-        )
-        pred = self._adjust(base_val, features, features.scheduled_duration_s)
-        return Prediction(error_s=pred, used_fallback=used_fallback)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "rung": self.rung,
-            "table": self.table.to_dict(),
-            "intercept": self.intercept,
-            "coef": list(self.coef),
-        }
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> Rung3LastDelayModel:
-        model = cls()
-        model.table = HistoricalMedianTable.from_dict(payload["table"])
-        model.intercept = float(payload["intercept"])
-        model.coef = [float(c) for c in payload["coef"]]
         return model

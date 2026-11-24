@@ -16,16 +16,14 @@ from delhi_transit.model.rungs import (
     BaselineModel,
     Prediction,
     Rung2DayTypeModel,
-    Rung3LastDelayModel,
     StretchKey,
 )
 
-ArtifactModel = BaselineModel | Rung2DayTypeModel | Rung3LastDelayModel | Rung4QuantileLightGBMModel
+ArtifactModel = BaselineModel | Rung2DayTypeModel | Rung4QuantileLightGBMModel
 
-_TABLE_RUNG_TYPES: dict[str, type[BaselineModel | Rung2DayTypeModel | Rung3LastDelayModel]] = {
+_TABLE_RUNG_TYPES: dict[str, type[BaselineModel | Rung2DayTypeModel]] = {
     **{rung: BaselineModel for rung in BASELINE_RUNGS},
     "2": Rung2DayTypeModel,
-    "3": Rung3LastDelayModel,
 }
 
 
