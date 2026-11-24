@@ -24,7 +24,8 @@ from ps1.model import (
     model_artifact_eligible_as_of,
     save_model_artifact,
 )
-from ps1.selection import load_eval_csv, select_shipped_rung
+from ps1.selection import load_eval_csv, select_shipped_rung, write_selection
+from ps1.selection import main as selection_main
 
 
 def _make_day_passages(day: str, base_error: int, runs: int = 8) -> list[PassageRow]:
@@ -222,6 +223,16 @@ def test_selection_rule_ladder_and_coverage_match() -> None:
         _metric_row("2026-10-22", "UP", "4", 85.0),  # tie does not beat strictly
     ]
     assert select_shipped_rung(worse_rows)["selected_rung"] == "1"
+
+
+def test_only_observed_only_decisions_are_written(tmp_path: Path) -> None:
+    rows = [{**_metric_row("2026-10-22", "UP", "1", 85.0), "stratum": "all-stop"}]
+    target = tmp_path / "selection.json"
+    with pytest.raises(ValueError, match="all-stop"):
+        write_selection(select_shipped_rung(rows, stratum="all-stop"), target)
+    with pytest.raises(SystemExit):
+        selection_main(["--stratum", "all-stop", "--write", str(target), str(tmp_path / "x.csv")])
+    assert not target.exists()
 
 
 def test_1h_only_winner_is_reported_but_persistence_ships() -> None:

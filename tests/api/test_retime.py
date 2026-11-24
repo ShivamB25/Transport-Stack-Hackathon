@@ -4,6 +4,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from ps1.features import StretchError
 from ps1.retime import RetimeModel, TimingRecord, scenario_windows
 
@@ -174,7 +176,10 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
         ),
     )
     selection_path = tmp_path / "selection.json"
-    selection_path.write_text(json.dumps({"selected_rung": "4"}), encoding="utf-8")
+    selection_path.write_text(json.dumps({"selected_rung": "4", "stratum": "all-stop"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="all-stop"):
+        RetimeModel(tmp_path, selection_path=selection_path)
+    selection_path.write_text(json.dumps({"selected_rung": "4", "stratum": "observed-only"}), encoding="utf-8")
 
     # Also write live route stats for route 2171 and uncovered route 1920
     live_dir = tmp_path / "live"

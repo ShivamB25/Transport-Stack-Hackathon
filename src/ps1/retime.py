@@ -25,6 +25,7 @@ from ps1.features import (
 )
 from ps1.live_poller import read_live_route_stats
 from ps1.model import LoadedModelArtifact, Prediction, load_model_artifact
+from ps1.selection import SHIP_STRATUM
 
 IST = timezone(timedelta(hours=5, minutes=30))
 SCENARIOS = 192
@@ -129,6 +130,11 @@ class RetimeModel:
         self.selected_rung = "1"
         if self.selection_path.exists():
             selection = json.loads(self.selection_path.read_text())
+            if selection.get("stratum") != SHIP_STRATUM:
+                raise ValueError(
+                    f"refusing {self.selection_path}: stratum {selection.get('stratum')!r} is not "
+                    f"{SHIP_STRATUM!r}"
+                )
             self.selected_rung = str(
                 selection.get("selected_rung", selection.get("rung", selection.get("selected", "1")))
             ).removeprefix("rung")

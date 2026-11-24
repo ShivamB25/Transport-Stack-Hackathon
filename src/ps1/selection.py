@@ -11,6 +11,7 @@ from typing import Any
 LADDER_ORDER: tuple[str, ...] = ("0", "1", "1h", "2", "3", "4")
 SHIPPABLE_RUNGS: tuple[str, ...] = ("1", "2", "3", "4")
 SHIPPABLE_ABOVE_PERSISTENCE: tuple[str, ...] = ("4", "3", "2")
+SHIP_STRATUM = "observed-only"
 
 
 def _to_float(value: Any) -> float | None:
@@ -56,7 +57,7 @@ def load_eval_csv(csv_path: Path) -> list[dict[str, Any]]:
 def select_shipped_rung(
     rows: Sequence[dict[str, Any]],
     *,
-    stratum: str = "observed-only",
+    stratum: str = SHIP_STRATUM,
     calibration: dict[str, Any] | None = None,
     pooled_interval_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -209,6 +210,12 @@ def select_shipped_rung(
 
 
 def write_selection(decision: dict[str, Any], output_path: Path) -> Path:
+    """Write a ship decision; only observed-only decisions may become selection.json."""
+    if decision.get("stratum") != SHIP_STRATUM:
+        raise ValueError(
+            f"refusing to write a ship decision from stratum {decision.get('stratum')!r}; "
+            f"only {SHIP_STRATUM!r} is shippable"
+        )
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
@@ -218,9 +225,13 @@ def write_selection(decision: dict[str, Any], output_path: Path) -> Path:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("eval_csv", type=Path, default=Path("reports/eval-full.csv"), nargs="?")
-    parser.add_argument("--stratum", default="observed-only")
+    parser.add_argument("--stratum", default=SHIP_STRATUM)
     parser.add_argument("--write", type=Path, default=None)
     args = parser.parse_args(argv)
+    if args.write is not None and args.stratum != SHIP_STRATUM:
+        parser.error(
+            f"--write requires --stratum {SHIP_STRATUM}; other strata are exploratory only"
+        )
     rows = load_eval_csv(args.eval_csv)
     decision = select_shipped_rung(rows, stratum=args.stratum)
     if args.write is not None:
