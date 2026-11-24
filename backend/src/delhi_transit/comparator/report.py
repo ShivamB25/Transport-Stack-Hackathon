@@ -23,6 +23,7 @@ CSV_COLUMNS: tuple[str, ...] = (
     "our_window_p10_s",
     "our_window_p90_s",
     "our_board_wait_s",
+    "our_duration_excluding_boarding_wait_s",
     "our_ride_walk_duration_s",
     "our_routes",
     "our_transfers",
@@ -43,6 +44,7 @@ CSV_COLUMNS: tuple[str, ...] = (
     "diff_pct",
     "abs_diff_s",
     "diff_excl_board_s",
+    "diff_excluding_boarding_wait_s",
     "google_in_our_p10_p90",
     "google_from_cache",
     "google_cache_key",
@@ -83,12 +85,20 @@ def _group_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "median_diff_s": None,
             "mae_s": None,
             "within_p10_p90_pct": None,
+            "excl_wait_compared": 0,
+            "mean_our_excl_wait_s": None,
+            "mean_diff_excl_wait_s": None,
+            "median_diff_excl_wait_s": None,
+            "mae_excl_wait_s": None,
         }
     ours = [int(r["our_total_duration_s"]) for r in compared]
     goog = [int(r["google_duration_s"]) for r in compared]
     diffs = [int(r["diff_s"]) for r in compared]
     abs_diffs = [int(r["abs_diff_s"]) for r in compared]
     in_win = [r for r in compared if r["google_in_our_p10_p90"] is True]
+    excl = [r for r in compared if r.get("diff_excluding_boarding_wait_s") is not None]
+    ours_excl = [int(r["our_duration_excluding_boarding_wait_s"]) for r in excl]
+    diffs_excl = [int(r["diff_excluding_boarding_wait_s"]) for r in excl]
     return {
         "planned": len(rows),
         "compared": len(compared),
@@ -99,7 +109,19 @@ def _group_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "median_diff_s": round(statistics.median(diffs), 1),
         "mae_s": round(statistics.mean(abs_diffs), 1),
         "within_p10_p90_pct": round(100.0 * len(in_win) / len(compared), 1),
+        "excl_wait_compared": len(excl),
+        "mean_our_excl_wait_s": round(statistics.mean(ours_excl), 1) if excl else None,
+        "mean_diff_excl_wait_s": round(statistics.mean(diffs_excl), 1) if excl else None,
+        "median_diff_excl_wait_s": round(statistics.median(diffs_excl), 1) if excl else None,
+        "mae_excl_wait_s": round(statistics.mean(abs(d) for d in diffs_excl), 1) if excl else None,
     }
+
+
+def _signed_s(seconds: float | None) -> str:
+    if seconds is None:
+        return "—"
+    sign = "+" if seconds > 0 else ""
+    return f"{sign}{seconds:.0f} s ({sign}{seconds / 60.0:.1f} m)"
 
 
 def render_markdown_report(
@@ -134,13 +156,17 @@ def render_markdown_report(
             "the brief's Tuesday `08:30` example)."
         ),
         (
-            "- **Definition differences to keep in mind:** Our `total_duration_s` includes walk-to-stop, estimated "
-            "first boarding wait, model-timed bus ride(s), joint-scenario transfer risk/wait, and egress walk. "
-            "Google's `routes.duration` measures door-to-door travel from leaving origin to arriving at destination "
-            "(excluding pre-departure waiting at origin before walking), and OTP vs Google may select different bus "
-            "lines or transfer points. The CSV also tracks `diff_excl_board_s`, an optional diagnostic computed "
-            "from the sum of marginal walk/ride/transfer leg medians excluding boarding (not the joint total minus "
-            f"boarding wait). See `{csv_rel_path}`."
+            "- **Which quantity is compared:** Our door-to-door `total_duration_s` includes walk-to-stop, the "
+            "estimated first boarding wait, model-timed bus ride(s), joint-scenario transfer risk/wait, and egress walk. "
+            "Google's `routes.duration` runs from leaving the origin, timed to its bus, to arriving at the destination, "
+            "so it contains no first boarding wait. The like-for-like basis is therefore "
+            "`our_duration_excluding_boarding_wait_s` = `our_total_duration_s` − `our_board_wait_s` (the median "
+            "first boarding wait of our top option), compared as `diff_excluding_boarding_wait_s`. The door-to-door "
+            "difference `diff_s` is kept as a separate row. Subtracting a median wait from a joint median total is an "
+            "approximation, and our `[p10, p90]` window remains door-to-door. OTP and Google may also select "
+            "different bus lines or transfer points. The CSV additionally keeps `diff_excl_board_s`, an older "
+            "diagnostic built from the sum of marginal walk/ride/transfer leg medians. "
+            f"See `{csv_rel_path}`."
         ),
         (
             "- **Only supported journeys are compared.** `GET /journeys` abstains unless some option has a ride "
@@ -181,21 +207,42 @@ def render_markdown_report(
             f"raw field-masked cache directory `{manifest['cache_dir']}`."
         ),
         "",
+        "## Headline Comparison",
+        "",
+        "| Basis | Compared | Mean Ours | Mean Google | Mean Diff (Ours − Google) | Median Diff | Mean Abs Diff |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    if overall["compared"]:
+        lines.append(
+            f"| **Like-for-like: ours excluding first boarding wait** | {overall['excl_wait_compared']} | "
+            f"{_fmt_min(overall['mean_our_excl_wait_s'])} | {_fmt_min(overall['mean_google_s'])} | "
+            f"{_signed_s(overall['mean_diff_excl_wait_s'])} | {_signed_s(overall['median_diff_excl_wait_s'])} | "
+            f"{_fmt_min(overall['mae_excl_wait_s'])} |"
+        )
+        lines.append(
+            f"| Door-to-door: ours including first boarding wait | {overall['compared']} | "
+            f"{_fmt_min(overall['mean_our_s'])} | {_fmt_min(overall['mean_google_s'])} | "
+            f"{_signed_s(overall['mean_diff_s'])} | {_signed_s(overall['median_diff_s'])} | "
+            f"{_fmt_min(overall['mae_s'])} |"
+        )
+    lines += [
+        "",
         "## Aggregate Summary",
         "",
         (
-            "Difference is defined as **Our Total Duration − Google Bus-Only Duration** "
-            "(positive = our model estimates longer door-to-door time; negative = shorter)."
+            "**Mean Diff (Ours − Google)** is the door-to-door difference, **Our Total Duration − Google Bus-Only "
+            "Duration** (positive = our model estimates longer; negative = shorter). **Mean Diff excl. Wait** is the "
+            "like-for-like difference with our first boarding wait removed."
         ),
         "",
-        "| Slice | Planned | Compared | Missing/Err | Mean Ours | Mean Google | Mean Diff (Ours − Google) | Median Diff | Mean Abs Diff | Google in Our [p10, p90] |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Slice | Planned | Compared | Missing/Err | Mean Ours | Mean Google | Mean Diff (Ours − Google) | Mean Diff excl. Wait | Median Diff | Mean Abs Diff | Google in Our [p10, p90] |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
 
     def _add_summary_row(name: str, stats: dict[str, Any]) -> None:
         if stats["compared"] == 0:
             lines.append(
-                f"| {name} | {stats['planned']} | 0 | {stats['missing']} | — | — | — | — | — | — |"
+                f"| {name} | {stats['planned']} | 0 | {stats['missing']} | — | — | — | — | — | — | — |"
             )
             return
         sign_m = "+" if stats["mean_diff_s"] > 0 else ""
@@ -204,6 +251,7 @@ def render_markdown_report(
             f"| {name} | {stats['planned']} | {stats['compared']} | {stats['missing']} | "
             f"{_fmt_min(stats['mean_our_s'])} | {_fmt_min(stats['mean_google_s'])} | "
             f"{sign_m}{stats['mean_diff_s']:.0f} s ({sign_m}{stats['mean_diff_s'] / 60.0:.1f} m) | "
+            f"{_signed_s(stats['mean_diff_excl_wait_s'])} | "
             f"{sign_med}{stats['median_diff_s']:.0f} s | "
             f"{stats['mae_s']:.0f} s ({stats['mae_s'] / 60.0:.1f} m) | "
             f"{stats['within_p10_p90_pct']:.1f}% |"
@@ -225,8 +273,8 @@ def render_markdown_report(
             "",
             "### Breakdown by Time of Day",
             "",
-            "| Time Slot (IST) | Planned | Compared | Missing/Err | Mean Ours | Mean Google | Mean Diff (Ours − Google) | Median Diff | Mean Abs Diff | Google in Our [p10, p90] |",
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Time Slot (IST) | Planned | Compared | Missing/Err | Mean Ours | Mean Google | Mean Diff (Ours − Google) | Mean Diff excl. Wait | Median Diff | Mean Abs Diff | Google in Our [p10, p90] |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for slot_id, slot_label in (("morning_peak", "08:30 IST (Morning Peak)"), ("midday", "14:00 IST (Midday)"), ("evening_peak", "18:30 IST (Evening Peak)")):
@@ -263,8 +311,8 @@ def render_markdown_report(
             "",
             "## Full Per-OD / Per-Time Comparison Table (All Planned Slots)",
             "",
-            "| OD | Group | Origin -> Destination | Slot | Status | Our Duration | Our [p10, p90] | Google Bus Duration | Diff (Ours − Google) | Our Route(s) | Google Bus Route(s) | Our Timing Source | Note |",
-            "|---|---|---|---|---|---:|---:|---:|---:|---|---|---|---|",
+            "| OD | Group | Origin -> Destination | Slot | Status | Our Duration | Our [p10, p90] | Our Duration excl. Wait | Google Bus Duration | Diff (Ours − Google) | Diff excl. Wait | Our Route(s) | Google Bus Route(s) | Our Timing Source | Note |",
+            "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---|---|---|---|",
         ]
     )
     for r in rows:
@@ -276,7 +324,9 @@ def render_markdown_report(
         lines.append(
             f"| `{r['od_id']}` | `{r['group']}` | {r['label']} | {r['slot_label']} | `{r['row_status']}` | "
             f"{_fmt_dur(r['our_total_duration_s'])} | {win_str} | "
+            f"{_fmt_dur(r.get('our_duration_excluding_boarding_wait_s'))} | "
             f"{_fmt_dur(r['google_duration_s'])} | {_fmt_diff(r['diff_s'], r['diff_pct'])} | "
+            f"{_fmt_diff(r.get('diff_excluding_boarding_wait_s'), None)} | "
             f"{r['our_routes'] or '—'} | {r['google_routes'] or '—'} | "
             f"`{r['our_timing_sources'] or '—'}` | {r['note'] or '—'} |"
         )

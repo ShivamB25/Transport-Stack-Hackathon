@@ -302,11 +302,18 @@ def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_p
     assert "compared" in statuses
     assert "google_no_bus_only_route" in statuses
     assert "google_http_500" in statuses
+    compared_csv = [r for r in csv_rows if r["row_status"] == "compared"]
+    assert all(r["our_duration_excluding_boarding_wait_s"] == "3420" for r in compared_csv)
+    assert all(r["diff_excluding_boarding_wait_s"] == "120" for r in compared_csv)
+    assert all(r["diff_s"] == "300" for r in compared_csv)
 
     # Markdown report contains explicit caveats, our duration, Google duration, difference, and missing rows
     md_text = (report_dir / "google-comparator.md").read_text(encoding="utf-8")
     assert "NOT ground truth" in md_text
     assert "+300 s" in md_text
+    assert "Like-for-like: ours excluding first boarding wait" in md_text
+    assert "Door-to-door: ours including first boarding wait" in md_text
+    assert "+120 s" in md_text
     assert "google_no_bus_only_route" in md_text
     assert "google_http_500" in md_text
 

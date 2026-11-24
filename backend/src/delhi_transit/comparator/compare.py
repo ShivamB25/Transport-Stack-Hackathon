@@ -155,6 +155,12 @@ def evaluate_slot_comparison(
     reported_supported = reported_option_supported(our_res)
     our_dur = our_res.get("our_total_duration_s") if reported_supported is not False else None
     google_dur = best_google.get("duration_s") if best_google else None
+    board_wait = our_res.get("our_board_wait_s")
+    # Google's duration starts when the traveller leaves the origin timed to the bus, so it carries no
+    # first boarding wait; subtracting ours gives the like-for-like quantity.
+    our_dur_excl_wait = (
+        int(our_dur) - int(board_wait) if our_dur is not None and board_wait is not None else None
+    )
 
     note_parts: list[str] = []
     if our_dur is not None and google_dur is not None:
@@ -164,6 +170,9 @@ def evaluate_slot_comparison(
         abs_diff_s = abs(diff_s)
         our_rw = our_res.get("our_ride_walk_duration_s")
         diff_excl_board_s = int(our_rw) - int(google_dur) if our_rw is not None else None
+        diff_excl_wait_s = (
+            our_dur_excl_wait - int(google_dur) if our_dur_excl_wait is not None else None
+        )
         p10 = our_res.get("our_window_p10_s")
         p90 = our_res.get("our_window_p90_s")
         in_window = bool(p10 is not None and p90 is not None and p10 <= google_dur <= p90)
@@ -172,6 +181,7 @@ def evaluate_slot_comparison(
         diff_pct = None
         abs_diff_s = None
         diff_excl_board_s = None
+        diff_excl_wait_s = None
         in_window = None
         if reported_supported is False:
             row_status = "our_unsupported_option"
@@ -227,7 +237,8 @@ def evaluate_slot_comparison(
         "our_total_duration_s": our_dur,
         "our_window_p10_s": our_res.get("our_window_p10_s"),
         "our_window_p90_s": our_res.get("our_window_p90_s"),
-        "our_board_wait_s": our_res.get("our_board_wait_s"),
+        "our_board_wait_s": board_wait,
+        "our_duration_excluding_boarding_wait_s": our_dur_excl_wait,
         "our_ride_walk_duration_s": our_res.get("our_ride_walk_duration_s"),
         "our_routes": " + ".join(our_res.get("our_routes") or []),
         "our_transfers": our_res.get("our_transfers"),
@@ -248,6 +259,7 @@ def evaluate_slot_comparison(
         "diff_pct": diff_pct,
         "abs_diff_s": abs_diff_s,
         "diff_excl_board_s": diff_excl_board_s,
+        "diff_excluding_boarding_wait_s": diff_excl_wait_s,
         "google_in_our_p10_p90": in_window,
         "google_from_cache": bool(google_res.get("from_cache")),
         "google_cache_key": google_res.get("cache_key") or "",
