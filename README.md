@@ -147,7 +147,7 @@ Method details are in [`docs/technical-note.md`](docs/technical-note.md), the fr
 - **GTFS v32 drift.** The static feed (v32, 6,862 stops) is newer than the snapshot behind the older reference numbers (41 s persistence vs 59 s timetable MAE). Those numbers are not reproduced; the results above are on v32.
 - **About half the stops are observed.** Roughly 50% of stop passages are observed and the rest are schedule-interpolated, so model selection uses observed stop pairs only.
 - **Google is a comparator, not ground truth.** It covers one future date, includes only 19 of 90 slots, and measures journeys differently (our totals include the first boarding wait). Google cannot be queried for October dates.
-- **Docker is validated statically.** Docker is not installed on the development machine. The Compose file is checked against the compose-spec schema, and the same container commands were run natively; the images have not been built here.
+- **Docker is built in CI but the full stack has not been started.** Docker is not installed on the development machine. The `Compose build` workflow (`.github/workflows/compose.yml`) runs `docker compose config` and `docker compose build` on every push and pull request, starts the built API image with a stub data directory, checks that `/` serves the UI with HTTP 200 and records `/health` (which reports `degraded` there, with OTP down and no feed), and uploads the logs as the `compose-logs` artifact. `docker compose up` with the real data and OTP graph mounts, the `otp` healthcheck and a real `GET /journeys` through the containers have not been exercised.
 
 ## Repository layout
 

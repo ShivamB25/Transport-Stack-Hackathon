@@ -44,7 +44,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 - Frontend through Bun only (`/usr/bin/bun`, no npm/yarn/pnpm lockfiles): `cd frontend && bun install --frozen-lockfile && bun run build` writes `frontend/dist`, which the API serves.
 - Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk` (`DELHI_TRANSIT_JAVA`). OTP jar, OSM extract and graph: `/home/factory-user/ps1-scratch/otp/` (`DELHI_TRANSIT_OTP_DIR`). OTP heap is capped at `-Xmx2500m`.
 - `.env` in the repository root (gitignored, see `.env.example`): `DELHI_TS_API_KEY` (live feed and static GTFS), `GOOGLE_MAPS_API_KEY` (comparator). Read in-process only; never print, log or commit values.
-- Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively.
+- Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively. `.github/workflows/compose.yml` builds the images with `docker compose build` in CI and smoke-tests the API image with a stub data directory; `docker compose up` with the real data and graph mounts is not exercised there.
 
 ## Ports and data
 
