@@ -8,7 +8,7 @@ import random
 import time
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
@@ -84,6 +84,19 @@ class TimingEstimate:
     coverage_note: str | None = None
 
 
+def _with_replay_delay(estimate: TimingEstimate, delay_s: float) -> TimingEstimate:
+    """Shift a ride estimate by an injected replay delay; the interval width is unchanged."""
+    if not delay_s:
+        return estimate
+    return replace(
+        estimate,
+        duration_s=estimate.duration_s + delay_s,
+        p10_s=estimate.p10_s + delay_s,
+        p90_s=estimate.p90_s + delay_s,
+        coverage_note=f"{estimate.coverage_note}; +{int(delay_s)}s replay delay injected",
+    )
+
+
 @dataclass(frozen=True)
 class WaitEstimate:
     duration_s: float
@@ -152,6 +165,7 @@ class RetimeModel:
         self.stretch_typical_scheduled: dict[tuple[int, str, str], float] = {}
         self._live_stats_mtime: float | None = None
         self._live_stats_cache: dict[int, dict[str, Any]] = {}
+        self.stale_threshold_s: float | None = None
         self._loaded_passage_files: list[Path] = []
         loaded = load_model_artifact(self.model_dir)
         self._artifact: LoadedModelArtifact | None = (
@@ -175,7 +189,9 @@ class RetimeModel:
         stat = self._live_stats_cache.get(route_id)
         if stat is None:
             return None
-        return refresh_route_stat(stat, now=time.time(), max_age_s=effective_entity_max_age_s())
+        return refresh_route_stat(
+            stat, now=time.time(), max_age_s=effective_entity_max_age_s(self.stale_threshold_s)
+        )
 
     def replay_reference_info(self, depart: datetime) -> dict[str, Any]:
         """Summarize only reconstructed observations actually loaded before the cutoff."""
@@ -644,20 +660,13 @@ class RetimeModel:
                 f"{model_desc} time-of-day/historical fallback ({stretch_desc})"
             )
 
-        if replay_delay_s:
-            duration += replay_delay_s
-            coverage_note = f"{coverage_note}; +{int(replay_delay_s)}s replay delay injected"
-
         has_quantiles = all(p.p10_s is not None and p.p50_s is not None and p.p90_s is not None for p in preds)
         if has_quantiles and pattern_matched:
             p10, p90 = self._correlated_leg_interval(duration, preds)
         else:
             p10, p90 = self._ratio_interval(reference, duration)
-            if replay_delay_s:
-                p10 += replay_delay_s
-                p90 += replay_delay_s
 
-        return TimingEstimate(
+        estimate = TimingEstimate(
             duration,
             p10,
             p90,
@@ -667,6 +676,7 @@ class RetimeModel:
             observation_count=observation_count,
             coverage_note=coverage_note,
         )
+        return _with_replay_delay(estimate, replay_delay_s)
 
     def predict_ride(
         self,
@@ -856,14 +866,8 @@ class RetimeModel:
                 f"at hour {depart.hour:02d}; timetable fallback{fallback_suffix}"
             )
 
-        if replay_delay_s:
-            duration += replay_delay_s
-            coverage_note = f"{coverage_note}; +{int(replay_delay_s)}s replay delay injected"
         p10, p90 = self._ratio_interval(reference, duration)
-        if replay_delay_s:
-            p10 += replay_delay_s
-            p90 += replay_delay_s
-        return TimingEstimate(
+        estimate = TimingEstimate(
             duration,
             p10,
             p90,
@@ -873,6 +877,7 @@ class RetimeModel:
             observation_count=observation_count,
             coverage_note=coverage_note,
         )
+        return _with_replay_delay(estimate, replay_delay_s)
 
     def predict_wait(
         self,

@@ -45,6 +45,7 @@ from ps1.replay_demo import build_marginal_transfer_demo
 from ps1.retime import RetimeModel, retime_itinerary
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+DEFAULT_REPLAY_DEPART = datetime(2026, 10, 22, 8, 30, tzinfo=IST)
 
 
 class Leg(BaseModel):
@@ -217,20 +218,30 @@ def _min_route_coverage(override: float | None) -> float:
     return float(os.environ.get("PS1_MIN_ROUTE_COVERAGE", "0.0"))
 
 
+def _explicit_mode(requested_mode: str) -> str | None:
+    if requested_mode != "auto":
+        return requested_mode
+    env_mode = os.environ.get("PS1_MODE", "auto").strip().lower()
+    return env_mode if env_mode in {"live", "replay"} else None
+
+
 def _resolve_mode(requested_mode: str, departure: datetime) -> str:
     departure = departure.astimezone(IST)
     is_october_2026 = departure.year == 2026 and departure.month == 10
-    if requested_mode == "auto":
-        env_mode = os.environ.get("PS1_MODE", "auto").strip().lower()
-        if env_mode in {"live", "replay"}:
-            mode = env_mode
-        else:
-            mode = "replay" if is_october_2026 else "live"
-    else:
-        mode = requested_mode
+    mode = _explicit_mode(requested_mode) or ("replay" if is_october_2026 else "live")
     if mode == "replay" and not is_october_2026:
         raise HTTPException(422, "replay departures must be in October 2026")
     return mode
+
+
+def _resolve_departure_and_mode(depart: str | None, requested_mode: str) -> tuple[datetime, str]:
+    """A missing depart means now in live mode, or the scripted replay day when replay is explicit."""
+    if depart is not None:
+        departure = _parse_depart(depart)
+        return departure, _resolve_mode(requested_mode, departure)
+    if _explicit_mode(requested_mode) == "replay":
+        return DEFAULT_REPLAY_DEPART, "replay"
+    return datetime.now(IST).replace(microsecond=0), "live"
 
 
 def _evaluate_live_feed(
@@ -330,6 +341,8 @@ def create_app(
     resolver = StopResolver(resolved_data_dir / "gtfs" / "stops.txt")
     otp_client = otp or OTPClient(otp_url or OTP_URL)
     timing_model = model or RetimeModel(resolved_data_dir)
+    if stale_threshold_s is not None:
+        timing_model.stale_threshold_s = stale_threshold_s
 
     if enable_poller is None:
         env_enabled = os.environ.get("PS1_ENABLE_LIVE_POLLER", "1").strip().lower() not in {"0", "false", "no"}
@@ -369,7 +382,10 @@ def create_app(
         depart: str | None = Query(
             default=None,
             min_length=1,
-            description="ISO 8601 date-time with offset; defaults to the current time in Asia/Kolkata.",
+            description=(
+                "ISO 8601 date-time with offset; defaults to now in Asia/Kolkata (live), "
+                "or 2026-10-22T08:30+05:30 when replay mode is explicit."
+            ),
         ),
         mode: Literal["auto", "live", "replay"] = Query(default="auto"),
         replay_delay_s: float = Query(default=0, ge=0, le=3600),
@@ -377,8 +393,7 @@ def create_app(
     ) -> JourneyResponse:
         origin = resolver.resolve(from_, "from")
         destination = resolver.resolve(to, "to")
-        departure = _parse_depart(depart) if depart is not None else datetime.now(IST).replace(microsecond=0)
-        effective_mode = _resolve_mode(mode, departure)
+        departure, effective_mode = _resolve_departure_and_mode(depart, mode)
         if replay_delay_s and effective_mode != "replay":
             raise HTTPException(422, "replay_delay_s is only valid for October replay queries")
 

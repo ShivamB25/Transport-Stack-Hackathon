@@ -199,10 +199,11 @@ def test_invalid_inputs_are_controlled_and_service_recovers(tmp_path: Path) -> N
     assert client.get("/journeys", params=base).status_code == 200
 
 
-def test_missing_depart_defaults_to_now_in_delhi_live_mode(tmp_path: Path) -> None:
+def test_missing_depart_defaults_to_now_in_delhi_live_mode(tmp_path: Path, monkeypatch) -> None:
     client = _client(tmp_path)
+    endpoints = {"from": "Kashmere Gate ISBT", "to": "Nehru Place"}
     before = datetime.now(IST).replace(microsecond=0)
-    response = client.get("/journeys", params={"from": "Kashmere Gate ISBT", "to": "Nehru Place"})
+    response = client.get("/journeys", params=endpoints)
     after = datetime.now(IST)
     assert response.status_code == 200
     body = response.json()
@@ -210,6 +211,16 @@ def test_missing_depart_defaults_to_now_in_delhi_live_mode(tmp_path: Path) -> No
     depart = datetime.fromisoformat(body["depart"])
     assert depart.utcoffset() == IST.utcoffset(None)
     assert before <= depart <= after
+
+    assert client.get("/journeys", params={**endpoints, "mode": "replay"}).json()["depart"] == (
+        "2026-10-22T08:30:00+05:30"
+    )
+    monkeypatch.setenv("PS1_MODE", "replay")
+    replay = client.get("/journeys", params=endpoints)
+    assert replay.status_code == 200
+    assert replay.json()["mode"] == "replay"
+    assert replay.json()["depart"] == "2026-10-22T08:30:00+05:30"
+    assert client.get("/journeys", params={**endpoints, "mode": "live"}).json()["mode"] == "live"
 
 
 def test_openapi_documents_journey_contract(tmp_path: Path) -> None:

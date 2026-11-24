@@ -380,6 +380,7 @@ def test_replay_delay_shifts_fallback_rides_without_relabelling(tmp_path: Path) 
         assert base.timing_source == delayed.timing_source == timing_source
         assert delayed.source == base.source
         assert delayed.duration_s == base.duration_s + 300.0
+        assert (delayed.p10_s, delayed.p90_s) == (base.p10_s + 300.0, base.p90_s + 300.0)
 
 
 def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_path: Path) -> None:
@@ -601,6 +602,28 @@ def test_entities_that_expire_after_the_poll_cannot_drive_live_timing(tmp_path: 
     assert body["status"] == "insufficient_data"
     assert body["abstention"]["code"] == "insufficient_coverage"
     assert body["abstention"]["fresh_vehicle_count"] == 0
+
+    # An app-level freshness threshold governs route timing as well as the fleet gate.
+    now = int(time.time())
+    short_limit = _make_protobuf(
+        now - 10,
+        [(f"AGING{i}", "100", 28.65, 77.22, 5.0, now - 50) for i in range(12)]
+        + [(f"FRESH{i}", "999", 28.65, 77.22, 5.0, now - 12) for i in range(10)],
+    )
+    persist_decoded_feed(tmp_path, decode_vehicle_positions(short_limit, polled_at=now - 10))
+    strict_app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=FakeOTP(),
+        model=_build_retime_model(tmp_path, []),
+        enable_poller=False,
+        stale_threshold_s=45.0,
+        min_live_vehicles=10,
+    )
+    body = TestClient(strict_app).get("/journeys", params=params).json()
+    assert body["feed_summary"]["fresh_vehicle_count"] == 10
+    assert body["status"] == "insufficient_data"
+    assert body["abstention"]["code"] == "insufficient_route_coverage"
 
 
 def test_replay_without_loaded_observations_abstains_without_fresh_timestamp(tmp_path: Path) -> None:
