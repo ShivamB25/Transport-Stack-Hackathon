@@ -7,7 +7,8 @@ from pathlib import Path
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-DATA_DIR = Path(os.environ.get("PS1_DATA_DIR", "/home/factory-user/ps1-scratch/data"))
+DEFAULT_DATA_DIR = Path("/home/factory-user/ps1-scratch/data")
+DATA_DIR = Path(os.environ.get("PS1_DATA_DIR", str(DEFAULT_DATA_DIR)))
 WORK_DIR = Path(os.environ.get("PS1_WORK_DIR", "/home/factory-user/ps1-scratch/work"))
 OTP_URL = os.environ.get("PS1_OTP_URL", "http://localhost:3102/otp/gtfs/v1")
 
@@ -27,6 +28,8 @@ LIVE_DIR = "live"
 GOOGLE_DIR = "google"
 GOOGLE_HARD_CALL_CAP = 300
 GOOGLE_MISSION_LEDGER_PATH = Path("/home/factory-user/ps1-scratch/google-mission-call-ledger.json")
+# Pre-ledger call counter; seeds the fixed ledger if that file is lost, whatever PS1_DATA_DIR says.
+GOOGLE_LEGACY_COUNTER_PATH = DEFAULT_DATA_DIR / GOOGLE_DIR / "call_counter.json"
 
 LIVE_FEED_URL = os.environ.get(
     "PS1_LIVE_FEED_URL",

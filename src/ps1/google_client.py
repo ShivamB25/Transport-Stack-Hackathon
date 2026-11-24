@@ -18,6 +18,7 @@ from ps1.config import (
     DATA_DIR,
     GOOGLE_DIR,
     GOOGLE_HARD_CALL_CAP,
+    GOOGLE_LEGACY_COUNTER_PATH,
     GOOGLE_MISSION_LEDGER_PATH,
     IST,
 )
@@ -377,6 +378,11 @@ class GoogleRoutesClient:
 
     def _read_call_counter_unlocked(self) -> dict[str, Any]:
         if not self.counter_path.exists():
+            if self.counter_path == GOOGLE_MISSION_LEDGER_PATH and GOOGLE_LEGACY_COUNTER_PATH.exists():
+                legacy = json.loads(GOOGLE_LEGACY_COUNTER_PATH.read_text(encoding="utf-8"))
+                counter = self._normalise_counter(legacy)
+                _atomic_write_json(self.counter_path, counter)
+                return counter
             return self._default_counter()
         data = json.loads(self.counter_path.read_text(encoding="utf-8"))
         return self._normalise_counter(data)

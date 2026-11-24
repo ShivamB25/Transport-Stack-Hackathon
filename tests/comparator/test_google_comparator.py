@@ -426,6 +426,32 @@ def test_concurrent_network_reservations_stop_at_mission_cap(tmp_path: Path) -> 
     assert len(counter["calls"]) == 3
     assert all(call["status"] == "completed" for call in counter["calls"])
 
+def test_missing_fixed_ledger_is_seeded_from_canonical_counter(tmp_path: Path, monkeypatch) -> None:
+    from ps1 import google_client
+
+    ledger_path = tmp_path / "fixed-mission-ledger.json"
+    legacy_path = tmp_path / "canonical" / "call_counter.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(
+        json.dumps({"hard_cap": 300, "prior_mission_calls": 2, "api_calls_made": 1, "calls": [{"call_number": 3}]})
+    )
+    monkeypatch.setattr(google_client, "GOOGLE_MISSION_LEDGER_PATH", ledger_path)
+    monkeypatch.setattr(google_client, "GOOGLE_LEGACY_COUNTER_PATH", legacy_path)
+    client = GoogleRoutesClient(
+        cache_dir=tmp_path / "other-data" / "google",
+        api_key="DUMMY_TEST_KEY",
+        hard_cap=3,
+        transport=httpx.MockTransport(lambda _request: pytest.fail("network must not be called")),
+    )
+    with pytest.raises(GoogleBudgetExceededError, match="3/3"):
+        client.compute_bus_routes(
+            (28.1, 77.1),
+            (28.2, 77.2),
+            datetime(2026, 11, 24, 8, 30, tzinfo=IST),
+            now=datetime(2026, 11, 24, 1, 0, tzinfo=IST),
+        )
+    assert json.loads(ledger_path.read_text())["total_mission_calls"] == 3
+
 
 def test_wrong_weekday_or_slot_is_rejected_before_any_network(tmp_path: Path) -> None:
     compare_mod = _load_compare_module()
