@@ -41,25 +41,26 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 
 - Python through uv only: `cd backend && uv sync --frozen` creates `backend/.venv` (gitignored) with the exact pinned versions (Python 3.12). Run Python with `uv run ...` from `backend/`.
 - Frontend through Bun only (`/usr/bin/bun`, no npm/yarn/pnpm lockfiles): `cd frontend && bun install --frozen-lockfile && bun run build` writes `frontend/dist`, which the API serves.
-- Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk` (`DELHI_TRANSIT_JAVA`). OTP jar, OSM extract and graph: `/home/factory-user/ps1-scratch/otp/` (`DELHI_TRANSIT_OTP_DIR`). OTP heap is capped at `-Xmx2500m`.
+- Paths: every machine path in docs and reports is written relative to `DELHI_TRANSIT_SCRATCH_DIR` and the variables below; the code defaults point at the development machine (`/home/factory-user/ps1-scratch`, see `core/config.py` and the README path table).
+- Java: Temurin 21 at `$DELHI_TRANSIT_SCRATCH_DIR/jdk` (`DELHI_TRANSIT_JAVA`). OTP jar, OSM extract and graph: `$DELHI_TRANSIT_OTP_DIR/` (`DELHI_TRANSIT_OTP_DIR`, default `$DELHI_TRANSIT_SCRATCH_DIR/otp`). OTP heap is capped at `-Xmx2500m`.
 - `.env` in the repository root (gitignored, see `.env.example`): `DELHI_TS_API_KEY` (live feed and static GTFS), `GOOGLE_MAPS_API_KEY` (comparator). Read in-process only; never print, log or commit values.
 - Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively.
 
 ## Ports and data
 
 - Ports: `3100` (API and UI), `3102` (OTP), `3110` (Vite dev server, proxies API paths to 3100), `3120` (API started by `livecheck/launch.sh` for the live check recording). Stay within `3100–3199`.
-- `DELHI_TRANSIT_DATA_DIR` (default `/home/factory-user/ps1-scratch/data`, outside the repo):
+- `DELHI_TRANSIT_DATA_DIR` (default `$DELHI_TRANSIT_SCRATCH_DIR/data`, outside the repo):
   - `gps/day=YYYY-MM-DD.parquet`: 31 deduplicated days.
   - `gtfs/`: static feed v32 (unzipped files plus `delhi_buses_static_gtfs_v1.zip`).
   - `passages/day=YYYY-MM-DD.parquet`: 717A passages for the 10 train and held-out days.
   - `model/`: selected model artifact. `live/`: poller snapshots and state. `google/`: cached Google responses.
   - `download.log`, `STATUS.md`: acquisition ledger.
-- `DELHI_TRANSIT_WORK_DIR` (default `/home/factory-user/ps1-scratch/work`): temporary SQLite files (at most 2 at once) and DuckDB temp space.
+- `DELHI_TRANSIT_WORK_DIR` (default `$DELHI_TRANSIT_SCRATCH_DIR/work`): temporary SQLite files (at most 2 at once) and DuckDB temp space.
 - Other settings: `DELHI_TRANSIT_MODE` (`auto`/`live`/`replay`), `DELHI_TRANSIT_ENABLE_LIVE_POLLER`, `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S` (600), `DELHI_TRANSIT_LIVE_MIN_VEHICLES` (10), `DELHI_TRANSIT_MIN_ROUTE_COVERAGE`, `DELHI_TRANSIT_LIVE_*` poller settings (see `core/config.py`).
 
 ## Commands
 
-Python commands run from `backend/` (`cd /home/factory-user/repos/Transport-Stack-Hackathon/backend`); shell scripts from the repository root. These match the mission `services.yaml`.
+Python commands run from `backend/` (`cd backend`); shell scripts from the repository root. These match the mission `services.yaml`.
 
 - Install: `uv sync --frozen`
 - Frontend (from `frontend/`): `bun install --frozen-lockfile`, `bun run typecheck`, `bun run build`, `bun test`, dev server on 3110: `bun run dev`
@@ -73,13 +74,13 @@ Python commands run from `backend/` (`cd /home/factory-user/repos/Transport-Stac
 - Evaluation and selection: `uv run python -m delhi_transit.model.evaluate`
 - Re-apply the selection rule to `reports/eval-full.csv`: `uv run python -m delhi_transit.model.selection`
 - OTP graph build: `otp/build.sh`. OTP serve (3102): `otp/serve.sh`
-- API serve (3100): `DELHI_TRANSIT_DATA_DIR=/home/factory-user/ps1-scratch/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100`
+- API serve (3100): `DELHI_TRANSIT_DATA_DIR=$DELHI_TRANSIT_SCRATCH_DIR/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100`
 - Live poller, single poll: `uv run python -m delhi_transit.live.poller --once`
 - Google comparator render (no network): `uv run python -m delhi_transit.comparator --render-only`
 - Google comparator collection (planner calls, cached Google only): `uv run python -m delhi_transit.comparator --date 2026-11-24 --cache-only`
 - Demo recording (API started with `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45`; the normal default is 600 s): `demo/record_demo.sh`
-- Live check recording (from the repository root; raw data stays outside the repo): `livecheck/launch.sh /home/factory-user/ps1-scratch/live-check/2026-11-24 23:30` (extra options go to `livecheck run`, for example `--google-max 0`)
-- Live check actuals and report: `uv run python -m delhi_transit.livecheck actuals --in /home/factory-user/ps1-scratch/live-check/2026-11-24` then `uv run python -m delhi_transit.livecheck analyze --in /home/factory-user/ps1-scratch/live-check/2026-11-24 --report-dir ../reports`
+- Live check recording (from the repository root; raw data stays outside the repo): `livecheck/launch.sh $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24 23:30` (extra options go to `livecheck run`, for example `--google-max 0`)
+- Live check actuals and report: `uv run python -m delhi_transit.livecheck actuals --in $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24` then `uv run python -m delhi_transit.livecheck analyze --in $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24 --report-dir ../reports`
 - Docker Compose: `docker compose --profile build run --rm otp-build` (graph build), `docker compose up -d --build`
 ## Rules
 

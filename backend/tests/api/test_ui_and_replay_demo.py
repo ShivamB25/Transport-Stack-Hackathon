@@ -270,7 +270,7 @@ def test_replay_demo_selects_scripted_pair_regardless_of_candidate_order(tmp_pat
 
 
 def test_replay_demo_uses_real_oct22_parquet_when_available() -> None:
-    real_data = Path("/home/factory-user/ps1-scratch/data")
+    real_data = config.DATA_DIR
     if not (real_data / "passages" / "day=2026-10-22.parquet").exists():
         pytest.skip("real October 22 passages are not available")
     app = create_app(real_data, otp_url="http://unused", otp=StubOTP(), model=StubModel(), enable_poller=False)

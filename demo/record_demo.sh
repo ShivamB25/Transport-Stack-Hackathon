@@ -12,7 +12,7 @@
 #   - FastAPI running on http://localhost:3100 with DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45
 #     (production default is 600 s; 45 s override enables rapid stale-feed demo):
 #       cd backend && DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45 \
-#       DELHI_TRANSIT_DATA_DIR=/home/factory-user/ps1-scratch/data \
+#       DELHI_TRANSIT_DATA_DIR=/path/to/data \
 #       DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
 #         uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100
 

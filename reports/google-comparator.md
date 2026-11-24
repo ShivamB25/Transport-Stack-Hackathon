@@ -14,7 +14,7 @@
 - **Google request settings:** `travelMode=TRANSIT`, `transitPreferences.allowedTravelModes=['BUS']`, `languageCode="en"`, `computeAlternativeRoutes=true`, field-masked (`X-Goog-FieldMask`)
 - **Strict bus-only post-filtering:** Every compared Google itinerary is verified to contain >=1 `TRANSIT` step with vehicle type `BUS` only (and `WALK` access/egress/transfers). **3** non-bus Google itinerary(ies) (e.g., Delhi Metro / `SUBWAY` or `RAIL`) were filtered out across the corpus.
 - **Mission-wide Google call budget:** **92 / 300** (prior probe calls: 2, comparator network calls cached: 90, remaining budget: 208; cache hits on this run: 90)
-- **Artifacts:** Report `reports/google-comparator.md`, CSV table `reports/google-comparator.csv`, request manifest `reports/google-manifest.json` (mirrored at `/home/factory-user/ps1-scratch/data/google/manifest.json`), raw field-masked cache directory `/home/factory-user/ps1-scratch/data/google/responses`.
+- **Artifacts:** Report `reports/google-comparator.md`, CSV table `reports/google-comparator.csv`, request manifest `reports/google-manifest.json` (mirrored at `$DELHI_TRANSIT_DATA_DIR/google/manifest.json`), raw field-masked cache directory `$DELHI_TRANSIT_DATA_DIR/google/responses`.
 
 ## Aggregate Summary
 

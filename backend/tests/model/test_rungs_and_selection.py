@@ -9,7 +9,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from delhi_transit.core.config import REPO_ROOT
+from delhi_transit.core.config import DATA_DIR, REPO_ROOT
 from delhi_transit.model.artifact import (
     artifact_cutoff_metadata,
     load_model_artifact,
@@ -271,7 +271,7 @@ def test_committed_selection_matches_fresh_rule_application() -> None:
 
 def test_saved_rung4_predictions_audit_ordering_and_coverage() -> None:
     eval_csv = REPO_ROOT / "reports" / "eval-full.csv"
-    pred_parquet = Path("/home/factory-user/ps1-scratch/data/model/eval-predictions-rung4.parquet")
+    pred_parquet = DATA_DIR / "model" / "eval-predictions-rung4.parquet"
     if not eval_csv.exists() or not pred_parquet.exists():
         pytest.skip("saved rung 4 predictions not present")
 
@@ -315,7 +315,7 @@ def test_saved_rung4_predictions_audit_ordering_and_coverage() -> None:
 
 def test_saved_pooled_interval_width_and_artifact_cutoffs() -> None:
     selection_path = REPO_ROOT / "reports" / "selection.json"
-    model_dir = Path("/home/factory-user/ps1-scratch/data/model")
+    model_dir = DATA_DIR / "model"
     pred_path = model_dir / "eval-predictions-rung4.parquet"
     if not selection_path.exists() or not pred_path.exists():
         pytest.skip("regenerated selection and saved predictions not present")

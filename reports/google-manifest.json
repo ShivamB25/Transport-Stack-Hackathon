@@ -16,13 +16,13 @@
     "BUS"
   ],
   "bus_only_filter_applied": true,
-  "cache_dir": "/home/factory-user/ps1-scratch/data/google/responses",
-  "call_counter_path": "/home/factory-user/ps1-scratch/google-mission-call-ledger.json",
-  "scratch_manifest_path": "/home/factory-user/ps1-scratch/data/google/manifest.json",
+  "cache_dir": "$DELHI_TRANSIT_DATA_DIR/google/responses",
+  "call_counter_path": "$DELHI_TRANSIT_SCRATCH_DIR/google-mission-call-ledger.json",
+  "scratch_manifest_path": "$DELHI_TRANSIT_DATA_DIR/google/manifest.json",
   "call_accounting": {
     "hard_cap": 300,
     "prior_mission_calls": 2,
-    "prior_mission_note": "2 initial feasibility probe calls recorded in /home/factory-user/ps1-scratch/probe-report.md",
+    "prior_mission_note": "2 initial feasibility probe calls recorded in $DELHI_TRANSIT_SCRATCH_DIR/probe-report.md",
     "api_calls_made": 90,
     "total_mission_calls": 92,
     "remaining_budget": 208,
@@ -31,7 +31,7 @@
   },
   "generated_at": "2026-11-23T21:16:26Z",
   "rendered_from_frozen_inputs": true,
-  "frozen_inputs_path": "/home/factory-user/repos/Transport-Stack-Hackathon/reports/google-comparator-inputs.json",
+  "frozen_inputs_path": "reports/google-comparator-inputs.json",
   "corpus_summary": {
     "od_pair_count": 30,
     "time_slots_per_pair": 3,
@@ -65,7 +65,7 @@
         "BUS"
       ],
       "cache_key": "4a6aafbda99ea65bf0b7",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/4a6aafbda99ea65bf0b7.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/4a6aafbda99ea65bf0b7.json",
       "fetched_at": "2026-11-23T19:40:48Z",
       "from_cache": true,
       "http_status": 200,
@@ -105,7 +105,7 @@
         "BUS"
       ],
       "cache_key": "9145de4751d9b364e5f3",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/9145de4751d9b364e5f3.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/9145de4751d9b364e5f3.json",
       "fetched_at": "2026-11-23T19:40:49Z",
       "from_cache": true,
       "http_status": 200,
@@ -145,7 +145,7 @@
         "BUS"
       ],
       "cache_key": "8e6095a90cbaefb90d6b",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/8e6095a90cbaefb90d6b.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/8e6095a90cbaefb90d6b.json",
       "fetched_at": "2026-11-23T19:40:50Z",
       "from_cache": true,
       "http_status": 200,
@@ -185,7 +185,7 @@
         "BUS"
       ],
       "cache_key": "d3be377e3d97e483e5bf",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/d3be377e3d97e483e5bf.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/d3be377e3d97e483e5bf.json",
       "fetched_at": "2026-11-23T19:40:50Z",
       "from_cache": true,
       "http_status": 200,
@@ -225,7 +225,7 @@
         "BUS"
       ],
       "cache_key": "efeeae5996b5a573cdf0",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/efeeae5996b5a573cdf0.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/efeeae5996b5a573cdf0.json",
       "fetched_at": "2026-11-23T19:40:51Z",
       "from_cache": true,
       "http_status": 200,
@@ -265,7 +265,7 @@
         "BUS"
       ],
       "cache_key": "2259350fd81081fe8a38",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/2259350fd81081fe8a38.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/2259350fd81081fe8a38.json",
       "fetched_at": "2026-11-23T19:40:52Z",
       "from_cache": true,
       "http_status": 200,
@@ -305,7 +305,7 @@
         "BUS"
       ],
       "cache_key": "7db19d85b43940d20ad4",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/7db19d85b43940d20ad4.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/7db19d85b43940d20ad4.json",
       "fetched_at": "2026-11-23T19:40:52Z",
       "from_cache": true,
       "http_status": 200,
@@ -345,7 +345,7 @@
         "BUS"
       ],
       "cache_key": "1052d7bb2289d7eec211",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/1052d7bb2289d7eec211.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/1052d7bb2289d7eec211.json",
       "fetched_at": "2026-11-23T19:40:53Z",
       "from_cache": true,
       "http_status": 200,
@@ -385,7 +385,7 @@
         "BUS"
       ],
       "cache_key": "4ac0c131e929fcb96d28",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/4ac0c131e929fcb96d28.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/4ac0c131e929fcb96d28.json",
       "fetched_at": "2026-11-23T19:40:53Z",
       "from_cache": true,
       "http_status": 200,
@@ -425,7 +425,7 @@
         "BUS"
       ],
       "cache_key": "6b861b3bfb02e59221cc",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/6b861b3bfb02e59221cc.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/6b861b3bfb02e59221cc.json",
       "fetched_at": "2026-11-23T19:40:54Z",
       "from_cache": true,
       "http_status": 200,
@@ -465,7 +465,7 @@
         "BUS"
       ],
       "cache_key": "8ee13ab709b6c12fee2a",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/8ee13ab709b6c12fee2a.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/8ee13ab709b6c12fee2a.json",
       "fetched_at": "2026-11-23T19:40:54Z",
       "from_cache": true,
       "http_status": 200,
@@ -505,7 +505,7 @@
         "BUS"
       ],
       "cache_key": "4b7d5fc04400973abc97",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/4b7d5fc04400973abc97.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/4b7d5fc04400973abc97.json",
       "fetched_at": "2026-11-23T19:40:55Z",
       "from_cache": true,
       "http_status": 200,
@@ -545,7 +545,7 @@
         "BUS"
       ],
       "cache_key": "f0fb3ad7c0ce6e657027",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/f0fb3ad7c0ce6e657027.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/f0fb3ad7c0ce6e657027.json",
       "fetched_at": "2026-11-23T19:40:55Z",
       "from_cache": true,
       "http_status": 200,
@@ -585,7 +585,7 @@
         "BUS"
       ],
       "cache_key": "ce70b340408fa98c19ed",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/ce70b340408fa98c19ed.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/ce70b340408fa98c19ed.json",
       "fetched_at": "2026-11-23T19:40:56Z",
       "from_cache": true,
       "http_status": 200,
@@ -625,7 +625,7 @@
         "BUS"
       ],
       "cache_key": "d6dedc96b007d0e922a4",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/d6dedc96b007d0e922a4.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/d6dedc96b007d0e922a4.json",
       "fetched_at": "2026-11-23T19:40:56Z",
       "from_cache": true,
       "http_status": 200,
@@ -665,7 +665,7 @@
         "BUS"
       ],
       "cache_key": "15d3f212a719203761d9",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/15d3f212a719203761d9.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/15d3f212a719203761d9.json",
       "fetched_at": "2026-11-23T19:40:57Z",
       "from_cache": true,
       "http_status": 200,
@@ -705,7 +705,7 @@
         "BUS"
       ],
       "cache_key": "41371a03c3b05790c90d",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/41371a03c3b05790c90d.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/41371a03c3b05790c90d.json",
       "fetched_at": "2026-11-23T19:40:58Z",
       "from_cache": true,
       "http_status": 200,
@@ -745,7 +745,7 @@
         "BUS"
       ],
       "cache_key": "8cae57fb90be4faca4c9",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/8cae57fb90be4faca4c9.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/8cae57fb90be4faca4c9.json",
       "fetched_at": "2026-11-23T19:40:58Z",
       "from_cache": true,
       "http_status": 200,
@@ -785,7 +785,7 @@
         "BUS"
       ],
       "cache_key": "1f4375184a8750097560",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/1f4375184a8750097560.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/1f4375184a8750097560.json",
       "fetched_at": "2026-11-23T19:40:59Z",
       "from_cache": true,
       "http_status": 200,
@@ -825,7 +825,7 @@
         "BUS"
       ],
       "cache_key": "5f5860b4459322e9c787",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/5f5860b4459322e9c787.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/5f5860b4459322e9c787.json",
       "fetched_at": "2026-11-23T19:40:59Z",
       "from_cache": true,
       "http_status": 200,
@@ -865,7 +865,7 @@
         "BUS"
       ],
       "cache_key": "4e42766fbadc5cd8f2f6",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/4e42766fbadc5cd8f2f6.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/4e42766fbadc5cd8f2f6.json",
       "fetched_at": "2026-11-23T19:41:00Z",
       "from_cache": true,
       "http_status": 200,
@@ -905,7 +905,7 @@
         "BUS"
       ],
       "cache_key": "af850c73b07bd39e2676",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/af850c73b07bd39e2676.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/af850c73b07bd39e2676.json",
       "fetched_at": "2026-11-23T19:41:00Z",
       "from_cache": true,
       "http_status": 200,
@@ -945,7 +945,7 @@
         "BUS"
       ],
       "cache_key": "0e32b46923fb031c1885",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/0e32b46923fb031c1885.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/0e32b46923fb031c1885.json",
       "fetched_at": "2026-11-23T19:41:01Z",
       "from_cache": true,
       "http_status": 200,
@@ -985,7 +985,7 @@
         "BUS"
       ],
       "cache_key": "49cdc8bf0fea9c5a4ea7",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/49cdc8bf0fea9c5a4ea7.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/49cdc8bf0fea9c5a4ea7.json",
       "fetched_at": "2026-11-23T19:41:02Z",
       "from_cache": true,
       "http_status": 200,
@@ -1025,7 +1025,7 @@
         "BUS"
       ],
       "cache_key": "daa93cfa09c9964da21a",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/daa93cfa09c9964da21a.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/daa93cfa09c9964da21a.json",
       "fetched_at": "2026-11-23T19:41:02Z",
       "from_cache": true,
       "http_status": 200,
@@ -1065,7 +1065,7 @@
         "BUS"
       ],
       "cache_key": "3eaef985efab2ad8d310",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/3eaef985efab2ad8d310.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/3eaef985efab2ad8d310.json",
       "fetched_at": "2026-11-23T19:41:03Z",
       "from_cache": true,
       "http_status": 200,
@@ -1105,7 +1105,7 @@
         "BUS"
       ],
       "cache_key": "7e71ab3083cfeb92bcae",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/7e71ab3083cfeb92bcae.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/7e71ab3083cfeb92bcae.json",
       "fetched_at": "2026-11-23T19:41:04Z",
       "from_cache": true,
       "http_status": 200,
@@ -1145,7 +1145,7 @@
         "BUS"
       ],
       "cache_key": "d6829729d785e3ed7a7f",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/d6829729d785e3ed7a7f.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/d6829729d785e3ed7a7f.json",
       "fetched_at": "2026-11-23T19:41:04Z",
       "from_cache": true,
       "http_status": 200,
@@ -1185,7 +1185,7 @@
         "BUS"
       ],
       "cache_key": "cf9629ecd935406712a9",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/cf9629ecd935406712a9.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/cf9629ecd935406712a9.json",
       "fetched_at": "2026-11-23T19:41:05Z",
       "from_cache": true,
       "http_status": 200,
@@ -1225,7 +1225,7 @@
         "BUS"
       ],
       "cache_key": "2d754fbd071083efec9e",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/2d754fbd071083efec9e.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/2d754fbd071083efec9e.json",
       "fetched_at": "2026-11-23T19:41:05Z",
       "from_cache": true,
       "http_status": 200,
@@ -1265,7 +1265,7 @@
         "BUS"
       ],
       "cache_key": "1408d08becad8f4179ad",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/1408d08becad8f4179ad.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/1408d08becad8f4179ad.json",
       "fetched_at": "2026-11-23T19:41:06Z",
       "from_cache": true,
       "http_status": 200,
@@ -1305,7 +1305,7 @@
         "BUS"
       ],
       "cache_key": "891cfaf125ca29c6bb82",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/891cfaf125ca29c6bb82.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/891cfaf125ca29c6bb82.json",
       "fetched_at": "2026-11-23T19:41:06Z",
       "from_cache": true,
       "http_status": 200,
@@ -1345,7 +1345,7 @@
         "BUS"
       ],
       "cache_key": "5d2046b6027b1c69a817",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/5d2046b6027b1c69a817.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/5d2046b6027b1c69a817.json",
       "fetched_at": "2026-11-23T19:41:07Z",
       "from_cache": true,
       "http_status": 200,
@@ -1385,7 +1385,7 @@
         "BUS"
       ],
       "cache_key": "416cf42d7ba17b789e02",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/416cf42d7ba17b789e02.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/416cf42d7ba17b789e02.json",
       "fetched_at": "2026-11-23T19:41:07Z",
       "from_cache": true,
       "http_status": 200,
@@ -1425,7 +1425,7 @@
         "BUS"
       ],
       "cache_key": "014bc72981ab8674cfff",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/014bc72981ab8674cfff.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/014bc72981ab8674cfff.json",
       "fetched_at": "2026-11-23T19:41:08Z",
       "from_cache": true,
       "http_status": 200,
@@ -1467,7 +1467,7 @@
         "BUS"
       ],
       "cache_key": "e661c8a8d0eae218ac85",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/e661c8a8d0eae218ac85.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/e661c8a8d0eae218ac85.json",
       "fetched_at": "2026-11-23T19:41:09Z",
       "from_cache": true,
       "http_status": 200,
@@ -1507,7 +1507,7 @@
         "BUS"
       ],
       "cache_key": "275be23d01121896a1bb",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/275be23d01121896a1bb.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/275be23d01121896a1bb.json",
       "fetched_at": "2026-11-23T19:41:09Z",
       "from_cache": true,
       "http_status": 200,
@@ -1547,7 +1547,7 @@
         "BUS"
       ],
       "cache_key": "7d9db9e57dfef713517b",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/7d9db9e57dfef713517b.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/7d9db9e57dfef713517b.json",
       "fetched_at": "2026-11-23T19:41:10Z",
       "from_cache": true,
       "http_status": 200,
@@ -1589,7 +1589,7 @@
         "BUS"
       ],
       "cache_key": "cf2f033a915d4bea6b04",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/cf2f033a915d4bea6b04.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/cf2f033a915d4bea6b04.json",
       "fetched_at": "2026-11-23T19:41:11Z",
       "from_cache": true,
       "http_status": 200,
@@ -1631,7 +1631,7 @@
         "BUS"
       ],
       "cache_key": "5de80f37a05a24d237dd",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/5de80f37a05a24d237dd.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/5de80f37a05a24d237dd.json",
       "fetched_at": "2026-11-23T19:41:12Z",
       "from_cache": true,
       "http_status": 200,
@@ -1671,7 +1671,7 @@
         "BUS"
       ],
       "cache_key": "b78dfb24588c48f2d633",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/b78dfb24588c48f2d633.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/b78dfb24588c48f2d633.json",
       "fetched_at": "2026-11-23T19:41:13Z",
       "from_cache": true,
       "http_status": 200,
@@ -1711,7 +1711,7 @@
         "BUS"
       ],
       "cache_key": "c927abab6936518406b2",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/c927abab6936518406b2.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/c927abab6936518406b2.json",
       "fetched_at": "2026-11-23T19:41:14Z",
       "from_cache": true,
       "http_status": 200,
@@ -1751,7 +1751,7 @@
         "BUS"
       ],
       "cache_key": "ab2fcbba45c7096aa8e3",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/ab2fcbba45c7096aa8e3.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/ab2fcbba45c7096aa8e3.json",
       "fetched_at": "2026-11-23T19:41:14Z",
       "from_cache": true,
       "http_status": 200,
@@ -1791,7 +1791,7 @@
         "BUS"
       ],
       "cache_key": "f82a973e7e5992fec200",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/f82a973e7e5992fec200.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/f82a973e7e5992fec200.json",
       "fetched_at": "2026-11-23T19:41:15Z",
       "from_cache": true,
       "http_status": 200,
@@ -1831,7 +1831,7 @@
         "BUS"
       ],
       "cache_key": "0ef18ef7a51593d02528",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/0ef18ef7a51593d02528.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/0ef18ef7a51593d02528.json",
       "fetched_at": "2026-11-23T19:41:15Z",
       "from_cache": true,
       "http_status": 200,
@@ -1871,7 +1871,7 @@
         "BUS"
       ],
       "cache_key": "6a1c2b21b4b7ef816877",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/6a1c2b21b4b7ef816877.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/6a1c2b21b4b7ef816877.json",
       "fetched_at": "2026-11-23T19:41:16Z",
       "from_cache": true,
       "http_status": 200,
@@ -1911,7 +1911,7 @@
         "BUS"
       ],
       "cache_key": "852f0ddbe18441831b47",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/852f0ddbe18441831b47.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/852f0ddbe18441831b47.json",
       "fetched_at": "2026-11-23T19:41:17Z",
       "from_cache": true,
       "http_status": 200,
@@ -1951,7 +1951,7 @@
         "BUS"
       ],
       "cache_key": "d0380cd00ab937b2f03e",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/d0380cd00ab937b2f03e.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/d0380cd00ab937b2f03e.json",
       "fetched_at": "2026-11-23T19:41:17Z",
       "from_cache": true,
       "http_status": 200,
@@ -1991,7 +1991,7 @@
         "BUS"
       ],
       "cache_key": "2e17a57b7d17029def09",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/2e17a57b7d17029def09.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/2e17a57b7d17029def09.json",
       "fetched_at": "2026-11-23T19:41:18Z",
       "from_cache": true,
       "http_status": 200,
@@ -2031,7 +2031,7 @@
         "BUS"
       ],
       "cache_key": "61a0e550e3e112e447d2",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/61a0e550e3e112e447d2.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/61a0e550e3e112e447d2.json",
       "fetched_at": "2026-11-23T19:41:18Z",
       "from_cache": true,
       "http_status": 200,
@@ -2071,7 +2071,7 @@
         "BUS"
       ],
       "cache_key": "a7a9bb4c35fbf796b0c1",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/a7a9bb4c35fbf796b0c1.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/a7a9bb4c35fbf796b0c1.json",
       "fetched_at": "2026-11-23T19:41:19Z",
       "from_cache": true,
       "http_status": 200,
@@ -2111,7 +2111,7 @@
         "BUS"
       ],
       "cache_key": "0c4477fb4a891bbbeb42",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/0c4477fb4a891bbbeb42.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/0c4477fb4a891bbbeb42.json",
       "fetched_at": "2026-11-23T19:41:19Z",
       "from_cache": true,
       "http_status": 200,
@@ -2151,7 +2151,7 @@
         "BUS"
       ],
       "cache_key": "e26397c74efe934d7113",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/e26397c74efe934d7113.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/e26397c74efe934d7113.json",
       "fetched_at": "2026-11-23T19:41:20Z",
       "from_cache": true,
       "http_status": 200,
@@ -2191,7 +2191,7 @@
         "BUS"
       ],
       "cache_key": "103ad67ddb19a6f78fc2",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/103ad67ddb19a6f78fc2.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/103ad67ddb19a6f78fc2.json",
       "fetched_at": "2026-11-23T19:41:20Z",
       "from_cache": true,
       "http_status": 200,
@@ -2231,7 +2231,7 @@
         "BUS"
       ],
       "cache_key": "2cc62cb412acfa4020dd",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/2cc62cb412acfa4020dd.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/2cc62cb412acfa4020dd.json",
       "fetched_at": "2026-11-23T19:41:21Z",
       "from_cache": true,
       "http_status": 200,
@@ -2271,7 +2271,7 @@
         "BUS"
       ],
       "cache_key": "3536ba9df3ceae941cdf",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/3536ba9df3ceae941cdf.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/3536ba9df3ceae941cdf.json",
       "fetched_at": "2026-11-23T19:41:22Z",
       "from_cache": true,
       "http_status": 200,
@@ -2311,7 +2311,7 @@
         "BUS"
       ],
       "cache_key": "f95f6bb54003b7c6980f",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/f95f6bb54003b7c6980f.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/f95f6bb54003b7c6980f.json",
       "fetched_at": "2026-11-23T19:41:23Z",
       "from_cache": true,
       "http_status": 200,
@@ -2351,7 +2351,7 @@
         "BUS"
       ],
       "cache_key": "43c3522b53c0b9ed29b6",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/43c3522b53c0b9ed29b6.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/43c3522b53c0b9ed29b6.json",
       "fetched_at": "2026-11-23T19:41:24Z",
       "from_cache": true,
       "http_status": 200,
@@ -2391,7 +2391,7 @@
         "BUS"
       ],
       "cache_key": "ed961929e80109ccc15a",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/ed961929e80109ccc15a.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/ed961929e80109ccc15a.json",
       "fetched_at": "2026-11-23T19:41:26Z",
       "from_cache": true,
       "http_status": 200,
@@ -2431,7 +2431,7 @@
         "BUS"
       ],
       "cache_key": "e0fc7d386aa810685332",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/e0fc7d386aa810685332.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/e0fc7d386aa810685332.json",
       "fetched_at": "2026-11-23T19:41:27Z",
       "from_cache": true,
       "http_status": 200,
@@ -2471,7 +2471,7 @@
         "BUS"
       ],
       "cache_key": "686f23afeb3128d03f5d",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/686f23afeb3128d03f5d.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/686f23afeb3128d03f5d.json",
       "fetched_at": "2026-11-23T19:41:27Z",
       "from_cache": true,
       "http_status": 200,
@@ -2511,7 +2511,7 @@
         "BUS"
       ],
       "cache_key": "b2328b23a8d467d355b3",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/b2328b23a8d467d355b3.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/b2328b23a8d467d355b3.json",
       "fetched_at": "2026-11-23T19:41:28Z",
       "from_cache": true,
       "http_status": 200,
@@ -2551,7 +2551,7 @@
         "BUS"
       ],
       "cache_key": "3c0e90c0f3c96d7890cd",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/3c0e90c0f3c96d7890cd.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/3c0e90c0f3c96d7890cd.json",
       "fetched_at": "2026-11-23T19:41:29Z",
       "from_cache": true,
       "http_status": 200,
@@ -2591,7 +2591,7 @@
         "BUS"
       ],
       "cache_key": "e9819356936836eabd5f",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/e9819356936836eabd5f.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/e9819356936836eabd5f.json",
       "fetched_at": "2026-11-23T19:41:30Z",
       "from_cache": true,
       "http_status": 200,
@@ -2631,7 +2631,7 @@
         "BUS"
       ],
       "cache_key": "aa5710be4737f8affef6",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/aa5710be4737f8affef6.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/aa5710be4737f8affef6.json",
       "fetched_at": "2026-11-23T19:41:30Z",
       "from_cache": true,
       "http_status": 200,
@@ -2671,7 +2671,7 @@
         "BUS"
       ],
       "cache_key": "0a9ba296fdd434708101",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/0a9ba296fdd434708101.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/0a9ba296fdd434708101.json",
       "fetched_at": "2026-11-23T19:41:31Z",
       "from_cache": true,
       "http_status": 200,
@@ -2711,7 +2711,7 @@
         "BUS"
       ],
       "cache_key": "cc45dd7a425d802b12cb",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/cc45dd7a425d802b12cb.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/cc45dd7a425d802b12cb.json",
       "fetched_at": "2026-11-23T19:41:31Z",
       "from_cache": true,
       "http_status": 200,
@@ -2751,7 +2751,7 @@
         "BUS"
       ],
       "cache_key": "6e584173f03337565e4b",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/6e584173f03337565e4b.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/6e584173f03337565e4b.json",
       "fetched_at": "2026-11-23T19:41:32Z",
       "from_cache": true,
       "http_status": 200,
@@ -2791,7 +2791,7 @@
         "BUS"
       ],
       "cache_key": "979bab860b905223d5ae",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/979bab860b905223d5ae.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/979bab860b905223d5ae.json",
       "fetched_at": "2026-11-23T19:41:32Z",
       "from_cache": true,
       "http_status": 200,
@@ -2831,7 +2831,7 @@
         "BUS"
       ],
       "cache_key": "eec6a59071fdea8adf13",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/eec6a59071fdea8adf13.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/eec6a59071fdea8adf13.json",
       "fetched_at": "2026-11-23T19:41:33Z",
       "from_cache": true,
       "http_status": 200,
@@ -2871,7 +2871,7 @@
         "BUS"
       ],
       "cache_key": "fdc61c656c0417746a61",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/fdc61c656c0417746a61.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/fdc61c656c0417746a61.json",
       "fetched_at": "2026-11-23T19:41:34Z",
       "from_cache": true,
       "http_status": 200,
@@ -2911,7 +2911,7 @@
         "BUS"
       ],
       "cache_key": "77148910a338198dbc46",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/77148910a338198dbc46.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/77148910a338198dbc46.json",
       "fetched_at": "2026-11-23T19:41:34Z",
       "from_cache": true,
       "http_status": 200,
@@ -2951,7 +2951,7 @@
         "BUS"
       ],
       "cache_key": "46f69abb485f4f46e47e",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/46f69abb485f4f46e47e.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/46f69abb485f4f46e47e.json",
       "fetched_at": "2026-11-23T19:41:35Z",
       "from_cache": true,
       "http_status": 200,
@@ -2991,7 +2991,7 @@
         "BUS"
       ],
       "cache_key": "0288285b89fb54945b14",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/0288285b89fb54945b14.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/0288285b89fb54945b14.json",
       "fetched_at": "2026-11-23T19:41:35Z",
       "from_cache": true,
       "http_status": 200,
@@ -3031,7 +3031,7 @@
         "BUS"
       ],
       "cache_key": "a8fdb0239f011ccc85f6",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/a8fdb0239f011ccc85f6.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/a8fdb0239f011ccc85f6.json",
       "fetched_at": "2026-11-23T19:41:36Z",
       "from_cache": true,
       "http_status": 200,
@@ -3071,7 +3071,7 @@
         "BUS"
       ],
       "cache_key": "f404cea4a825b44132d6",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/f404cea4a825b44132d6.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/f404cea4a825b44132d6.json",
       "fetched_at": "2026-11-23T19:41:36Z",
       "from_cache": true,
       "http_status": 200,
@@ -3111,7 +3111,7 @@
         "BUS"
       ],
       "cache_key": "2475f4b22875a716e6c2",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/2475f4b22875a716e6c2.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/2475f4b22875a716e6c2.json",
       "fetched_at": "2026-11-23T19:41:37Z",
       "from_cache": true,
       "http_status": 200,
@@ -3151,7 +3151,7 @@
         "BUS"
       ],
       "cache_key": "a10cd769cca8cc60ae20",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/a10cd769cca8cc60ae20.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/a10cd769cca8cc60ae20.json",
       "fetched_at": "2026-11-23T19:41:37Z",
       "from_cache": true,
       "http_status": 200,
@@ -3191,7 +3191,7 @@
         "BUS"
       ],
       "cache_key": "1c3521d0f9118559f17e",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/1c3521d0f9118559f17e.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/1c3521d0f9118559f17e.json",
       "fetched_at": "2026-11-23T19:41:38Z",
       "from_cache": true,
       "http_status": 200,
@@ -3231,7 +3231,7 @@
         "BUS"
       ],
       "cache_key": "3d153f72cfbab4a35d8d",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/3d153f72cfbab4a35d8d.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/3d153f72cfbab4a35d8d.json",
       "fetched_at": "2026-11-23T19:41:39Z",
       "from_cache": true,
       "http_status": 200,
@@ -3271,7 +3271,7 @@
         "BUS"
       ],
       "cache_key": "447aa990e3e630022b8a",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/447aa990e3e630022b8a.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/447aa990e3e630022b8a.json",
       "fetched_at": "2026-11-23T19:41:39Z",
       "from_cache": true,
       "http_status": 200,
@@ -3311,7 +3311,7 @@
         "BUS"
       ],
       "cache_key": "7de156d50bfd33e5a03e",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/7de156d50bfd33e5a03e.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/7de156d50bfd33e5a03e.json",
       "fetched_at": "2026-11-23T19:41:40Z",
       "from_cache": true,
       "http_status": 200,
@@ -3351,7 +3351,7 @@
         "BUS"
       ],
       "cache_key": "d11fabc974894c8a6627",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/d11fabc974894c8a6627.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/d11fabc974894c8a6627.json",
       "fetched_at": "2026-11-23T19:41:40Z",
       "from_cache": true,
       "http_status": 200,
@@ -3391,7 +3391,7 @@
         "BUS"
       ],
       "cache_key": "dfb8d259c8653bf8d718",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/dfb8d259c8653bf8d718.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/dfb8d259c8653bf8d718.json",
       "fetched_at": "2026-11-23T19:41:41Z",
       "from_cache": true,
       "http_status": 200,
@@ -3431,7 +3431,7 @@
         "BUS"
       ],
       "cache_key": "0cc67ad2847534a68461",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/0cc67ad2847534a68461.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/0cc67ad2847534a68461.json",
       "fetched_at": "2026-11-23T19:41:42Z",
       "from_cache": true,
       "http_status": 200,
@@ -3471,7 +3471,7 @@
         "BUS"
       ],
       "cache_key": "18609b5572ca6a2b46c8",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/18609b5572ca6a2b46c8.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/18609b5572ca6a2b46c8.json",
       "fetched_at": "2026-11-23T19:41:42Z",
       "from_cache": true,
       "http_status": 200,
@@ -3511,7 +3511,7 @@
         "BUS"
       ],
       "cache_key": "90c07bfbaf5d98c49d0d",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/90c07bfbaf5d98c49d0d.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/90c07bfbaf5d98c49d0d.json",
       "fetched_at": "2026-11-23T19:41:43Z",
       "from_cache": true,
       "http_status": 200,
@@ -3551,7 +3551,7 @@
         "BUS"
       ],
       "cache_key": "cdfee0f5115babccb58b",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/cdfee0f5115babccb58b.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/cdfee0f5115babccb58b.json",
       "fetched_at": "2026-11-23T19:41:44Z",
       "from_cache": true,
       "http_status": 200,
@@ -3591,7 +3591,7 @@
         "BUS"
       ],
       "cache_key": "78eb0f1f1edbb15c2a4d",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/78eb0f1f1edbb15c2a4d.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/78eb0f1f1edbb15c2a4d.json",
       "fetched_at": "2026-11-23T19:41:44Z",
       "from_cache": true,
       "http_status": 200,
@@ -3631,7 +3631,7 @@
         "BUS"
       ],
       "cache_key": "0d958babd30d2de305d3",
-      "cache_path": "/home/factory-user/ps1-scratch/data/google/responses/0d958babd30d2de305d3.json",
+      "cache_path": "$DELHI_TRANSIT_DATA_DIR/google/responses/0d958babd30d2de305d3.json",
       "fetched_at": "2026-11-23T19:41:45Z",
       "from_cache": true,
       "http_status": 200,
