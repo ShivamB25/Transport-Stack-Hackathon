@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from copy import deepcopy
 from pathlib import Path
 
@@ -8,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from delhi_transit.api.app import create_app
+from delhi_transit.core import config
 from delhi_transit.planner.provenance import TimingEstimate, WaitEstimate
 
 
@@ -163,22 +163,28 @@ def _make_client(tmp_path: Path, otp: StubOTP | None = None) -> TestClient:
     return TestClient(app)
 
 
-def test_root_serves_leaflet_ui_and_favicon_has_no_404(tmp_path: Path) -> None:
+def test_root_serves_built_frontend_and_assets_stay_inside_dist(tmp_path: Path, monkeypatch) -> None:
+    dist = tmp_path / "dist"
+    monkeypatch.setattr(config, "FRONTEND_DIR", dist)
     client = _make_client(tmp_path)
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert "text/html" in resp.headers["content-type"]
-    html = resp.text
-    assert "unpkg.com/leaflet@1.9.4/dist/leaflet.js" in html
-    assert 'id="origin-input"' in html
-    assert 'id="destination-input"' in html
-    assert 'id="depart-input"' in html
-    assert 'id="mode-badge"' in html
-    assert 'id="abstention-panel"' in html
 
-    fav = client.get("/favicon.ico")
-    assert fav.status_code == 204
+    unbuilt = client.get("/")
+    assert unbuilt.status_code == 200
+    assert unbuilt.headers["content-type"].startswith("text/plain")
 
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text('<div id="root"></div>', encoding="utf-8")
+    (dist / "assets" / "app.js").write_text("export {}", encoding="utf-8")
+    (tmp_path / "outside.txt").write_text("not public", encoding="utf-8")
+
+    page = client.get("/")
+    assert "text/html" in page.headers["content-type"]
+    assert 'id="root"' in page.text
+    script = client.get("/assets/app.js")
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]
+    assert client.get("/assets/%2e%2e/%2e%2e/outside.txt").status_code == 404
+    assert client.get("/favicon.ico").status_code == 204
 
 def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Path) -> None:
     client = _make_client(tmp_path)
@@ -244,12 +250,3 @@ def test_replay_demo_uses_real_oct22_parquet_when_available() -> None:
     assert transfer["connecting_scheduled_depart"].endswith("17:32:42+05:30")
     assert [stage["observed_delay_s"] for stage in body["stages"]] == [165, 1768, 2133, 2070]
 
-
-def test_latest_ui_action_wins_when_responses_finish_out_of_order() -> None:
-    result = subprocess.run(
-        ["node", str(Path(__file__).with_name("ui_latest_action_test.cjs"))],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr

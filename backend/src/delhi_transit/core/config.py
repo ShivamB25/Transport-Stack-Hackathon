@@ -16,6 +16,7 @@ DEFAULT_DATA_DIR = Path("/home/factory-user/ps1-scratch/data")
 DATA_DIR = Path(os.environ.get("DELHI_TRANSIT_DATA_DIR", str(DEFAULT_DATA_DIR)))
 WORK_DIR = Path(os.environ.get("DELHI_TRANSIT_WORK_DIR", "/home/factory-user/ps1-scratch/work"))
 OTP_URL = os.environ.get("DELHI_TRANSIT_OTP_URL", "http://localhost:3102/otp/gtfs/v1")
+FRONTEND_DIR = Path(os.environ.get("DELHI_TRANSIT_FRONTEND_DIR", str(REPO_ROOT / "frontend" / "dist")))
 
 BBOX_LAT_MIN = 27.5
 BBOX_LAT_MAX = 29.0
