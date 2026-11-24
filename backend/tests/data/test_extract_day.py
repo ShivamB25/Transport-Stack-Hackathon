@@ -118,7 +118,7 @@ def test_convert_dedupe_keeps_first_source_row_deterministically(tmp_path: Path)
     ) == (2171, "trip_non_null", 8.0)
 
 
-def test_convert_filters_bbox_and_bad_ts(converted):
+def test_convert_filters_and_casts(converted):
     out, _, _ = converted
     violations = query_one(
         f"SELECT count(*) FROM read_parquet('{out}') WHERE ts IS NULL "
@@ -127,9 +127,6 @@ def test_convert_filters_bbox_and_bad_ts(converted):
     )[0]
     assert violations == 0
 
-
-def test_convert_route_id_integer_or_null(converted):
-    out, _, _ = converted
     con = duckdb.connect()
     try:
         schema = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{out}')").fetchall()

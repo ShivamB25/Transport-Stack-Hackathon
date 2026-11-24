@@ -307,9 +307,9 @@ def run_day(
     staged_path = output_path.with_name(
         f".{output_path.name}.{os.getpid()}.{threading.get_ident()}.staged.parquet"
     )
-    free_gb = shutil.disk_usage(data_dir).free / 1e9
-    if shutil.disk_usage(data_dir).free < MIN_FREE_BYTES:
-        raise OSError(f"only {free_gb:.1f} GB free; refusing extraction")
+    free_bytes = shutil.disk_usage(data_dir).free
+    if free_bytes < MIN_FREE_BYTES:
+        raise OSError(f"only {free_bytes / 1e9:.1f} GB free; refusing extraction")
     work_dir.mkdir(parents=True, exist_ok=True)
     (work_dir / "duckdb-tmp").mkdir(exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)

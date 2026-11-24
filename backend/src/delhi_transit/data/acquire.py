@@ -10,7 +10,6 @@ import argparse
 import concurrent.futures
 import datetime as dt
 import json
-import os
 import re
 import threading
 import time
@@ -18,6 +17,7 @@ import traceback
 from pathlib import Path
 
 from delhi_transit.core.config import DATA_DIR, GPS_DIR, WORK_DIR
+from delhi_transit.core.io import atomic_write_text
 from delhi_transit.data.extract_day import (
     day_key,
     default_output_path,
@@ -104,9 +104,7 @@ def write_status(data_dir: Path, days: list[int], finished: bool = False) -> Non
             )
     failed = [day for day, r in snapshots.items() if r["status"] != "ok"]
     lines.extend(["", "Failed days: " + (", ".join(failed) if failed else "none"), ""])
-    tmp = data_dir / "STATUS.md.tmp"
-    tmp.write_text("\n".join(lines))
-    os.replace(tmp, data_dir / "STATUS.md")
+    atomic_write_text(data_dir / "STATUS.md", "\n".join(lines))
 
 
 def process_day(day: int, args: argparse.Namespace) -> dict:

@@ -14,7 +14,7 @@ from statistics import median
 import duckdb
 
 from delhi_transit.core.config import IST
-from delhi_transit.data.stop_passages import haversine_m
+from delhi_transit.core.geo import haversine_m
 
 RECENT_WINDOW_S = 1800
 MAX_VALID_SCHEDULE_DELAY_S = 21_600

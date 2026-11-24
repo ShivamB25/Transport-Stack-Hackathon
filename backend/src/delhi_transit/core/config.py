@@ -5,6 +5,8 @@ import os
 from datetime import timedelta, timezone
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # backend/src/delhi_transit/core/config.py -> repository root (reports/, .env).
@@ -44,4 +46,17 @@ LIVE_STALE_THRESHOLD_S = float(os.environ.get("DELHI_TRANSIT_LIVE_STALE_THRESHOL
 LIVE_ENTITY_MAX_AGE_S = float(os.environ.get("DELHI_TRANSIT_LIVE_ENTITY_MAX_AGE_S", "900"))
 LIVE_MIN_VEHICLES = int(os.environ.get("DELHI_TRANSIT_LIVE_MIN_VEHICLES", "10"))
 LIVE_SNAPSHOT_KEEP = int(os.environ.get("DELHI_TRANSIT_LIVE_SNAPSHOT_KEEP", "30"))
+
+
+def load_env_key(name: str, env_path: Path | None = None) -> str | None:
+    """Read a secret from the environment, else from the repo .env. Never log the value."""
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+    dotenv_file = env_path or (REPO_ROOT / ".env")
+    if dotenv_file.exists():
+        value = (dotenv_values(dotenv_file).get(name) or "").strip()
+        if value:
+            return value
+    return None
 

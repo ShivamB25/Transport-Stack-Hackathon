@@ -9,11 +9,12 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 ## Layout
 
 - `backend/`: uv project (`pyproject.toml`, `uv.lock`, `.python-version` 3.12). Package `src/delhi_transit/`:
-  - `core/config.py`: `REPO_ROOT` (every repo-relative path such as `reports/` and `.env` resolves through it), env-driven paths (`DELHI_TRANSIT_DATA_DIR`, `DELHI_TRANSIT_WORK_DIR`), `DELHI_TRANSIT_OTP_URL`, the shared `IST` timezone, Delhi bbox, archive URL and user agent, live feed settings, Google 300-call cap and ledger path.
+  - `core/config.py`: `REPO_ROOT` (every repo-relative path such as `reports/` and `.env` resolves through it), env-driven paths (`DELHI_TRANSIT_DATA_DIR`, `DELHI_TRANSIT_WORK_DIR`), `DELHI_TRANSIT_OTP_URL`, the shared `IST` timezone, Delhi bbox, archive URL and user agent, live feed settings, Google 300-call cap and ledger path, and `load_env_key` (the one reader of `.env` secrets; never logs values).
+  - `core/time.py` (IST/UTC formatting), `core/geo.py` (`haversine_m`), `core/io.py` (atomic text/JSON/Parquet writers: sibling temp file, fsync for text, `os.replace`).
   - `data/range_reader.py`: bounded HTTP range reader for the remote 7z archive.
   - `data/extract_day.py`: extracts one archive day, dedupes on `(vehicle_id, ts, lat, lng)` keeping the first SQLite `rowid`, filters bbox/timestamps, casts `route_id` to integer, verifies (`verify_day`) and publishes Parquet atomically, deletes the SQLite file.
   - `data/acquire.py`: resumable 31-day orchestrator (2 workers); writes `download.log` and `STATUS.md`, never deletes a canonical Parquet on failure.
-  - `data/stop_passages.py`: geometric GPS-to-stop matching for 717A (60 m, max-cardinality time-ordered anchor chain, schedule-proportional interpolation, adjacent-service-date resolution, per-passage `available_at`) and `reports/coverage-717a.md` (written only by full canonical runs).
+  - `data/stop_passages.py`: geometric GPS-to-stop matching for 717A (60 m, max-cardinality time-ordered anchor chain, schedule-proportional interpolation, adjacent-service-date resolution, per-passage `available_at`). `data/gtfs_patterns.py` loads the dominant FULL GTFS pattern and timetable starts; `data/coverage_report.py` writes `reports/coverage-717a.md` (only from full canonical runs; scoped runs write next to their output).
   - `model/features.py`: stretch error tables and strictly causal replay features.
   - `model/rungs.py`: rungs `0`, `1`, `1h`, `2`, `3`, `4` (LightGBM quantile + split-conformal), artifact save/load and as-of eligibility.
   - `model/evaluate.py`: whole-day evaluation; writes `reports/eval-baselines.*`, `reports/eval-full.*`, `reports/selection.json` and the model artifact.

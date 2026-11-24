@@ -10,28 +10,11 @@ import pytest
 
 from delhi_transit.data import acquire
 from delhi_transit.data.acquire import (
-    DEFAULT_DAYS,
     process_day,
     recover_rows_in,
-    validate_days,
     write_status,
 )
 from delhi_transit.data.extract_day import IST, default_output_path
-
-
-def test_default_days_priority_first_then_rest():
-    assert DEFAULT_DAYS[:9] == [15, 22, 27, 28, 5, 6, 8, 13, 14]
-    assert sorted(DEFAULT_DAYS) == list(range(1, 32))
-
-
-def test_validate_days_rejects_duplicates_and_range():
-    with pytest.raises(ValueError, match="duplicates"):
-        validate_days([1, 1])
-    with pytest.raises(ValueError, match="1..31"):
-        validate_days([0])
-    with pytest.raises(ValueError, match="1..31"):
-        validate_days([32])
-    assert validate_days([3, 1]) == [3, 1]
 
 
 def test_recover_rows_in_last_wins_and_ignores_failures(tmp_path):

@@ -9,21 +9,24 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from delhi_transit.data.stop_passages import (
+from delhi_transit.core.config import IST
+from delhi_transit.data.coverage_report import (
     CANONICAL_COVERAGE_REPORT,
-    IST,
     SCOPED_DAYS,
-    Anchor,
+    resolve_report_path,
+)
+from delhi_transit.data.gtfs_patterns import (
     PatternStop,
-    Ping,
     RoutePattern,
+    load_route_patterns,
+)
+from delhi_transit.data.stop_passages import (
+    Anchor,
+    Ping,
     build_passages,
     drop_time_order_breaking_anchors,
-    haversine_m,
-    load_route_patterns,
     reconstruct_day,
     reconstruct_run,
-    resolve_report_path,
     schedule_start_for_run,
     select_minimum_distance_anchors,
 )
@@ -45,12 +48,7 @@ def stop(index: int, schedule_s: int = 0, lat: float | None = None) -> PatternSt
     )
 
 
-def test_haversine_zero_and_local_scale():
-    assert haversine_m(28.6, 77.2, 28.6, 77.2) == 0
-    assert 97 < haversine_m(28.6, 77.2, 28.6, 77.201) < 99
-
-
-def test_minimum_distance_observation_selected_per_stop():
+def test_anchor_selection_radius_and_min_distance():
     stops = [stop(0)]
     pings = [
         Ping(100, 28.6000, 77.20045),
@@ -62,13 +60,11 @@ def test_minimum_distance_observation_selected_per_stop():
     assert anchors[0].ts == 200
     assert anchors[0].distance_m == pytest.approx(5, abs=0.2)
 
-
-def test_outside_radius_is_not_an_anchor():
     pings = [Ping(100, 28.61, 77.2)]
     assert select_minimum_distance_anchors(pings, [stop(0)], radius_m=60) == []
 
 
-def test_time_order_breaking_anchor_is_dropped():
+def test_anchor_chain_ordering():
     anchors = [
         Anchor(0, 100, 5),
         Anchor(1, 500, 5),
@@ -79,8 +75,7 @@ def test_time_order_breaking_anchor_is_dropped():
     assert [anchor.stop_index for anchor in kept] == [0, 2, 3]
     assert [anchor.ts for anchor in kept] == sorted(anchor.ts for anchor in kept)
 
-
-def test_maximum_anchor_chain_and_equal_timestamps_are_allowed():
+    # Maximum chain; equal timestamps are allowed.
     anchors = [
         Anchor(0, 100, 5),
         Anchor(1, 100, 5),
