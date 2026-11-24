@@ -18,7 +18,7 @@ An OD pair is the ordered origin/destination pair above. A stretch is every pair
 
 ## Inputs and inclusion rules
 
-Inputs are the reconstructed Parquet files at `$PS1_DATA_DIR/passages/day=YYYY-MM-DD.parquet`. A run is identified by day, route, vehicle, and GPS run label. Reconstruction requires at least two time-ordered geometric anchors within 60 m and an observed anchor span of at most six hours; candidate runs failing those rules are excluded before modelling.
+Inputs are the reconstructed Parquet files at `$DELHI_TRANSIT_DATA_DIR/passages/day=YYYY-MM-DD.parquet`. A run is identified by day, route, vehicle, and GPS run label. Reconstruction requires at least two time-ordered geometric anchors within 60 m and an observed anchor span of at most six hours; candidate runs failing those rules are excluded before modelling.
 
 For each run and adjacent stop pair, define:
 
@@ -105,7 +105,7 @@ No model, hyperparameter, fallback, or split changed with this amendment.
 One scoped command regenerates `reports/eval-baselines.{csv,md}`, `reports/eval-full.{csv,md}`, `reports/selection.json`, and the persisted model artifact for both directions and all three held-out days:
 
 ```bash
-PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate
+cd backend && uv run python -m delhi_transit.model.evaluate
 ```
 
 The gate is evaluated independently on 2026-10-22 for UP and DOWN using only the **observed-only** paired rows and identical coverage: **rung 1 MAE must be strictly less than rung 0 MAE in each direction**. The older-feed values and approximately 30% improvement are historical references only, not targets or pass thresholds. Failure in either direction is recorded as a negative result and escalated without held-out tuning, rather than hidden by pooling directions, days, or strata.

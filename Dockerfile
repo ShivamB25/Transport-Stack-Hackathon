@@ -1,3 +1,11 @@
+FROM oven/bun:1.4.5 AS frontend
+
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY frontend/ ./
+RUN bun run build
+
 FROM python:3.12-slim
 
 # LightGBM's wheel links against the OpenMP runtime.
@@ -13,8 +21,10 @@ COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/src ./src
 RUN uv sync --frozen --no-dev
-# RetimeModel reads the ship decision from <REPO_ROOT>/reports/selection.json.
+# REPO_ROOT resolves to /app, so the API reads the ship decision from /app/reports/selection.json
+# and serves the UI from /app/frontend/dist (the default DELHI_TRANSIT_FRONTEND_DIR).
 COPY reports/selection.json /app/reports/selection.json
+COPY --from=frontend /app/frontend/dist /app/frontend/dist
 
 ENV PATH=/app/backend/.venv/bin:$PATH
 EXPOSE 3100

@@ -9,13 +9,13 @@ separately; OTP itself remains schedule-based.
 - Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk/bin/java`.
 - OTP: `otp-shaded-2.8.1.jar` from
   `https://repo1.maven.org/maven2/org/opentripplanner/otp-shaded/2.8.1/otp-shaded-2.8.1.jar`.
-- GTFS: `$PS1_DATA_DIR/gtfs/delhi_buses_static_gtfs_v1.zip` (feed ID `DTC`).
+- GTFS: `$DELHI_TRANSIT_DATA_DIR/gtfs/delhi_buses_static_gtfs_v1.zip` (feed ID `DTC`).
 - OSM: BBBike `NewDelhi.osm.pbf` from
   `https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf`.
 
 The wrappers default to `/home/factory-user/ps1-scratch/otp` and download the jar
-or OSM file only when missing. `PS1_OTP_DIR`, `PS1_DATA_DIR`, and `PS1_JAVA` can
-override the runtime paths. The build copies the GTFS zip into `graph/` and links
+or OSM file only when missing. `DELHI_TRANSIT_OTP_DIR`, `DELHI_TRANSIT_DATA_DIR`, and `DELHI_TRANSIT_JAVA` can
+override the runtime paths. The build copies `otp/build-config.json` and the GTFS zip into `graph/` and links
 the OSM file with a relative path, so the directory also works when mounted at
 `/otp` by the Compose `otp` and `otp-build` services.
 
@@ -23,13 +23,13 @@ the OSM file with a relative path, so the directory also works when mounted at
 
 ```bash
 cd /home/factory-user/repos/Transport-Stack-Hackathon
-scripts/otp_build.sh > /home/factory-user/ps1-scratch/otp/build.log 2>&1
-scripts/otp_serve.sh
+otp/build.sh > /home/factory-user/ps1-scratch/otp/build.log 2>&1
+otp/serve.sh
 ```
 
 Both commands enforce `-Xmx2500m`. The build uses `--build --save` and writes
 `/home/factory-user/ps1-scratch/otp/graph/graph.obj`. The server uses `--load
---serve --port 3102`. The generated build config limits transit service to
+--serve --port 3102`. The build config limits transit service to
 2026-10-01 through 2026-12-31 and walking transfers to 10 minutes. The complete
 37.5 MB BBBike extract fit within the heap cap, so no OSM clipping was needed.
 

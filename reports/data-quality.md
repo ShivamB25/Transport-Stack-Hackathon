@@ -1,10 +1,10 @@
 # GPS data quality — October 2026 DTC bus feed
 
-Updated 2026-11-23 from `data/gps/day=*.parquet` (PS1_DATA_DIR=`/home/factory-user/ps1-scratch/data`, 9.955 GB total across 31 days) after re-acquiring all 31 days with the hardened deterministic extractor and verifying every file in place.
+Updated 2026-11-23 from `data/gps/day=*.parquet` (DELHI_TRANSIT_DATA_DIR=`/home/factory-user/ps1-scratch/data`, 9.955 GB total across 31 days) after re-acquiring all 31 days with the hardened deterministic extractor and verifying every file in place.
 
 ## Pipeline cleaning rules
 
-Each raw archive day (SQLite `vehicle_feed`) is converted to Parquet by `src/ps1/extract_day.py`:
+Each raw archive day (SQLite `vehicle_feed`) is converted to Parquet by `delhi_transit/data/extract_day.py`:
 
 1. `ts` = `TRY_CAST(timestamp AS BIGINT)` (source stores epoch seconds UTC as text); rows with unparseable timestamps are dropped.
 2. Delhi bbox filter: rows with null coords or outside 27.5–29.0 N / 76.7–77.6 E are dropped.
@@ -16,7 +16,7 @@ Each raw archive day (SQLite `vehicle_feed`) is converted to Parquet by `src/ps1
 
 ## Per-day reconciliation (raw vs clean)
 
-`rows_in` is the raw SQLite row count recorded in `data/download.log`; `rows_out` is the Parquet row count. DuckDB checks per day: duplicate groups on `(vehicle_id, ts, lat, lng)` = 0, null/out-of-bbox coordinates = 0, fractional `route_id` = 0 for every day, and all 31 files pass hardened `verify_day` via `ps1.acquire` (verified 2026-11-23).
+`rows_in` is the raw SQLite row count recorded in `data/download.log`; `rows_out` is the Parquet row count. DuckDB checks per day: duplicate groups on `(vehicle_id, ts, lat, lng)` = 0, null/out-of-bbox coordinates = 0, fractional `route_id` = 0 for every day, and all 31 files pass hardened `verify_day` via `delhi_transit.data.acquire` (verified 2026-11-23).
 
 | Day | Rows in | Rows out | Removed % | Vehicles | Dup groups | Bbox viol. | route_id NULL | min ts (IST) | max ts (IST) | Dedupe tie-break |
 |---|---:|---:|---:|---:|---:|---:|---:|---|---|---|
@@ -76,7 +76,7 @@ The ~38% removal is therefore dominated by the `(vehicle_id, ts, lat, lng)` dupl
 ## Reproduction (one day, end-to-end)
 
 ```bash
-PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.extract_day --day 2026-10-15
+cd backend && uv run python -m delhi_transit.data.extract_day --day 2026-10-15
 ```
 
 Verified 2026-11-23 with `--output /tmp/repro15.parquet`: exit 0, rows_out=18,273,380 (identical to the existing `day=2026-10-15.parquet`), vehicles=6,093, min_ts=1792000813, max_ts=1792088979, 0 duplicate groups, 0 bbox violations, 0 fractional route_ids; intermediate SQLite deleted after conversion.

@@ -8,6 +8,8 @@
 *.py[cod]
 venv/
 **/.venv/
+frontend/node_modules/
+frontend/dist/
 data/
 work/
 otp/

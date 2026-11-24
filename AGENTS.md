@@ -33,7 +33,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 - `reports/`: committed results (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`, `otp-plan-*.json`).
 - `docs/`: `technical-note.md`, `eval-protocol.md`, `otp.md`.
 - `demo/`: `record_demo.sh` and `demo.webm`.
-- `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`: container packaging.
+- `Dockerfile` (an `oven/bun` stage builds `frontend/dist`; a `python:3.12-slim` stage runs `uv sync --frozen --no-dev` and copies the UI to `/app/frontend/dist`, the default `FRONTEND_DIR` there), `docker-compose.yml`, `.dockerignore`, `.env.example`: container packaging.
 
 ## Setup
 

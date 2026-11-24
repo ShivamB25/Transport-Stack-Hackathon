@@ -1,6 +1,6 @@
 # Technical note: Delhi bus travel-time model and journey planner
 
-This note describes how `src/ps1/` reconstructs stop passages, estimates travel times, blends live and historical data, selects a model and decides when to abstain. Every number comes from a committed report under `reports/`, computed from the October 2026 DTC GPS archive and static GTFS feed v32 (`delhi_buses_static_gtfs_v1.zip`).
+This note describes how `backend/src/delhi_transit/` reconstructs stop passages, estimates travel times, blends live and historical data, selects a model and decides when to abstain. Every number comes from a committed report under `reports/`, computed from the October 2026 DTC GPS archive and static GTFS feed v32 (`delhi_buses_static_gtfs_v1.zip`).
 
 ---
 
@@ -10,11 +10,11 @@ This note describes how `src/ps1/` reconstructs stop passages, estimates travel 
 
 The October 2026 GPS archive and the live GTFS-RT `VehiclePositions.pb` feed emit a `trip_id` field (for example `2170_05_17_5358` or `3097_22_55`), but it does **not** match the static GTFS `trips.txt` identifier format (`{route_id}_{HH}_{MM}`). In addition, the live `VehiclePositions` protobuf omits `bearing`, `stop_id`, and `direction_id`. Any join on `trip_id` fails silently or pairs unrelated departures, and city-wide stop-name fuzzy matching is prohibited because Delhi route stops share ambiguous landmark names across opposite directions and corridors.
 
-In this pipeline (`src/ps1/stop_passages.py`), GPS `trip_id` is used **only as a local run label** to group consecutive pings belonging to one vehicle run (`day, route_id, vehicle_id, run_id`). Route direction is identified from the integer `route_id`, which maps directly to direction-suffixed GTFS route short names (for example `717AUP -> route_id 2171` and `717ADOWN -> route_id 2170`).
+In this pipeline (`delhi_transit/data/stop_passages.py`), GPS `trip_id` is used **only as a local run label** to group consecutive pings belonging to one vehicle run (`day, route_id, vehicle_id, run_id`). Route direction is identified from the integer `route_id`, which maps directly to direction-suffixed GTFS route short names (for example `717AUP -> route_id 2171` and `717ADOWN -> route_id 2170`).
 
 ### Raw GPS cleaning and archive structure
 
-Raw October 2026 SQLite days are range-extracted one day at a time (`src/ps1/extract_day.py`, `User-Agent: curl/8.5.0`) and cleaned in DuckDB before writing daily Parquet files (`$PS1_DATA_DIR/gps/day=YYYY-MM-DD.parquet`):
+Raw October 2026 SQLite days are range-extracted one day at a time (`delhi_transit/data/extract_day.py`, `User-Agent: curl/8.5.0`) and cleaned in DuckDB before writing daily Parquet files (`$DELHI_TRANSIT_DATA_DIR/gps/day=YYYY-MM-DD.parquet`):
 
 1. Parse `ts = TRY_CAST(timestamp AS BIGINT)` (Unix epoch seconds UTC); drop unparseable rows.
 2. Filter null coordinates and coordinates outside the Delhi bounding box (`27.5–29.0 N`, `76.7–77.6 E`).
@@ -25,7 +25,7 @@ Across all 31 October days (`reports/data-quality.md`), cleaning reduces **912,8
 
 ### Geometric stop-passage reconstruction and coverage
 
-For each scoped corridor direction, `stop_passages.py` loads the dominant FULL static GTFS stop pattern:
+For each scoped corridor direction, `data/gtfs_patterns.py` loads the dominant FULL static GTFS stop pattern:
 
 | Direction | GTFS `route_id` | Shape ID | Origin | Destination | Pattern stops |
 |---|---:|---|---|---|---:|
@@ -37,7 +37,7 @@ For each `(vehicle_id, run_id)` ping sequence sorted by timestamp:
 1. **Minimum-distance matching (`DEFAULT_RADIUS_M = 60.0` m):** compute great-circle Haversine distances from all pings in the run to every pattern stop. For each stop that has at least one ping within 60 m, select the ping with the minimum distance (earliest ping breaks exact ties).
 2. **Monotonic time-ordered anchor chain:** run dynamic programming (`drop_time_order_breaking_anchors`) to keep the maximum-cardinality subsequence of anchors that is strictly increasing in `stop_index` and nondecreasing in timestamp `ts`, breaking length ties by minimum total match distance. This removes GPS loops, layover spillovers, and stray reverse matches.
 3. **Run quality filter:** discard candidate runs with fewer than 2 surviving anchors or an observed anchor span exceeding 6 hours (`MAX_OBSERVED_SPAN_S = 21600`).
-4. **Gap interpolation and endpoint extrapolation:** for stops between consecutive anchors `(left, right)`, interpolate timestamps proportionally to scheduled travel time (`gap_pace = (right.ts - left.ts) / (right.schedule_s - left.schedule_s)`). Stops before the first anchor or after the last anchor are extrapolated at the scheduled rate (`1.0 s/s`). Every emitted stop row carries an explicit `source` (`observed` or `interpolated`), boolean `observed`, reconstructed `ts`, source-availability epoch `available_at`, `scheduled_ts`, `schedule_error_s = ts - scheduled_ts`, and `distance_m` (`NULL` for interpolated rows). Each row's `available_at` is the latest of three times: its own anchor rule (observed = own ping, interior interpolated = later anchor, extrapolated endpoint = anchor used); the run's second surviving anchor, because a run cannot qualify before it has two anchors; and the ping after which every reconstruction from the raw GPS prefix reproduces that row, because a later anchor can revise the anchor chain. `tests/data/test_stop_passages.py` covers the October 22 case where a run's leading passages would otherwise have been visible before its second anchor.
+4. **Gap interpolation and endpoint extrapolation:** for stops between consecutive anchors `(left, right)`, interpolate timestamps proportionally to scheduled travel time (`gap_pace = (right.ts - left.ts) / (right.schedule_s - left.schedule_s)`). Stops before the first anchor or after the last anchor are extrapolated at the scheduled rate (`1.0 s/s`). Every emitted stop row carries an explicit `source` (`observed` or `interpolated`), boolean `observed`, reconstructed `ts`, source-availability epoch `available_at`, `scheduled_ts`, `schedule_error_s = ts - scheduled_ts`, and `distance_m` (`NULL` for interpolated rows). Each row's `available_at` is the latest of three times: its own anchor rule (observed = own ping, interior interpolated = later anchor, extrapolated endpoint = anchor used); the run's second surviving anchor, because a run cannot qualify before it has two anchors; and the ping after which every reconstruction from the raw GPS prefix reproduces that row, because a later anchor can revise the anchor chain. `backend/tests/data/test_stop_passages.py` covers the October 22 case where a run's leading passages would otherwise have been visible before its second anchor.
 
 Recomputed coverage on GTFS feed v32 (`reports/coverage-717a.md`, across the 10 scoped training + held-out days: 1,264 UP trips, 1,282 DOWN trips):
 
@@ -57,14 +57,14 @@ These figures are close to the older-feed reference (about 46% UP, 42–48% DOWN
 
 ### Adjacent-stop stretch target and strictly causal replay
 
-Rather than predicting full-trip durations from noisy origin-to-destination endpoints, the model predicts **per-stretch schedule error** across every adjacent stop pair `(from_stop, to_stop)` in a route pattern (`src/ps1/features.py`):
+Rather than predicting full-trip durations from noisy origin-to-destination endpoints, the model predicts **per-stretch schedule error** across every adjacent stop pair `(from_stop, to_stop)` in a route pattern (`delhi_transit/model/features.py` and `model/causal_core.py`):
 
 - `query_ts` = reconstructed arrival timestamp at the upstream stop;
 - `scheduled_duration_s` = `to.scheduled_ts - from.scheduled_ts`;
 - `actual_duration_s` = `to.ts - from.ts`;
 - `error_s` = `actual_duration_s - scheduled_duration_s` (prediction target, in seconds).
 
-Every query is constructed in a **strictly time-ordered replay**: at `query_ts`, only passages whose event timestamp and `available_at` are strictly earlier than `query_ts` (and training days strictly prior to the evaluated day) are visible. In particular, a previous bus's stretch error is eligible only once **both** its upstream and downstream passages have completed and become available before `query_ts`. `features.py` raises `CausalityViolationError` if any future timestamp or availability epoch enters feature construction, verified by automated future-data rejection tests in `tests/model/`.
+Every query is constructed in a **strictly time-ordered replay**: at `query_ts`, only passages whose event timestamp and `available_at` are strictly earlier than `query_ts` (and training days strictly prior to the evaluated day) are visible. In particular, a previous bus's stretch error is eligible only once **both** its upstream and downstream passages have completed and become available before `query_ts`. `features.py` raises `CausalityViolationError` if any future timestamp or availability epoch enters feature construction, verified by automated future-data rejection tests in `backend/tests/model/`.
 
 ### Whole-day partitions (zero random row splits)
 
@@ -78,7 +78,7 @@ Every training, calibration, and evaluation partition is a disjoint set of whole
 
 ### Model ladder (Rungs 0–4) and conformal calibration
 
-All rungs share one fit/predict interface (`src/ps1/model.py`) and are scored on identical paired queries within each stratum, day, and direction:
+All rungs share one fit/predict interface (`delhi_transit/model/rungs.py`, with rung 4 in `model/lgbm.py`) and are scored on identical paired queries within each stratum, day, and direction:
 
 - **Rung 0 (Timetable):** predicts `error_s = 0`.
 - **Rung 1 (Persistence):** predicts the latest causal same-day previous run's `error_s` on the exact same stretch.
@@ -90,7 +90,7 @@ All rungs share one fit/predict interface (`src/ps1/model.py`) and are scored on
 
 ### Door-to-door journey re-timing and joint scenarios
 
-OpenTripPlanner 2.8.1 (unmodified core, GraphQL `planConnection` on port 3102) generates candidate bus itineraries. Our API (`src/ps1/retime.py`) owns **all** transit timing:
+OpenTripPlanner 2.8.1 (unmodified core, GraphQL `planConnection` on port 3102) generates candidate bus itineraries. Our API (`delhi_transit.planner.itinerary` and `delhi_transit.planner.rides`) owns **all** transit timing:
 
 1. Walk legs keep OTP street-network durations (`timing_source = "otp_walk"`).
 2. Each transit ride leg is re-timed by `RetimeModel.predict_ride()`. Within a multi-stretch covered ride leg, calibrated per-stretch half-widths are combined with intra-leg correlation `rho = 0.35` (`_correlated_leg_interval`) rather than naively summed.
@@ -101,11 +101,11 @@ OpenTripPlanner 2.8.1 (unmodified core, GraphQL `planConnection` on port 3102) g
 
 ## 3. Blending Live and Historical Observations
 
-`RetimeModel` (`src/ps1/retime.py`) loads `reports/selection.json` (`selected_rung = "4"`) and the native LightGBM + JSON artifact from `$PS1_DATA_DIR/model/` and applies the following causal fallback chain. Each leg reports which step it used.
+`RetimeModel` (`delhi_transit.planner.rides`) loads `reports/selection.json` (`selected_rung = "4"`) and the native LightGBM + JSON artifact from `$DELHI_TRANSIT_DATA_DIR/model/` and applies the following causal fallback chain. Each leg reports which step it used.
 
 ### Live mode (`mode = "live"`)
 
-The background poller (`src/ps1/live_poller.py`) fetches `VehiclePositions.pb` from `dts-backend.transportstack.in` every 25 seconds (matching the feed's 20–30 s cadence) and writes per-route aggregates to `$PS1_DATA_DIR/live/route_stats.json` (`vehicle_count`, `fresh_vehicle_count`, `median_speed_mps`, `observed_coverage`) together with the timestamp and speed of every fresh entity. Freshness is measured from each entity timestamp, not from the protobuf header. It is checked at poll time and again at request time: the API drops entities that have aged past the limit since the last poll and recomputes the route aggregates and the fleet count from what remains, so a ride falls back to historical or timetable timing, or the request abstains with `insufficient_coverage`, when nothing fresh is left. The effective entity limit is `min(PS1_LIVE_ENTITY_MAX_AGE_S, PS1_LIVE_STALE_THRESHOLD_S)` (600 s with stock settings), so retained 11–15-minute-old positions cannot drive live timing. Transport failures are persisted and exposed only as fixed error categories; raw exception text is never written to poller state, `poller.log`, or `/live/status`.
+The background poller (`delhi_transit/live/poller.py`) fetches `VehiclePositions.pb` from `dts-backend.transportstack.in` every 25 seconds (matching the feed's 20–30 s cadence) and writes per-route aggregates to `$DELHI_TRANSIT_DATA_DIR/live/route_stats.json` (`vehicle_count`, `fresh_vehicle_count`, `median_speed_mps`, `observed_coverage`) together with the timestamp and speed of every fresh entity. Freshness is measured from each entity timestamp, not from the protobuf header. It is checked at poll time and again at request time: the API drops entities that have aged past the limit since the last poll and recomputes the route aggregates and the fleet count from what remains, so a ride falls back to historical or timetable timing, or the request abstains with `insufficient_coverage`, when nothing fresh is left. The effective entity limit is `min(DELHI_TRANSIT_LIVE_ENTITY_MAX_AGE_S, DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S)` (600 s with stock settings), so retained 11–15-minute-old positions cannot drive live timing. Transport failures are persisted and exposed only as fixed error categories; raw exception text is never written to poller state, `poller.log`, or `/live/status`.
 
 - **Covered corridor routes (`2170`, `2171` — 717A, shipped Rung 4 artifact):**
   - The leg is decomposed into its constituent pattern stretches. When `fresh_vehicle_count >= 1` on the route, live observations populate the causal speed/pace/headway features (`recent_same_direction_speed_mps = median_speed_mps`, `recent_same_direction_pace_ratio = clip(5.5 / median_speed_mps, 0.5, 2.5)`, `headway_s = clip(3600 / fresh_vehicle_count, 120, 1800)`), which the Rung 4 LightGBM boosters combine nonlinearly with the fitted `HistoricalMedianTable` (`dow_hour`, `hour`, `stretch` medians) and time-of-day features. Label: `source = "live"`, `timing_source = "model_live"`.
@@ -121,7 +121,7 @@ The background poller (`src/ps1/live_poller.py`) fetches `VehiclePositions.pb` f
 
 ### Replay mode (`mode = "replay"`, October 2026 departures)
 
-Replay mode reads strictly causal October observations (`to_ts <= depart_ts` and `available_at < depart_ts`) from `$PS1_DATA_DIR/passages/` and **never contacts the live feed** (`feed_summary.live_feed_contacted = false`). On covered routes (`2170`/`2171`), same-day causal passages populate `previous_error_s`, `recent_same_direction_speed_mps`, `headway_s`, `last_stop_delay_s`, and `last_stretch_error_s` for Rung 4 (`source = "replay"`, `timing_source = "model_replay"`). Response metadata names only passage files actually loaded. If no reconstructed observation exists before the request cutoff, replay returns `replay_data_unavailable` with null observation timestamps and age rather than presenting the request time as fresh data.
+Replay mode reads strictly causal October observations (`to_ts <= depart_ts` and `available_at < depart_ts`) from `$DELHI_TRANSIT_DATA_DIR/passages/` and **never contacts the live feed** (`feed_summary.live_feed_contacted = false`). On covered routes (`2170`/`2171`), same-day causal passages populate `previous_error_s`, `recent_same_direction_speed_mps`, `headway_s`, `last_stop_delay_s`, and `last_stretch_error_s` for Rung 4 (`source = "replay"`, `timing_source = "model_replay"`). Response metadata names only passage files actually loaded. If no reconstructed observation exists before the request cutoff, replay returns `replay_data_unavailable` with null observation timestamps and age rather than presenting the request time as fresh data.
 
 Replay ride timing follows one of two branches:
 
@@ -185,12 +185,12 @@ Per-day, per-direction `observed-only` MAE (seconds) and Rung 4 interval perform
 
 ## 5. Coverage Provenance and Abstention Behavior (Consistent with the API)
 
-Every `GET /journeys` response (`src/ps1/api.py`) carries response-level mode and freshness metadata and per-leg provenance, so clients can tell fallbacks and stale data apart from fresh live estimates. When `depart` is omitted, the request plans from the current Asia/Kolkata time in live mode. If replay is explicit (`mode=replay`, or `mode=auto` with `PS1_MODE=replay`), it plans from the scripted replay departure, 2026-10-22T08:30+05:30, in replay mode instead.
+Every `GET /journeys` response (`delhi_transit/api/routes.py`) carries response-level mode and freshness metadata and per-leg provenance, so clients can tell fallbacks and stale data apart from fresh live estimates. When `depart` is omitted, the request plans from the current Asia/Kolkata time in live mode. If replay is explicit (`mode=replay`, or `mode=auto` with `DELHI_TRANSIT_MODE=replay`), it plans from the scripted replay departure, 2026-10-22T08:30+05:30, in replay mode instead.
 
 ### Response-level provenance
 
 - `status`: `"ok"` or `"insufficient_data"`.
-- `mode`: `"live"` or `"replay"` (auto-selected as `"replay"` for October 2026 departures and `"live"` otherwise; explicitly overridable via `mode=live|replay` or `PS1_MODE`).
+- `mode`: `"live"` or `"replay"` (auto-selected as `"replay"` for October 2026 departures and `"live"` otherwise; explicitly overridable via `mode=live|replay` or `DELHI_TRANSIT_MODE`).
 - `feed_age_seconds`, `feed_timestamp`, `reference_timestamp`, `feed_summary`, `selected_rung` (`"4"`).
 
 ### Per-leg provenance (`options[].legs[]`)
@@ -207,14 +207,14 @@ Every leg exposes:
 
 ### Explicit abstention contract (`status = "insufficient_data"`)
 
-When fresh data is required and unavailable, the API **suppresses all options (`options: []`)** and returns an explicit `abstention` object with `label: "not enough data"`. The UI (`src/ps1/static/index.html`) clears `#options-list` and map polylines and shows the **Not enough data** panel with the reason, feed age and freshness threshold.
+When fresh data is required and unavailable, the API **suppresses all options (`options: []`)** and returns an explicit `abstention` object with `label: "not enough data"`. The React UI (`frontend/`, `AbstentionPanel`) clears `#options-list` and map polylines and shows the **Not enough data** panel with the reason, feed age and freshness threshold.
 
 | Abstention `code` | Trigger Condition | Default Threshold / Config |
 |---|---|---|
-| `feed_unavailable` | No `VehiclePositions` snapshot has been ingested in `live` mode | `$PS1_DATA_DIR/live/feed_state.json` missing |
-| `stale_feed` | `live` mode feed age exceeds freshness threshold | `PS1_LIVE_STALE_THRESHOLD_S=600` s (10 min default; overridable, e.g. `45` s for testing/demo) |
-| `insufficient_coverage` | `fresh_vehicle_count < min_vehicles` in `live` mode | `PS1_LIVE_MIN_VEHICLES=10` |
-| `insufficient_route_coverage` | No candidate has any route-level support, or the best candidate's average ride `observed_coverage` is below an optional additional floor | No-supported-route check always active; optional floor via `min_coverage` or `PS1_MIN_ROUTE_COVERAGE` (default `0.0`) |
+| `feed_unavailable` | No `VehiclePositions` snapshot has been ingested in `live` mode | `$DELHI_TRANSIT_DATA_DIR/live/feed_state.json` missing |
+| `stale_feed` | `live` mode feed age exceeds freshness threshold | `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=600` s (10 min default; overridable, e.g. `45` s for testing/demo) |
+| `insufficient_coverage` | `fresh_vehicle_count < min_vehicles` in `live` mode | `DELHI_TRANSIT_LIVE_MIN_VEHICLES=10` |
+| `insufficient_route_coverage` | No candidate has any route-level support, or the best candidate's average ride `observed_coverage` is below an optional additional floor | No-supported-route check always active; optional floor via `min_coverage` or `DELHI_TRANSIT_MIN_ROUTE_COVERAGE` (default `0.0`) |
 | `replay_data_unavailable` | No loaded reconstructed observation is visible before the replay cutoff | Null `feed_timestamp`, `reference_timestamp`, and `feed_age_seconds`; zero visible observations |
 
 Control endpoints `GET /live/status`, `POST /live/pause`, and `POST /live/resume` allow controlled stale-feed testing and immediate recovery polling without touching external services.

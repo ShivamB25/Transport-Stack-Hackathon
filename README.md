@@ -40,7 +40,7 @@ curl -sf http://localhost:3100/health
 
 ### Docker Compose
 
-`docker-compose.yml` defines `otp` (the `eclipse-temurin:21-jre` image running the bind-mounted OTP jar and graph), `api` (built from `Dockerfile`; Python 3.12 slim, uvicorn on port 3100, waits for a healthy `otp`) and an optional `otp-build` service under the `build` profile that runs `otp/build.sh` inside the container. Data and the graph are bind-mounted, and keys come from `.env` at runtime; neither is copied into an image. Host paths default to the native layout and can be changed with `DELHI_TRANSIT_HOST_DATA_DIR` and `DELHI_TRANSIT_HOST_OTP_DIR`. Ports bind to `127.0.0.1` unless `DELHI_TRANSIT_BIND_ADDR` is set.
+`docker-compose.yml` defines `otp` (the `eclipse-temurin:21-jre` image running the bind-mounted OTP jar and graph), `api` (built from the two-stage `Dockerfile`: an `oven/bun` stage builds `frontend/dist`, then a Python 3.12 slim stage installs the backend with `uv sync --frozen --no-dev` and runs uvicorn on port 3100 serving the API and the UI; it waits for a healthy `otp`) and an optional `otp-build` service under the `build` profile that runs `otp/build.sh` inside the container. Data and the graph are bind-mounted, and keys come from `.env` at runtime; neither is copied into an image. Host paths default to the native layout and can be changed with `DELHI_TRANSIT_HOST_DATA_DIR` and `DELHI_TRANSIT_HOST_OTP_DIR`. Ports bind to `127.0.0.1` unless `DELHI_TRANSIT_BIND_ADDR` is set.
 
 ```bash
 docker compose --profile build run --rm otp-build   # one-time graph build
