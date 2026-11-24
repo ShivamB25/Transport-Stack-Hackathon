@@ -13,14 +13,12 @@ from delhi_transit.core.config import IST, REPO_ROOT
 from delhi_transit.live.freshness import effective_entity_max_age_s, refresh_route_stat
 from delhi_transit.live.poller import read_live_route_stats
 from delhi_transit.model.artifact import LoadedModelArtifact, load_model_artifact
-from delhi_transit.model.features import (
+from delhi_transit.model.causal_core import (
     CausalFeatures,
-    PassageRow,
     RouteGeometry,
     build_route_geometry,
-    build_stretch_errors,
-    load_passages,
 )
+from delhi_transit.model.features import PassageRow, build_stretch_errors, load_passages
 from delhi_transit.model.selection import load_selected_rung
 from delhi_transit.planner.causal_context import (
     TimingRecord,

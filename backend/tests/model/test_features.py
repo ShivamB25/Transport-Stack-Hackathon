@@ -6,12 +6,12 @@ from datetime import datetime
 
 import pytest
 
+from delhi_transit.model.causal_core import build_route_geometry
 from delhi_transit.model.features import (
     IST,
     CausalityViolationError,
     PassageRow,
     build_replay_queries,
-    build_route_geometry,
     build_stretch_errors,
     extract_causal_features_for_query,
 )

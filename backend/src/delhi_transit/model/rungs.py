@@ -11,7 +11,8 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import HuberRegressor
 
-from delhi_transit.model.features import CausalFeatures, ReplayQuery, StretchError
+from delhi_transit.model.causal_core import CausalFeatures
+from delhi_transit.model.features import ReplayQuery, StretchError
 
 ALL_RUNGS: tuple[str, ...] = ("0", "1", "1h", "2", "3", "4")
 BASELINE_RUNGS: tuple[str, ...] = ("0", "1", "1h")

@@ -1,7 +1,6 @@
 """Stretch error tables and strictly time-ordered causal replay features."""
 from __future__ import annotations
 
-import math
 from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
@@ -9,66 +8,27 @@ from dataclasses import dataclass
 from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
-from statistics import median
 
 import duckdb
 
 from delhi_transit.core.config import IST
-from delhi_transit.core.geo import haversine_m
-
-RECENT_WINDOW_S = 1800
-MAX_VALID_SCHEDULE_DELAY_S = 21_600
-MAX_HEADWAY_S = 14_400
-
-DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-
-NUMERIC_FEATURE_NAMES: tuple[str, ...] = (
-    "remaining_stops",
-    "remaining_distance_m",
-    "stretch_distance_m",
-    "scheduled_duration_s",
-    "ping_age_s",
-    "from_observed",
-    "recent_vehicle_progress_ratio",
-    "recent_vehicle_speed_mps",
-    "last_stop_delay_s",
-    "last_stretch_error_s",
-    "previous_error_s",
-    "previous_error_age_s",
-    "previous_observed",
-    "recent_same_direction_speed_mps",
-    "recent_same_direction_pace_ratio",
-    "headway_s",
-    "hour",
-    "minute_of_day",
-    "tod_sin",
-    "tod_cos",
-    "day_of_week",
-    "is_weekend",
-    "route_id",
-    "from_sequence",
+from delhi_transit.model.causal_core import (
+    RECENT_WINDOW_S,
+    CausalFeatures,
+    RouteGeometry,
+    assemble_features,
+    build_route_geometry,
+    coarse_day_type,
+    headway_s,
+    pace_and_speed,
+    schedule_delay_s,
+    vehicle_progress,
 )
 
 
 class CausalityViolationError(ValueError):
     """Raised when feature construction receives non-causal future observations."""
 
-
-def day_type_for_timestamp(ts: int) -> tuple[int, str, str, float]:
-    """Return (day_of_week, day_type, coarse_day_type, is_weekend) in IST."""
-    dt = datetime.fromtimestamp(ts, IST)
-    dow = dt.weekday()
-    day_type = DAY_NAMES[dow]
-    if dow < 5:
-        coarse = "weekday"
-        is_weekend = 0.0
-    elif dow == 5:
-        coarse = "saturday"
-        is_weekend = 1.0
-    else:
-        coarse = "sunday"
-        is_weekend = 1.0
-    return dow, day_type, coarse, is_weekend
 
 
 @dataclass(frozen=True)
@@ -150,79 +110,12 @@ class StretchError:
         return datetime.fromtimestamp(self.query_ts, IST).weekday()
 
     @property
-    def day_type(self) -> str:
-        return DAY_NAMES[self.day_of_week]
-
-    @property
     def coarse_day_type(self) -> str:
-        dow = self.day_of_week
-        if dow < 5:
-            return "weekday"
-        return "saturday" if dow == 5 else "sunday"
+        return coarse_day_type(self.day_of_week)
 
     @property
     def target_observed(self) -> bool:
         return self.from_observed and self.to_observed
-
-
-@dataclass(frozen=True)
-class CausalFeatures:
-    """Strictly causal feature vector known at or before query_ts."""
-
-    remaining_stops: int
-    remaining_distance_m: float
-    stretch_distance_m: float
-    scheduled_duration_s: float
-    ping_age_s: float
-    from_observed: float
-    recent_vehicle_progress_ratio: float
-    recent_vehicle_speed_mps: float
-    last_stop_delay_s: float
-    last_stretch_error_s: float
-    previous_error_s: float
-    previous_error_age_s: float
-    previous_observed: float
-    recent_same_direction_speed_mps: float
-    recent_same_direction_pace_ratio: float
-    headway_s: float
-    hour: int
-    minute_of_day: int
-    tod_sin: float
-    tod_cos: float
-    day_of_week: int
-    day_type: str
-    coarse_day_type: str
-    is_weekend: float
-    route_id: int
-    from_sequence: int
-
-    def as_numeric_list(self) -> list[float]:
-        return [
-            float(self.remaining_stops),
-            float(self.remaining_distance_m),
-            float(self.stretch_distance_m),
-            float(self.scheduled_duration_s),
-            float(self.ping_age_s),
-            float(self.from_observed),
-            float(self.recent_vehicle_progress_ratio),
-            float(self.recent_vehicle_speed_mps),
-            float(self.last_stop_delay_s),
-            float(self.last_stretch_error_s),
-            float(self.previous_error_s),
-            float(self.previous_error_age_s),
-            float(self.previous_observed),
-            float(self.recent_same_direction_speed_mps),
-            float(self.recent_same_direction_pace_ratio),
-            float(self.headway_s),
-            float(self.hour),
-            float(self.minute_of_day),
-            float(self.tod_sin),
-            float(self.tod_cos),
-            float(self.day_of_week),
-            float(self.is_weekend),
-            float(self.route_id),
-            float(self.from_sequence),
-        ]
 
 
 @dataclass(frozen=True)
@@ -234,54 +127,6 @@ class ReplayQuery:
     previous_available_at: int | None = None
     previous_observed: bool = False
     features: CausalFeatures | None = None
-
-
-@dataclass(frozen=True)
-class RouteGeometry:
-    """Static route stop-sequence geometry known before any run starts."""
-
-    max_sequence: int
-    stretch_distances_m: dict[tuple[int, int], float]
-    remaining_distances_m: dict[int, float]
-
-
-def build_route_geometry(passages: Iterable[PassageRow]) -> dict[tuple[int, str], RouteGeometry]:
-    """Extract static per-route inter-stop and remaining distances from stop coordinates."""
-    coords_by_route: dict[tuple[int, str], dict[int, tuple[float, float]]] = defaultdict(dict)
-    max_seq_by_route: dict[tuple[int, str], int] = defaultdict(int)
-    for row in passages:
-        key = (row.route_id, row.direction)
-        max_seq_by_route[key] = max(max_seq_by_route[key], row.stop_sequence)
-        if (
-            row.stop_sequence not in coords_by_route[key]
-            and row.stop_lat is not None
-            and row.stop_lng is not None
-        ):
-            coords_by_route[key][row.stop_sequence] = (float(row.stop_lat), float(row.stop_lng))
-
-    geometries: dict[tuple[int, str], RouteGeometry] = {}
-    for key, max_seq in max_seq_by_route.items():
-        seq_coords = coords_by_route.get(key, {})
-        ordered_seqs = sorted(seq_coords)
-        stretch_distances: dict[tuple[int, int], float] = {}
-        for s1, s2 in pairwise(ordered_seqs):
-            lat1, lng1 = seq_coords[s1]
-            lat2, lng2 = seq_coords[s2]
-            stretch_distances[(s1, s2)] = haversine_m(lat1, lng1, lat2, lng2)
-        remaining: dict[int, float] = {}
-        running = 0.0
-        if ordered_seqs:
-            remaining[ordered_seqs[-1]] = 0.0
-            for idx in range(len(ordered_seqs) - 2, -1, -1):
-                s1, s2 = ordered_seqs[idx], ordered_seqs[idx + 1]
-                running += stretch_distances.get((s1, s2), 0.0)
-                remaining[s1] = running
-        geometries[key] = RouteGeometry(
-            max_sequence=max_seq,
-            stretch_distances_m=stretch_distances,
-            remaining_distances_m=remaining,
-        )
-    return geometries
 
 
 def load_passages(path: Path) -> list[PassageRow]:
@@ -439,141 +284,52 @@ def _compute_causal_features(
 ) -> CausalFeatures:
     """Compute CausalFeatures purely from validated causal inputs."""
     query_ts = current.query_ts
-    dt = datetime.fromtimestamp(query_ts, IST)
-    hour = dt.hour
-    minute_of_day = hour * 60 + dt.minute
-    angle = 2.0 * math.pi * minute_of_day / 1440.0
-    dow, day_type, coarse_day_type, is_weekend = day_type_for_timestamp(query_ts)
-
-    if geometry is not None:
-        remaining_stops = max(0, geometry.max_sequence - current.from_sequence)
-        stretch_distance_m = geometry.stretch_distances_m.get(
-            (current.from_sequence, current.to_sequence), math.nan
-        )
-        remaining_distance_m = geometry.remaining_distances_m.get(
-            current.from_sequence, math.nan
-        )
-    else:
-        remaining_stops = 0
-        stretch_distance_m = math.nan
-        remaining_distance_m = math.nan
+    from_available_at = (
+        current.query_ts if current.from_available_at is None else current.from_available_at
+    )
+    from_visible = current.from_observed and from_available_at < query_ts
+    observed: dict[str, float] = {
+        "from_observed": 1.0 if from_visible else 0.0,
+        "previous_error_s": float(previous_error_s),
+        "previous_observed": 1.0 if previous_observed else 0.0,
+    }
 
     observed_same_run = [p for p in same_run_passages if p.observed]
     if observed_same_run:
         last_obs = max(observed_same_run, key=lambda p: (p.stop_sequence, p.ts))
-        ping_age_s = float(max(0, query_ts - last_obs.ts))
-        raw_delay = last_obs.effective_schedule_error_s
-        last_stop_delay_s = (
-            float(raw_delay) if abs(raw_delay) <= MAX_VALID_SCHEDULE_DELAY_S else math.nan
-        )
-    elif (
-        current.from_observed
-        and (current.from_available_at if current.from_available_at is not None else current.query_ts)
-        < query_ts
-    ):
-        ping_age_s = 0.0
-        last_stop_delay_s = math.nan
-    else:
-        ping_age_s = math.nan
-        last_stop_delay_s = math.nan
+        observed["ping_age_s"] = float(max(0, query_ts - last_obs.ts))
+        observed["last_stop_delay_s"] = schedule_delay_s(last_obs.effective_schedule_error_s)
+    elif from_visible:
+        observed["ping_age_s"] = 0.0
 
     if same_run_stretches:
         ordered_prior = sorted(same_run_stretches, key=lambda s: s.from_sequence)
-        recent_prior = ordered_prior[-3:]
         obs_prior = [s for s in ordered_prior[-5:] if s.target_observed]
-        last_stretch = obs_prior[-1] if obs_prior else ordered_prior[-1]
-        last_stretch_error_s = float(last_stretch.error_s)
+        observed["last_stretch_error_s"] = float((obs_prior or ordered_prior)[-1].error_s)
+        (
+            observed["recent_vehicle_progress_ratio"],
+            observed["recent_vehicle_speed_mps"],
+        ) = vehicle_progress(ordered_prior[-3:], geometry)
 
-        sched_sum = sum(s.scheduled_duration_s for s in recent_prior)
-        act_sum = sum(s.actual_duration_s for s in recent_prior)
-        if sched_sum > 0:
-            recent_vehicle_progress_ratio = max(0.2, min(5.0, act_sum / sched_sum))
-        else:
-            recent_vehicle_progress_ratio = math.nan
+    other_pool = [s for s in recent_other_stretches if s.target_observed] or recent_other_stretches
+    (
+        observed["recent_same_direction_pace_ratio"],
+        observed["recent_same_direction_speed_mps"],
+    ) = pace_and_speed(other_pool, geometry)
 
-        if geometry is not None and act_sum > 0:
-            dist_pairs = [
-                (geometry.stretch_distances_m.get((s.from_sequence, s.to_sequence)), s.actual_duration_s)
-                for s in recent_prior
-            ]
-            valid_pairs = [(d, t) for d, t in dist_pairs if d is not None and d > 0 and t > 0]
-            if valid_pairs:
-                total_d = sum(d for d, _ in valid_pairs)
-                total_t = sum(t for _, t in valid_pairs)
-                recent_vehicle_speed_mps = max(0.1, min(30.0, total_d / total_t))
-            else:
-                recent_vehicle_speed_mps = math.nan
-        else:
-            recent_vehicle_speed_mps = math.nan
-    else:
-        last_stretch_error_s = math.nan
-        recent_vehicle_progress_ratio = math.nan
-        recent_vehicle_speed_mps = math.nan
-
-    if recent_other_stretches:
-        obs_other = [s for s in recent_other_stretches if s.target_observed]
-        pool = obs_other or recent_other_stretches
-        paces = [
-            max(0.2, min(5.0, s.actual_duration_s / s.scheduled_duration_s))
-            for s in pool
-            if s.scheduled_duration_s > 0
-        ]
-        recent_same_direction_pace_ratio = float(median(paces)) if paces else math.nan
-        if geometry is not None:
-            speeds = []
-            for s in pool:
-                dist = geometry.stretch_distances_m.get((s.from_sequence, s.to_sequence))
-                if dist is not None and dist > 0 and s.actual_duration_s > 0:
-                    speeds.append(max(0.1, min(30.0, dist / s.actual_duration_s)))
-            recent_same_direction_speed_mps = float(median(speeds)) if speeds else math.nan
-        else:
-            recent_same_direction_speed_mps = math.nan
-    else:
-        recent_same_direction_pace_ratio = math.nan
-        recent_same_direction_speed_mps = math.nan
-
-    previous_error_age_s = (
-        float(max(0, query_ts - previous_to_ts)) if previous_to_ts is not None else math.nan
-    )
+    if previous_to_ts is not None:
+        observed["previous_error_age_s"] = float(max(0, query_ts - previous_to_ts))
     if previous_stop_ts is not None:
-        gap = query_ts - previous_stop_ts
-        headway_s = float(gap) if 0 < gap <= MAX_HEADWAY_S else math.nan
-    else:
-        headway_s = math.nan
+        observed["headway_s"] = headway_s(query_ts - previous_stop_ts)
 
-    return CausalFeatures(
-        remaining_stops=remaining_stops,
-        remaining_distance_m=remaining_distance_m,
-        stretch_distance_m=stretch_distance_m,
-        scheduled_duration_s=float(current.scheduled_duration_s),
-        ping_age_s=ping_age_s,
-        from_observed=(
-            1.0
-            if current.from_observed
-            and (current.from_available_at if current.from_available_at is not None else current.query_ts)
-            < query_ts
-            else 0.0
-        ),
-        recent_vehicle_progress_ratio=recent_vehicle_progress_ratio,
-        recent_vehicle_speed_mps=recent_vehicle_speed_mps,
-        last_stop_delay_s=last_stop_delay_s,
-        last_stretch_error_s=last_stretch_error_s,
-        previous_error_s=float(previous_error_s),
-        previous_error_age_s=previous_error_age_s,
-        previous_observed=1.0 if previous_observed else 0.0,
-        recent_same_direction_speed_mps=recent_same_direction_speed_mps,
-        recent_same_direction_pace_ratio=recent_same_direction_pace_ratio,
-        headway_s=headway_s,
-        hour=hour,
-        minute_of_day=minute_of_day,
-        tod_sin=math.sin(angle),
-        tod_cos=math.cos(angle),
-        day_of_week=dow,
-        day_type=day_type,
-        coarse_day_type=coarse_day_type,
-        is_weekend=is_weekend,
+    return assemble_features(
+        when=datetime.fromtimestamp(query_ts, IST),
+        geometry=geometry,
         route_id=current.route_id,
         from_sequence=current.from_sequence,
+        to_sequence=current.to_sequence,
+        scheduled_duration_s=current.scheduled_duration_s,
+        **observed,
     )
 
 

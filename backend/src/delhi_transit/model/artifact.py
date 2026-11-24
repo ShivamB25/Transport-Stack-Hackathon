@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from delhi_transit.core.config import IST
-from delhi_transit.model.features import NUMERIC_FEATURE_NAMES, CausalFeatures
+from delhi_transit.model.causal_core import NUMERIC_FEATURE_NAMES, CausalFeatures
 from delhi_transit.model.lgbm import RUNG4_FEATURE_NAMES, Rung4QuantileLightGBMModel
 from delhi_transit.model.rungs import (
     BASELINE_RUNGS,

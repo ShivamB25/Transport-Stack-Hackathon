@@ -10,12 +10,8 @@ from typing import Any
 import lightgbm as lgb
 import numpy as np
 
-from delhi_transit.model.features import (
-    NUMERIC_FEATURE_NAMES,
-    CausalFeatures,
-    ReplayQuery,
-    StretchError,
-)
+from delhi_transit.model.causal_core import NUMERIC_FEATURE_NAMES, CausalFeatures
+from delhi_transit.model.features import ReplayQuery, StretchError
 from delhi_transit.model.rungs import (
     HistoricalMedianTable,
     Prediction,
