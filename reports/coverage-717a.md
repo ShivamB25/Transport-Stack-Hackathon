@@ -1,6 +1,6 @@
 # 717A stop-passage coverage
 
-Geometric reconstruction uses the dominant FULL GTFS pattern for 717AUP (route 2171) and 717ADOWN (route 2170). GPS trip IDs label runs only; they are not GTFS join keys. Candidate observations are within 60 m, with minimum distance per stop and a maximum-cardinality time-ordered anchor chain. Runs with fewer than two surviving anchors or an observed span over six hours are excluded. Gaps are schedule-proportionally interpolated; endpoints use schedule-rate extrapolation.
+Geometric reconstruction uses the dominant FULL GTFS pattern for 717AUP (route 2171) and 717ADOWN (route 2170). GPS trip IDs label runs only; they are not GTFS join keys. Candidate observations are within 60 m, with minimum distance per stop and a maximum-cardinality time-ordered anchor chain. Runs with fewer than two surviving anchors or an observed span over six hours are excluded. Gaps are schedule-proportionally interpolated; endpoints use schedule-rate extrapolation. Each passage's `available_at` is the latest of its own anchor rule, the run's second surviving anchor (when the run first qualifies), and the time after which every raw-GPS prefix reconstruction reproduces the published passage.
 
 Historical coverage on the older feed was approximately 46% UP and 42–48% DOWN. The percentages below are recomputed from this feed and these outputs.
 

@@ -3,6 +3,7 @@
 Status: version 1.0 frozen on 2026-11-23 before baseline fitting, prediction, or metric generation.
 Version: 1.1, amended on 2026-11-23 after the all-stop gate failure and before stratified results.
 Version: 1.2, amended on 2026-11-23 before causal re-evaluation on rebuilt passages (enforcing source-GPS `available_at` causality, shippable rung output domain `{"1", "2", "3", "4"}`, artifact as-of cutoff metadata, and explicit interval-width aggregation labels).
+Version: 1.3, amended on 2026-11-23 before regenerating results: `available_at` also waits for run qualification and raw-GPS prefix stability, and only `observed-only` decisions may be written to `selection.json`.
 
 ## Scope and directions
 
@@ -83,10 +84,21 @@ Scrutiny of version 1.1 results identified that interpolated stop passages becom
 
 The following clarifications are binding before regenerating results from the rebuilt 10-day passages:
 
-- **Source-GPS availability (`available_at`):** Every stop passage carries `available_at` (observed stop = own ping `ts`; interior interpolated stop = later anchor `ts`; extrapolated endpoint = anchor used). For all other-run inputs (persistence previous run, headway prior arrival, recent same-direction stretches), both event timestamps and `available_at` must be strictly earlier than `query_ts` (`ts < query_ts` and `available_at < query_ts`; for stretches, `max(from_available_at, to_available_at) < query_ts`). For same-run prior passages and stretches, `stop_sequence <= from_sequence`, event timestamps `< query_ts`, and `available_at < query_ts`. Thus an observation exactly at the query timestamp is not used as an already-available feature.
+- **Source-GPS availability (`available_at`):** Every stop passage carries `available_at` (observed stop = own ping `ts`; interior interpolated stop = later anchor `ts`; extrapolated endpoint = anchor used; tightened by amendment 1.3). For all other-run inputs (persistence previous run, headway prior arrival, recent same-direction stretches), both event timestamps and `available_at` must be strictly earlier than `query_ts` (`ts < query_ts` and `available_at < query_ts`; for stretches, `max(from_available_at, to_available_at) < query_ts`). For same-run prior passages and stretches, `stop_sequence <= from_sequence`, event timestamps `< query_ts`, and `available_at < query_ts`. Thus an observation exactly at the query timestamp is not used as an already-available feature.
 - **Shippable selection domain (`reports/selection.json` and API schema):** Evaluation reports score all six ladder rungs (`0`, `1`, `1h`, `2`, `3`, `4`) for full comparability. Rung `1h` (historical hourly median) is retained in all tables and `selection.json["candidates"]` as a **non-shippable historical baseline**. Shippable rungs are explicitly `{"1", "2", "3", "4"}`: the selection rule ships the highest rung in `("4", "3", "2")` whose held-out `observed-only` query-weighted MAE is strictly lower than rung `1` (persistence) at identical per-group observed-vs-interpolated coverage; otherwise rung `1` ships (including when only `1h` beats rung `1` and none of `2`, `3`, `4` beats rung `1`).
 - **Model artifact as-of eligibility:** Persisted model artifacts record their training cutoff day, calibration cutoff day, overall data cutoff day, and earliest causal eligibility timestamp (`eligible_from_day` / `eligible_from_ts`, starting at `00:00:00+05:30` IST on the calendar day after the latest training or calibration day, and strictly after the latest training/calibration observation availability). Replay requests earlier than an artifact's eligibility cutoff must not invoke that artifact.
 - **Cross-group interval width summary:** Per-day/direction rows report the exact group `median_interval_width_s`. In cross-group summaries derived solely from `eval-full.csv`, the query-weighted average of group medians is explicitly labelled `weighted_mean_group_median_width_s`; the exact pooled held-out `observed-only` median interval width is additionally computed from saved per-query predictions and reported in `selection.json` and `eval-full.md`.
+
+## Amendment 1.3 — run qualification and raw-GPS prefix availability
+
+Round-2 scrutiny found that the stored per-passage rule still admitted reconstruction decisions that depended on later GPS. A run is published only once it has two surviving anchors, yet its leading extrapolated passages were stamped with the first anchor's time. On 2026-10-22 at query `1792636652`, DOWN run `2170_08_04` had its first anchor at `1792636203` and its second at `1792636760`, so its extrapolated 0 s error replaced the +85 s persistence value from `2170_07_50`. Later anchors can also revise earlier stops through the maximum-cardinality anchor chain.
+
+Binding before regenerating results:
+
+- **As-of availability:** `available_at` is the latest of the amendment 1.2 per-passage rule, the run's second surviving anchor `ts`, and the ping after which every reconstruction from the raw GPS prefix reproduces the passage (same `ts`, `scheduled_ts` and `source`). All amendment 1.2 visibility rules apply unchanged to this stricter timestamp.
+- **Shipped stratum:** `reports/selection.json` can only be written from the `observed-only` stratum. Other strata may be printed for exploration but are never shipped, and the planner refuses a selection file from any other stratum.
+
+No model, hyperparameter, fallback, or split changed with this amendment.
 
 ## Outputs and explicit gate
 
