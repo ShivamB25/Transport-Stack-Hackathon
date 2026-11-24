@@ -220,6 +220,20 @@ def test_run_without_second_anchor_before_query_is_invisible_oct22_regression(tm
     full = reconstruct_run(pattern, "2170_08_04", late_pings, "2026-10-22")
     assert full is not None and min(p.available_at for p in full) == 1_792_636_760
 
+    # Qualified by +60 s, then a closer stop-0 ping at +180 s drops stop 0 from the anchor chain.
+    # The second-anchor rule alone would release the revised stop 0 at +120 s.
+    revised_pings = [
+        Ping(query_ts, stops[0].lat, stops[0].lng - 0.0002),
+        Ping(query_ts + 60, stops[1].lat, stops[1].lng),
+        Ping(query_ts + 120, stops[2].lat, stops[2].lng),
+        Ping(query_ts + 180, stops[0].lat, stops[0].lng),
+    ]
+    qualified = reconstruct_run(pattern, "2170_08_04", revised_pings[:3], "2026-10-22")
+    revised = reconstruct_run(pattern, "2170_08_04", revised_pings, "2026-10-22")
+    assert qualified is not None and qualified[0].source == "observed"
+    assert revised is not None and revised[0].source == "interpolated"
+    assert revised[0].available_at == query_ts + 180
+
     passages_path = tmp_path / "passages.parquet"
     reconstruct_day("2026-10-22", gps_path, {2170: pattern}, passages_path)
     passages = load_passages(passages_path)
