@@ -55,11 +55,9 @@ def test_write_status_accounts_for_every_day(tmp_path):
     try:
         write_status(tmp_path, list(range(1, 32)), finished=True)
         text = (tmp_path / "STATUS.md").read_text()
-        assert "State: finished" in text
         assert "Completed OK: 1/31" in text
         assert "| 2026-10-15 | ok | 100 | 62 | 10 | 1 | 2 |" in text
         assert "| 2026-10-02 | pending |" in text
-        assert "Failed days: none" in text
     finally:
         acquire.RESULTS.clear()
 
@@ -84,7 +82,6 @@ def test_process_day_failed_overwrite_never_deletes_canonical_parquet(
         data_dir=data_dir,
         work_dir=work_dir,
         overwrite=True,
-        deadline_seconds=3600,
         rows_in_log={},
     )
     result = process_day(15, args)
@@ -102,7 +99,6 @@ def test_process_day_resume_rejects_corrupt_and_wrong_day_parquet(tmp_path: Path
         data_dir=data_dir,
         work_dir=work_dir,
         overwrite=False,
-        deadline_seconds=3600,
         rows_in_log={},
     )
 

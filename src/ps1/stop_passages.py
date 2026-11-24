@@ -260,14 +260,6 @@ def interpolate_stop_times_and_availability(
     return result, [max(value, release_ts) for value in available_at]
 
 
-def interpolate_stop_times(
-    stops: Sequence[PatternStop], anchors: Sequence[Anchor]
-) -> list[int]:
-    """Interpolate all gaps by elapsed time per scheduled second between anchors."""
-    times, _ = interpolate_stop_times_and_availability(stops, anchors)
-    return times
-
-
 def build_passages(
     stops: Sequence[PatternStop], anchors: Sequence[Anchor], schedule_start_ts: int
 ) -> list[Passage]:

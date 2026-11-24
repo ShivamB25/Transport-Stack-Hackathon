@@ -177,7 +177,6 @@ def test_unbounded_read_rejected_and_valid_206_reads_work():
         buf = bytearray(300)
         assert reader.readinto(buf) == 300
         assert bytes(buf) == payload[2000:2300]
-        assert reader.nreq >= 2
     finally:
         reader.close()
         client.close()

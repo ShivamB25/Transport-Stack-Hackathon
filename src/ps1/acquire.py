@@ -27,7 +27,6 @@ DEFAULT_DAYS = [
 LOG_LOCK = threading.Lock()
 STATUS_LOCK = threading.Lock()
 RESULTS: dict[str, dict] = {}
-START = time.monotonic()
 
 LOG_LINE = re.compile(r"day=(\S+) status=ok rows_in=(\d+)")
 
@@ -127,8 +126,6 @@ def process_day(day: int, args: argparse.Namespace) -> dict:
             return result
         for attempt in range(1, 3):
             try:
-                if time.monotonic() - START > args.deadline_seconds:
-                    raise TimeoutError("pipeline deadline reached before extraction")
                 detail(f"{key} attempt {attempt}: extraction started")
                 outcome = run_day(day, args.data_dir, args.work_dir)
                 result.update(
@@ -148,7 +145,6 @@ def process_day(day: int, args: argparse.Namespace) -> dict:
             except Exception as exc:  # noqa: BLE001 - one day's failure must not kill the pool
                 result["error"] = f"attempt {attempt}: {type(exc).__name__}: {exc}"
                 detail(f"{key} attempt {attempt} failed: {exc}")
-                output_path.with_suffix(".tmp.parquet").unlink(missing_ok=True)
                 if attempt == 2:
                     traceback.print_exc()
         return result
@@ -166,7 +162,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=2, choices=[1, 2])
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--work-dir", type=Path, default=WORK_DIR)
-    parser.add_argument("--deadline-seconds", type=int, default=5400)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -182,16 +177,9 @@ def main() -> int:
     detail(f"pipeline started for {len(args.days)} days with {args.workers} workers")
     write_status(args.data_dir, args.days)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(process_day, day, args): day for day in args.days}
+        futures = [pool.submit(process_day, day, args) for day in args.days]
         for future in concurrent.futures.as_completed(futures):
-            day = futures[future]
-            try:
-                result = future.result()
-            except Exception as exc:  # noqa: BLE001 - synthesize a failed result
-                result = {
-                    "day": day_key(day), "status": "failed",
-                    "seconds": 0.0, "error": f"worker error: {exc}",
-                }
+            result = future.result()
             with STATUS_LOCK:
                 RESULTS[result["day"]] = result
             final_log(args.data_dir, result)

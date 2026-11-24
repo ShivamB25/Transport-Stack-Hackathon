@@ -48,7 +48,6 @@ class HTTPRangeFile(io.RawIOBase):
         self.size = int(response.headers["content-length"])
         self.pos = 0
         self.cache: dict[int, bytes] = {}
-        self.nreq = 0
         self.nbytes = 0
 
     def readable(self) -> bool:
@@ -127,7 +126,6 @@ class HTTPRangeFile(io.RawIOBase):
                         raise OSError(
                             f"short range response: got {len(buf)}, expected {expected}"
                         )
-                    self.nreq += 1
                     self.nbytes += len(buf)
                     return bytes(buf)
             except NonRangeResponseError:
@@ -177,8 +175,6 @@ class HTTPRangeFile(io.RawIOBase):
                 block = self.cache[block_number]
                 offset = p - block_number * self.block
                 chunk = block[offset : offset + (end - p)]
-                if not chunk:
-                    raise OSError("empty range cache chunk")
                 out += chunk
                 p += len(chunk)
             data = bytes(out)
