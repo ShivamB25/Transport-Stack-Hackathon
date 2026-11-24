@@ -132,6 +132,17 @@ def test_rung4_quantile_ordering_calibration_and_artifact_roundtrip(tmp_path: Pa
         assert math.isclose(p_loaded.p90_s or 0.0, p_orig.p90_s or 0.0, abs_tol=1e-6)
 
 
+def test_removed_rung_artifact_is_ignored(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "metadata.json").write_text(
+        json.dumps({"selected_rung": "3", "covered_routes": [2171]}), encoding="utf-8"
+    )
+    with caplog.at_level("WARNING", logger="delhi_transit.model.artifact"):
+        assert load_model_artifact(model_dir) is None
+    assert "unsupported rung '3'" in caplog.text
+
+
 def _metric_row(day: str, direction: str, rung: str, mae: float, queries: int = 100) -> dict:
     return {
         "day": day,
