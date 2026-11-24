@@ -197,7 +197,6 @@ def test_connection_clock_next_bus_penalty_walk_and_endpoints(with_walk: bool) -
 
     assert baseline_transfer["from_stop"] == "Sunder Nagar"
     assert baseline_transfer["to_stop"] == "Sunder Nagar Bay"
-    assert baseline_transfer["to_stop"] != "Nehru Place"
     assert baseline_transfer["from_lat"] == 28.6000
     assert baseline_transfer["to_lat"] == 28.6005
     assert baseline_transfer["geometry"] is None

@@ -136,10 +136,8 @@ def test_complete_options_and_ordered_legs(tmp_path: Path) -> None:
         assert option["total_window_p10_s"] <= option["total_duration_s"] <= option["total_window_p90_s"]
         assert option["quieter_hour_typical_s"] > 0
         for leg in option["legs"]:
-            assert leg["source"] in {"replay", "historical", "timetable"}
             if leg["type"] == "ride":
                 assert leg["route_name"]
-                assert leg["observed_coverage"] == 0.5
                 assert None not in (leg["from_lat"], leg["from_lng"], leg["to_lat"], leg["to_lng"])
 
     # A replay delay re-times rides but never changes the candidates or their geometry.

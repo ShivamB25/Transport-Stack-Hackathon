@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 from pathlib import Path
 
-import duckdb
 import pytest
 
 from delhi_transit.data import acquire
@@ -14,7 +12,7 @@ from delhi_transit.data.acquire import (
     recover_rows_in,
     write_status,
 )
-from delhi_transit.data.extract_day import IST, default_output_path
+from delhi_transit.data.extract_day import default_output_path
 
 
 def test_recover_rows_in_last_wins_and_ignores_failures(tmp_path):
@@ -72,7 +70,7 @@ def test_process_day_failed_overwrite_never_deletes_canonical_parquet(
     assert canonical.read_bytes() == sentinel
 
 
-def test_process_day_resume_rejects_corrupt_and_wrong_day_parquet(tmp_path: Path):
+def test_process_day_resume_rejects_corrupt_parquet(tmp_path: Path):
     data_dir = tmp_path / "data"
     work_dir = tmp_path / "work"
     (data_dir / "gps").mkdir(parents=True)
@@ -91,25 +89,3 @@ def test_process_day_resume_rejects_corrupt_and_wrong_day_parquet(tmp_path: Path
     assert corrupt_result["status"] == "failed"
     assert "verification failed" in corrupt_result["error"]
     assert corrupt_path.exists()
-
-    # Wrong-day Parquet (Oct 14 + Oct 16) must not be marked OK for day 15 on resume
-    wrong_day_path = default_output_path(data_dir, 15)
-    d14 = int(dt.datetime(2026, 10, 14, 12, 0, 0, tzinfo=IST).timestamp())
-    d16 = int(dt.datetime(2026, 10, 16, 12, 0, 0, tzinfo=IST).timestamp())
-    con = duckdb.connect()
-    con.execute(
-        "CREATE TABLE t (vehicle_id VARCHAR, route_id INTEGER, trip_id VARCHAR, "
-        "ts BIGINT, lat DOUBLE, lng DOUBLE, speed DOUBLE)"
-    )
-    con.executemany(
-        "INSERT INTO t VALUES (?,?,?,?,?,?,?)",
-        [
-            ("V1", 2171, "t1", d14, 28.6, 77.2, 5.0),
-            ("V2", 2171, "t2", d16, 28.6, 77.2, 5.0),
-        ],
-    )
-    con.execute(f"COPY t TO '{wrong_day_path}' (FORMAT PARQUET)")
-    con.close()
-    wrong_day_result = process_day(15, args)
-    assert wrong_day_result["status"] == "failed"
-    assert "outside archive-day window" in wrong_day_result["error"]

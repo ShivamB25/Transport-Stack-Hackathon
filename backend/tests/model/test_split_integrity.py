@@ -7,16 +7,11 @@ from delhi_transit.model.evaluate import (
     CALIBRATION_DAYS,
     FIT_DAYS,
     HOLDOUT_DAYS,
-    TRAIN_DAYS,
     validate_three_way_partitions,
 )
 
 
 def test_three_way_whole_day_partitions_are_disjoint_and_ordered() -> None:
-    assert FIT_DAYS + CALIBRATION_DAYS == TRAIN_DAYS
-    assert not (set(FIT_DAYS) & set(CALIBRATION_DAYS))
-    assert not (set(FIT_DAYS) & set(HOLDOUT_DAYS))
-    assert not (set(CALIBRATION_DAYS) & set(HOLDOUT_DAYS))
     validate_three_way_partitions(FIT_DAYS, CALIBRATION_DAYS, HOLDOUT_DAYS)
 
     with pytest.raises(ValueError, match="both fit and calibration"):

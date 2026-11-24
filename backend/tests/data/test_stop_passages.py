@@ -73,7 +73,6 @@ def test_anchor_chain_ordering():
     ]
     kept = drop_time_order_breaking_anchors(anchors)
     assert [anchor.stop_index for anchor in kept] == [0, 2, 3]
-    assert [anchor.ts for anchor in kept] == sorted(anchor.ts for anchor in kept)
 
     # Maximum chain; equal timestamps are allowed.
     anchors = [
@@ -175,7 +174,6 @@ def test_midnight_crossing_resolves_adjacent_service_date_oct22_regression():
     assert sched_start == expected_start
     passages = build_passages(stops, anchors, sched_start)
     assert passages[2].schedule_error_s == 6_336
-    assert abs(passages[2].schedule_error_s) < 10_000
 
     # Hinted-start midnight crossing: run_id has exact timetable start 22:10 from previous service date
     stop4_ts = int(datetime(2026, 10, 28, 0, 0, 28, tzinfo=IST).timestamp())

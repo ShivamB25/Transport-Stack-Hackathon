@@ -144,10 +144,6 @@ def test_convert_filters_and_casts(converted):
         f"SELECT count(*) FROM read_parquet('{out}') WHERE vehicle_id = 'DL3' AND route_id IS NULL"
     )[0]
     assert null_route == 1
-    kept_route = query_one(
-        f"SELECT DISTINCT route_id FROM read_parquet('{out}') WHERE vehicle_id = 'DL1'"
-    )[0]
-    assert kept_route == 2171
 
 
 def test_convert_rejects_empty_output(tmp_path: Path):

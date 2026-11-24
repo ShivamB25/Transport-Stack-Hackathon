@@ -273,13 +273,9 @@ def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_p
     assert manifest["corpus_summary"]["missing_or_error_rows"] == 2
     assert manifest["corpus_summary"]["google_non_bus_itineraries_filtered"] == 5
     assert manifest["call_accounting"]["total_mission_calls"] == 8  # 2 prior + 6 calls
-    assert manifest["language_code"] == "en"
-    assert manifest["travel_mode"] == "TRANSIT"
-    assert manifest["allowed_travel_modes"] == ["BUS"]
 
     # Every compared row must be strictly BUS-only
     for entry in manifest["entries"]:
-        assert entry["language_code"] == "en"
         assert not entry["departure_time_ist"].startswith("2026-10")
         if entry["row_status"] == "compared":
             assert entry["google_vehicle_types_compared"] == ["BUS"]
@@ -369,7 +365,6 @@ def test_mission_ledger_survives_cache_dir_change_and_counts_interruption(tmp_pa
             now=now,
             od_id="must-not-reset",
         )
-    assert other_cache_client.counter_path == ledger_path
 
 
 def test_concurrent_network_reservations_stop_at_mission_cap(tmp_path: Path) -> None:

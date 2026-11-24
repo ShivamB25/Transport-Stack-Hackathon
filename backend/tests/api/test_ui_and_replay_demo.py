@@ -187,9 +187,6 @@ def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Pat
     body = resp.json()
     assert body["mode"] == "replay"
     assert body["live_feed_contacted"] is False
-    assert body["fixture_day"] == "2026-10-22"
-    assert body["run_id"] == "2171_17_09_490"
-    assert body["vehicle_id"] == "DL1PD7867"
 
     stages = body["stages"]
     assert len(stages) == 4

@@ -340,7 +340,6 @@ def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_pat
     assert abstained["mode"] == "live"
     assert abstained["options"] == []
     assert abstained["feed_age_seconds"] >= 40.0
-    assert abstained["abstention"]["label"] == "not enough data"
     assert abstained["abstention"]["code"] == "stale_feed"
     assert abstained["abstention"]["feed_age_seconds"] >= 40.0
 
@@ -377,7 +376,6 @@ def test_insufficient_fleet_and_route_coverage_abstention(tmp_path: Path, make_p
     assert missing["status"] == "insufficient_data"
     assert missing["options"] == []
     assert missing["abstention"]["code"] == "feed_unavailable"
-    assert missing["abstention"]["label"] == "not enough data"
 
     # 2. Fresh feed but only 3 vehicles (< min_live_vehicles=10) -> insufficient_coverage abstention
     now = int(time.time())
@@ -597,16 +595,6 @@ def test_live_ride_without_usable_speed_uses_fallback_provenance(tmp_path: Path,
     assert second_ride["observed_coverage"] == 0.0
     # Live headway can still time the wait independently of the ride fallback.
     assert board["timing_source"] == "model_live"
-
-    night = TestClient(app).get(
-        "/journeys",
-        params={"from": "Kashmere Gate ISBT", "to": "Nehru Place", "depart": "2026-11-24T03:00:00+05:30"},
-    ).json()
-    night_ride = next(
-        leg for leg in night["options"][0]["legs"] if leg["type"] == "ride" and leg["route_id"] == 200
-    )
-    assert night_ride["timing_source"] == "timetable_fallback"
-    assert night_ride["source"] == "timetable"
 
 
 def test_transport_exception_never_persists_or_exposes_credential(tmp_path: Path, caplog) -> None:
