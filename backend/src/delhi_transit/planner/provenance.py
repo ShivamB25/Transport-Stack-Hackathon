@@ -89,3 +89,19 @@ def fresh_vehicle_count(live_stat: dict[str, Any] | None) -> int:
 
 def live_coverage(live_stat: dict[str, Any]) -> float:
     return max(0.0, min(1.0, round(float(live_stat.get("observed_coverage", 1.0)), 4)))
+
+
+def option_has_supported_route(option: dict[str, Any]) -> bool:
+    """A journey is supported when at least one ride has route-level observations."""
+    return any(
+        leg.get("type") == "ride" and float(leg.get("observed_coverage") or 0.0) > 0.0
+        for leg in option.get("legs", [])
+    )
+
+
+def option_ride_coverage(option: dict[str, Any]) -> float:
+    """Mean observed coverage over the option's rides (0 when it has none)."""
+    rides = [leg for leg in option.get("legs", []) if leg.get("type") == "ride"]
+    if not rides:
+        return 0.0
+    return round(sum(float(leg.get("observed_coverage") or 0.0) for leg in rides) / len(rides), 4)

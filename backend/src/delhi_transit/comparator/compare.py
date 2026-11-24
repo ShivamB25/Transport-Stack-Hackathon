@@ -26,6 +26,7 @@ from delhi_transit.comparator.slots import (
 )
 from delhi_transit.core.config import IST
 from delhi_transit.core.time import utc_z
+from delhi_transit.planner.provenance import option_has_supported_route
 
 
 def query_our_api(
@@ -64,7 +65,18 @@ def query_our_api(
             "our_error": abstention.get("reason") or "no options returned",
         }
 
-    top = options[0]
+    # Compare the option the support gate accepts, never an unsupported one that merely
+    # rides along with a supported alternative in the same response.
+    supported = [index for index, option in enumerate(options) if option_has_supported_route(option)]
+    if not supported:
+        return {
+            "our_status": "unsupported_options",
+            "our_mode": body.get("mode"),
+            "our_selected_rung": body.get("selected_rung"),
+            "our_error": "status ok but no returned option has a supported route",
+        }
+    option_index = supported[0]
+    top = options[option_index]
     legs = top.get("legs") or []
     ride_legs = [leg for leg in legs if leg.get("type") == "ride"]
     board_wait_s = sum(int(leg.get("estimated_duration_s") or 0) for leg in legs if leg.get("type") == "board")
@@ -88,9 +100,31 @@ def query_our_api(
         "our_routes": routes,
         "our_transfers": max(0, len(ride_legs) - 1),
         "our_timing_sources": timing_sources,
+        "our_ride_observed_coverage": [float(leg.get("observed_coverage") or 0.0) for leg in ride_legs],
+        "our_option_index": option_index,
         "our_option_count": len(options),
         "our_error": None,
     }
+
+
+# Inputs collected before per-ride coverage was frozen record only route names and timing
+# sources. Stop passages exist only for 717A, so a ride there carries observed coverage in
+# every non-timetable source; elsewhere only a model_live ride can (live vehicle share).
+_LEGACY_OBSERVED_ROUTE_NAMES = frozenset({"717AUP", "717ADOWN"})
+
+
+def reported_option_supported(our_res: dict[str, Any]) -> bool | None:
+    """Whether the compared option passes the API support gate (None when nothing was compared)."""
+    if our_res.get("our_status") != "ok":
+        return None
+    coverage = our_res.get("our_ride_observed_coverage")
+    if coverage is not None:
+        return any(float(value) > 0.0 for value in coverage)
+    sources = set(our_res.get("our_timing_sources") or [])
+    if "model_live" in sources:
+        return True
+    routes = set(our_res.get("our_routes") or [])
+    return bool(routes & _LEGACY_OBSERVED_ROUTE_NAMES) and sources != {"timetable_fallback"}
 
 
 def evaluate_slot_comparison(
@@ -118,7 +152,8 @@ def evaluate_slot_comparison(
     else:
         google_status = "no_routes"
 
-    our_dur = our_res.get("our_total_duration_s")
+    reported_supported = reported_option_supported(our_res)
+    our_dur = our_res.get("our_total_duration_s") if reported_supported is not False else None
     google_dur = best_google.get("duration_s") if best_google else None
 
     note_parts: list[str] = []
@@ -138,7 +173,9 @@ def evaluate_slot_comparison(
         abs_diff_s = None
         diff_excl_board_s = None
         in_window = None
-        if our_dur is None and google_dur is None:
+        if reported_supported is False:
+            row_status = "our_unsupported_option"
+        elif our_dur is None and google_dur is None:
             row_status = "both_missing"
         elif our_dur is None:
             row_status = f"our_{our_res.get('our_status', 'error')}"
@@ -151,6 +188,11 @@ def evaluate_slot_comparison(
 
     if our_res.get("our_error"):
         note_parts.append(f"our: {our_res['our_error']}")
+    if reported_supported is False:
+        note_parts.append(
+            "our: reported option has no route-level observations (support gate); "
+            "excluded from comparison"
+        )
     if google_err:
         note_parts.append(f"google: {google_err}")
     elif google_status == "no_bus_only_route":
@@ -190,6 +232,8 @@ def evaluate_slot_comparison(
         "our_routes": " + ".join(our_res.get("our_routes") or []),
         "our_transfers": our_res.get("our_transfers"),
         "our_timing_sources": ",".join(our_res.get("our_timing_sources") or []),
+        "our_option_index": our_res.get("our_option_index"),
+        "our_option_supported": reported_supported,
         "google_status": google_status,
         "google_http_status": google_http,
         "google_duration_s": google_dur,
@@ -239,6 +283,7 @@ def evaluate_slot_comparison(
         "google_excluded_vehicle_types": parsed.get("excluded_vehicle_types") or [],
         "google_vehicle_types_compared": best_google.get("vehicle_types", []) if best_google else [],
         "our_status": our_res.get("our_status"),
+        "our_option_supported": reported_supported,
         "row_status": row_status,
         "note": "; ".join(note_parts),
     }
