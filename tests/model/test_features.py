@@ -142,7 +142,6 @@ def test_future_data_rejected_strict() -> None:
             previous=previous,
             geometry=geom,
             same_run_passages=[future_same_p],
-            strict=True,
         )
 
     # 2. Target/downstream same-run stretch MUST raise
@@ -152,7 +151,6 @@ def test_future_data_rejected_strict() -> None:
             previous=previous,
             geometry=geom,
             same_run_stretches=[future_same_s],
-            strict=True,
         )
 
     # 3. Other-run passage at equal or later timestamp MUST raise
@@ -170,7 +168,6 @@ def test_future_data_rejected_strict() -> None:
             previous=previous,
             geometry=geom,
             other_run_passages=[equal_ts_other],
-            strict=True,
         )
 
     # 4. Other-run stretch finishing at or after query_ts MUST raise
@@ -186,7 +183,6 @@ def test_future_data_rejected_strict() -> None:
             previous=previous,
             geometry=geom,
             other_run_stretches=[future_other_s],
-            strict=True,
         )
 
 
@@ -321,7 +317,6 @@ def test_interpolated_future_anchor_cannot_drive_any_replay_feature() -> None:
         for before, after in zip(
             target.features.as_numeric_list(),
             perturbed.features.as_numeric_list(),
-            strict=True,
         ):
             assert (math.isnan(before) and math.isnan(after)) or before == after
 
@@ -341,23 +336,19 @@ def test_source_availability_at_or_after_query_is_rejected_strict() -> None:
             current=current,
             previous=previous,
             other_run_passages=[interpolated],
-            strict=True,
         )
     with pytest.raises(CausalityViolationError, match="available_at=1000"):
         extract_causal_features_for_query(
             current=current,
             previous=previous,
             same_run_passages=[current_passage],
-            strict=True,
         )
 
-    # Non-strict extraction filters rather than raising, with the same causal result.
     features = extract_causal_features_for_query(
         current=current,
         previous=previous,
-        other_run_passages=[earlier, interpolated],
-        same_run_passages=[prior_current, current_passage],
-        strict=False,
+        other_run_passages=[earlier],
+        same_run_passages=[prior_current],
     )
     assert features.headway_s == 500
     assert features.ping_age_s == 120

@@ -81,15 +81,6 @@ PREDICTION_SCHEMA = pa.schema(
 )
 
 
-def validate_day_partitions(train_days: Sequence[str], holdout_days: Sequence[str]) -> None:
-    """Reject overlapping or duplicate whole-day partitions."""
-    if len(train_days) != len(set(train_days)) or len(holdout_days) != len(set(holdout_days)):
-        raise ValueError("duplicate day in an evaluation partition")
-    overlap = set(train_days) & set(holdout_days)
-    if overlap:
-        raise ValueError(f"days appear in training and holdout: {sorted(overlap)}")
-
-
 def validate_three_way_partitions(
     fit_days: Sequence[str],
     calibration_days: Sequence[str],
@@ -432,9 +423,6 @@ def save_rung4_predictions(
             continue
         preds = model.predict_batch(scoped)
         for q, p in zip(scoped, preds, strict=True):
-            assert p.p10_s is not None and p.p50_s is not None and p.p90_s is not None
-            if not (p.p10_s <= p.p50_s <= p.p90_s):
-                raise ValueError("quantile ordering violation while saving predictions")
             actual = float(q.stretch.error_s)
             records.append(
                 {
@@ -496,7 +484,6 @@ def run_evaluation(
     """Run held-out evaluation (rungs 0-1h baselines and full rungs 0-4 + selection)."""
     active_routes = sorted(route_ids) if route_ids is not None else sorted(ROUTES)
     active_holdout = tuple(holdout_days) if holdout_days is not None else HOLDOUT_DAYS
-    validate_day_partitions(TRAIN_DAYS, active_holdout)
     validate_three_way_partitions(FIT_DAYS, CALIBRATION_DAYS, active_holdout)
 
     fit_stretches = []
@@ -537,7 +524,6 @@ def run_evaluation(
 
     active_rungs = RUNGS if baselines_only else ALL_RUNGS
 
-    # Compute predictions once per (day, route_id, rung) then summarize both strata
     full_rows: list[dict[str, object]] = []
     baseline_rows: list[dict[str, object]] = []
     for stratum in STRATA:

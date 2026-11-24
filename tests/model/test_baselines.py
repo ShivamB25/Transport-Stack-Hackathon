@@ -12,7 +12,6 @@ from ps1.evaluate import (
     persistence_gate,
     select_stratum,
     summarize,
-    validate_day_partitions,
 )
 from ps1.features import (
     IST,
@@ -78,7 +77,7 @@ def stretch(
 
 
 def query(item: StretchError, previous_error_s: int = 0) -> ReplayQuery:
-    return ReplayQuery(item, previous_error_s, "previous", "previous-run")
+    return ReplayQuery(item, previous_error_s, "previous-run")
 
 
 def test_stretch_error_table_uses_adjacent_stop_durations() -> None:
@@ -237,8 +236,3 @@ def test_frozen_partitions_are_disjoint_whole_days() -> None:
     )
     assert HOLDOUT_DAYS == ("2026-10-22", "2026-10-27", "2026-10-28")
     assert not {"2026-10-02", "2026-10-20", "2026-10-26"} & set(TRAIN_DAYS)
-    validate_day_partitions(TRAIN_DAYS, HOLDOUT_DAYS)
-    with pytest.raises(ValueError, match="training and holdout"):
-        validate_day_partitions(("2026-10-05",), ("2026-10-05",))
-    with pytest.raises(ValueError, match="duplicate day"):
-        validate_day_partitions(("2026-10-05", "2026-10-05"), HOLDOUT_DAYS)

@@ -229,7 +229,6 @@ class CausalFeatures:
 class ReplayQuery:
     stretch: StretchError
     previous_error_s: int
-    previous_vehicle_id: str
     previous_run_id: str
     previous_to_ts: int | None = None
     previous_available_at: int | None = None
@@ -459,7 +458,6 @@ def _compute_causal_features(
         stretch_distance_m = math.nan
         remaining_distance_m = math.nan
 
-    # Ping age and last observed stop delay on this run (strictly <= query_ts and <= from_sequence)
     observed_same_run = [p for p in same_run_passages if p.observed]
     if observed_same_run:
         last_obs = max(observed_same_run, key=lambda p: (p.stop_sequence, p.ts))
@@ -479,7 +477,6 @@ def _compute_causal_features(
         ping_age_s = math.nan
         last_stop_delay_s = math.nan
 
-    # Recent vehicle progress & last stretch error on this run (strictly to_sequence <= from_sequence)
     if same_run_stretches:
         ordered_prior = sorted(same_run_stretches, key=lambda s: s.from_sequence)
         recent_prior = ordered_prior[-3:]
@@ -513,7 +510,6 @@ def _compute_causal_features(
         recent_vehicle_progress_ratio = math.nan
         recent_vehicle_speed_mps = math.nan
 
-    # Recent same-direction traffic speed & pace from other completed runs in [query_ts-1800, query_ts)
     if recent_other_stretches:
         obs_other = [s for s in recent_other_stretches if s.target_observed]
         pool = obs_other or recent_other_stretches
@@ -536,7 +532,6 @@ def _compute_causal_features(
         recent_same_direction_pace_ratio = math.nan
         recent_same_direction_speed_mps = math.nan
 
-    # Previous run age & headway
     previous_error_age_s = (
         float(max(0, query_ts - previous_to_ts)) if previous_to_ts is not None else math.nan
     )
@@ -591,63 +586,22 @@ def extract_causal_features_for_query(
     same_run_stretches: Sequence[StretchError] = (),
     other_run_passages: Sequence[PassageRow] = (),
     other_run_stretches: Sequence[StretchError] = (),
-    strict: bool = True,
 ) -> CausalFeatures:
-    """Build CausalFeatures for one query; raises CausalityViolationError if strict and future data appears."""
-    if strict:
-        validate_causal_observations(
-            query_ts=current.query_ts,
-            run_key=current.run_key,
-            from_sequence=current.from_sequence,
-            same_run_passages=same_run_passages,
-            same_run_stretches=same_run_stretches,
-            other_run_passages=other_run_passages,
-            other_run_stretches=[previous, *other_run_stretches],
-        )
-        valid_same_p = same_run_passages
-        valid_same_s = same_run_stretches
-        valid_other_p = other_run_passages
-        valid_other_s = other_run_stretches
-    else:
-        valid_same_p = [
-            p
-            for p in same_run_passages
-            if p.run_key == current.run_key
-            and p.ts < current.query_ts
-            and p.source_available_at < current.query_ts
-            and p.stop_sequence <= current.from_sequence
-        ]
-        valid_same_s = [
-            s
-            for s in same_run_stretches
-            if s.run_key == current.run_key
-            and s.to_ts < current.query_ts
-            and s.query_ts < current.query_ts
-            and s.available_at < current.query_ts
-            and s.to_sequence <= current.from_sequence
-        ]
-        valid_other_p = [
-            p
-            for p in other_run_passages
-            if (
-                p.run_key != current.run_key
-                and p.ts < current.query_ts
-                and p.source_available_at < current.query_ts
-            )
-        ]
-        valid_other_s = [
-            s
-            for s in other_run_stretches
-            if s.run_key != current.run_key
-            and s.query_ts < current.query_ts
-            and s.to_ts < current.query_ts
-            and s.available_at < current.query_ts
-        ]
+    """Build CausalFeatures for one query; raises CausalityViolationError if future data appears."""
+    validate_causal_observations(
+        query_ts=current.query_ts,
+        run_key=current.run_key,
+        from_sequence=current.from_sequence,
+        same_run_passages=same_run_passages,
+        same_run_stretches=same_run_stretches,
+        other_run_passages=other_run_passages,
+        other_run_stretches=[previous, *other_run_stretches],
+    )
 
     window_start = current.query_ts - RECENT_WINDOW_S
     recent_other = [
         s
-        for s in valid_other_s
+        for s in other_run_stretches
         if s.day == current.day
         and s.route_id == current.route_id
         and s.direction == current.direction
@@ -655,7 +609,7 @@ def extract_causal_features_for_query(
     ]
     same_stop_passages = [
         p.ts
-        for p in valid_other_p
+        for p in other_run_passages
         if p.day == current.day
         and p.route_id == current.route_id
         and p.direction == current.direction
@@ -664,7 +618,7 @@ def extract_causal_features_for_query(
     if not same_stop_passages:
         same_stop_passages = [
             s.query_ts
-            for s in valid_other_s
+            for s in other_run_stretches
             if s.day == current.day
             and s.route_id == current.route_id
             and s.direction == current.direction
@@ -678,8 +632,8 @@ def extract_causal_features_for_query(
         previous_to_ts=previous.to_ts,
         previous_observed=previous.target_observed,
         geometry=geometry,
-        same_run_passages=valid_same_p,
-        same_run_stretches=valid_same_s,
+        same_run_passages=same_run_passages,
+        same_run_stretches=same_run_stretches,
         recent_other_stretches=recent_other,
         previous_stop_ts=previous_stop_ts,
     )
@@ -694,7 +648,6 @@ def build_replay_queries(
     passage_list = list(passages) if passages is not None else []
     geometries = build_route_geometry(passage_list) if passage_list else {}
 
-    # Index same-run passages and stretches for O(log N) strictly causal slicing
     run_passages: dict[tuple[str, int, str, str], list[PassageRow]] = defaultdict(list)
     stop_arrivals: dict[
         tuple[str, int, str, str],
@@ -727,13 +680,11 @@ def build_replay_queries(
     for r_list in run_stretches.values():
         r_list.sort(key=lambda s: s.from_sequence)
 
-    # Sort direction stretches by to_ts for fast causal [query_ts - 1800, query_ts) lookup
     dir_to_ts: dict[tuple[str, int, str], list[int]] = {}
     for key, s_list in dir_stretches.items():
         s_list.sort(key=lambda s: s.to_ts)
         dir_to_ts[key] = [s.to_ts for s in s_list]
 
-    # Sort stop arrivals by ts for fast causal headway lookup
     stop_ts_index: dict[tuple[str, int, str, str], list[int]] = {}
     for key, arr in stop_arrivals.items():
         arr.sort(key=lambda item: item[0])
@@ -763,7 +714,6 @@ def build_replay_queries(
                 continue
 
             q_ts = current.query_ts
-            # Same-run passages must be upstream and strictly available before the query.
             same_p = [
                 p
                 for p in run_passages.get(current.run_key, ())
@@ -773,7 +723,6 @@ def build_replay_queries(
                     and p.source_available_at < q_ts
                 )
             ]
-            # Same-run stretches must be complete and strictly available before the query.
             same_s = [
                 s
                 for s in run_stretches.get(current.run_key, ())
@@ -784,7 +733,6 @@ def build_replay_queries(
                     and s.available_at < q_ts
                 )
             ]
-            # Strictly causal recent same-direction stretches from other runs
             dir_key = (current.day, current.route_id, current.direction)
             all_dir = dir_stretches.get(dir_key, ())
             ts_list = dir_to_ts.get(dir_key, ())
@@ -800,7 +748,6 @@ def build_replay_queries(
                     and s.available_at < q_ts
                 )
             ]
-            # Strictly causal headway at from_stop_id
             stop_key = (current.day, current.route_id, current.direction, current.from_stop_id)
             arr_list = stop_arrivals.get(stop_key, ())
             arr_ts = stop_ts_index.get(stop_key, ())
@@ -828,7 +775,6 @@ def build_replay_queries(
                 ReplayQuery(
                     stretch=current,
                     previous_error_s=previous.error_s,
-                    previous_vehicle_id=previous.vehicle_id,
                     previous_run_id=previous.run_id,
                     previous_to_ts=previous.to_ts,
                     previous_available_at=previous.available_at,
