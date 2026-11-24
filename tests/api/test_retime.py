@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -48,25 +47,14 @@ def _record(hour: int, actual: int, scheduled: int = 100) -> TimingRecord:
     )
 
 
-def _model(records: list[TimingRecord]) -> RetimeModel:
-    model = RetimeModel.__new__(RetimeModel)
-    model.data_dir = Path("/unused")
-    model.selected_rung = "1"
-    model.records = records
-    model.exact = defaultdict(list)
-    model.route_hour = defaultdict(list)
-    model.global_hour = defaultdict(list)
-    model.stop_events = defaultdict(list)
-    for record in records:
-        stretch = record.stretch
-        model.exact[(stretch.route_id, stretch.from_stop_id, stretch.to_stop_id)].append(record)
-        model.route_hour[(stretch.route_id, record.hour)].append(record)
-        model.global_hour[record.hour].append(record)
+def _model(records: list[TimingRecord], tmp_path: Path) -> RetimeModel:
+    model = RetimeModel(tmp_path, selection_path=tmp_path / "no-selection.json")
+    model.index_records(records)
     return model
 
 
-def test_observed_historical_profile_changes_time_of_day() -> None:
-    model = _model([_record(9, 140), _record(23, 70)])
+def test_observed_historical_profile_changes_time_of_day(tmp_path: Path) -> None:
+    model = _model([_record(9, 140), _record(23, 70)], tmp_path)
     peak = model.predict_ride(99, "x", "y", 1000, datetime(2026, 10, 22, 9, tzinfo=IST), "replay")
     quiet = model.predict_ride(99, "x", "y", 1000, datetime(2026, 10, 22, 23, tzinfo=IST), "replay")
     assert peak.duration_s == 1400
@@ -75,8 +63,8 @@ def test_observed_historical_profile_changes_time_of_day() -> None:
     assert peak.observed_coverage == quiet.observed_coverage == 0.0
 
 
-def test_timetable_is_explicit_last_fallback() -> None:
-    model = _model([])
+def test_timetable_is_explicit_last_fallback(tmp_path: Path) -> None:
+    model = _model([], tmp_path)
     estimate = model.predict_ride(1, "a", "b", 500, datetime(2026, 10, 22, 9, tzinfo=IST), "replay")
     assert estimate.duration_s == 500
     assert estimate.source == "timetable"

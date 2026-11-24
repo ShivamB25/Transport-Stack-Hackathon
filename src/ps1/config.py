@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import os
+from datetime import timedelta, timezone
 from pathlib import Path
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 DATA_DIR = Path(os.environ.get("PS1_DATA_DIR", "/home/factory-user/ps1-scratch/data"))
 WORK_DIR = Path(os.environ.get("PS1_WORK_DIR", "/home/factory-user/ps1-scratch/work"))
 OTP_URL = os.environ.get("PS1_OTP_URL", "http://localhost:3102/otp/gtfs/v1")
-
-API_PORT = int(os.environ.get("PS1_API_PORT", "3100"))
-OTP_PORT = int(os.environ.get("PS1_OTP_PORT", "3102"))
 
 BBOX_LAT_MIN = 27.5
 BBOX_LAT_MAX = 29.0

@@ -10,7 +10,7 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -28,6 +28,7 @@ from ps1.config import (
     BBOX_LNG_MAX,
     BBOX_LNG_MIN,
     DATA_DIR,
+    IST,
     LIVE_DIR,
     LIVE_ENTITY_MAX_AGE_S,
     LIVE_FEED_URL,
@@ -36,7 +37,6 @@ from ps1.config import (
     LIVE_STALE_THRESHOLD_S,
 )
 
-IST = timezone(timedelta(hours=5, minutes=30))
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 SNAPSHOT_SCHEMA = pa.schema(

@@ -27,14 +27,13 @@ from ps1.config import (
     BBOX_LNG_MIN,
     DATA_DIR,
     GPS_DIR,
+    IST,
     WORK_DIR,
 )
 from ps1.range_reader import HTTPRangeFile
 
 MIN_PLAUSIBLE_DB_BYTES = 1_000_000_000
 MIN_FREE_BYTES = 9_000_000_000
-IST_OFFSET_SECONDS = 5 * 3600 + 30 * 60
-IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 PREVIOUS_EVENING_OVERLAP_S = 3600
 MIN_IN_DAY_ROW_SHARE = 0.90
 

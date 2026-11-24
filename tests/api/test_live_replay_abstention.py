@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -127,22 +126,8 @@ class FakeOTP:
 
 
 def _build_retime_model(data_dir: Path, records: list[TimingRecord]) -> RetimeModel:
-    model = RetimeModel.__new__(RetimeModel)
-    model.data_dir = data_dir
-    model.selected_rung = "1"
-    model.records = records
-    model.exact = defaultdict(list)
-    model.route_hour = defaultdict(list)
-    model.global_hour = defaultdict(list)
-    model.stop_events = defaultdict(list)
-    model._live_stats_mtime = None
-    model._live_stats_cache = {}
-    for record in records:
-        stretch = record.stretch
-        model.exact[(stretch.route_id, stretch.from_stop_id, stretch.to_stop_id)].append(record)
-        if stretch.target_observed:
-            model.route_hour[(stretch.route_id, record.hour)].append(record)
-            model.global_hour[record.hour].append(record)
+    model = RetimeModel(data_dir, selection_path=data_dir / "no-selection.json")
+    model.index_records(records)
     return model
 
 

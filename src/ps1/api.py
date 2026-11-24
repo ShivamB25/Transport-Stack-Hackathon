@@ -9,7 +9,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,6 +24,7 @@ from ps1.config import (
     BBOX_LNG_MAX,
     BBOX_LNG_MIN,
     DATA_DIR,
+    IST,
     LIVE_MIN_VEHICLES,
     LIVE_POLL_INTERVAL_S,
     LIVE_STALE_THRESHOLD_S,
@@ -43,7 +44,6 @@ from ps1.otp_client import OTPClient, OTPClientError
 from ps1.replay_demo import build_marginal_transfer_demo
 from ps1.retime import RetimeModel, retime_itinerary
 
-IST = timezone(timedelta(hours=5, minutes=30))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 

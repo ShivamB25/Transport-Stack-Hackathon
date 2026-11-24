@@ -19,12 +19,11 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ps1.config import DATA_DIR, GOOGLE_DIR, GOOGLE_HARD_CALL_CAP
+from ps1.config import DATA_DIR, GOOGLE_DIR, GOOGLE_HARD_CALL_CAP, IST
 from ps1.google_client import (
     DEFAULT_FIELD_MASK,
     DEFAULT_LANGUAGE_CODE,
     GOOGLE_ROUTES_URL,
-    IST,
     GoogleBudgetExceededError,
     GoogleClientError,
     GoogleRoutesClient,

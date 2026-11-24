@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
+from ps1.config import IST
 from ps1.otp_client import OTPClientError
-
-IST = timezone(timedelta(hours=5, minutes=30))
 
 DEMO_DAY = "2026-10-22"
 DEMO_RUN_ID = "2171_17_09_490"

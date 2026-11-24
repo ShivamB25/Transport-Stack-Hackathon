@@ -6,15 +6,16 @@ from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
 from statistics import median
 
 import duckdb
 
-IST = timezone(timedelta(hours=5, minutes=30))
-EARTH_RADIUS_M = 6_371_000.0
+from ps1.config import IST
+from ps1.stop_passages import haversine_m
+
 RECENT_WINDOW_S = 1800
 MAX_VALID_SCHEDULE_DELAY_S = 21_600
 MAX_HEADWAY_S = 14_400
@@ -51,15 +52,6 @@ NUMERIC_FEATURE_NAMES: tuple[str, ...] = (
 
 class CausalityViolationError(ValueError):
     """Raised when feature construction receives non-causal future observations."""
-
-
-def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    """Return great-circle distance in metres."""
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = p2 - p1
-    dl = math.radians(lng2 - lng1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2.0 * EARTH_RADIUS_M * math.asin(min(1.0, math.sqrt(a)))
 
 
 def day_type_for_timestamp(ts: int) -> tuple[int, str, str, float]:

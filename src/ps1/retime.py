@@ -7,13 +7,15 @@ import math
 import random
 import time
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
 from statistics import median
 from typing import Any
 
+from ps1.config import IST
 from ps1.features import (
     CausalFeatures,
     PassageRow,
@@ -32,7 +34,6 @@ from ps1.live_poller import (
 from ps1.model import LoadedModelArtifact, Prediction, load_model_artifact
 from ps1.selection import SHIP_STRATUM
 
-IST = timezone(timedelta(hours=5, minutes=30))
 SCENARIOS = 192
 
 
@@ -140,9 +141,7 @@ class RetimeModel:
                     f"refusing {self.selection_path}: stratum {selection.get('stratum')!r} is not "
                     f"{SHIP_STRATUM!r}"
                 )
-            self.selected_rung = str(
-                selection.get("selected_rung", selection.get("rung", selection.get("selected", "1")))
-            ).removeprefix("rung")
+            self.selected_rung = str(selection["selected_rung"])
         self.records: list[TimingRecord] = []
         self.exact: dict[tuple[int, str, str], list[TimingRecord]] = defaultdict(list)
         self.route_hour: dict[tuple[int, int], list[TimingRecord]] = defaultdict(list)
@@ -156,7 +155,9 @@ class RetimeModel:
         self._loaded_passage_files: list[Path] = []
         loaded = load_model_artifact(self.model_dir)
         self._artifact: LoadedModelArtifact | None = (
-            loaded if loaded is not None and loaded.rung == self.selected_rung else None
+            loaded
+            if loaded is not None and loaded.rung == self.selected_rung and self.selected_rung != "1"
+            else None
         )
         self._load()
 
@@ -168,10 +169,10 @@ class RetimeModel:
             mtime = stats_path.stat().st_mtime
         except OSError:
             return None
-        if getattr(self, "_live_stats_mtime", None) != mtime:
+        if self._live_stats_mtime != mtime:
             self._live_stats_cache = read_live_route_stats(self.data_dir)
             self._live_stats_mtime = mtime
-        stat = getattr(self, "_live_stats_cache", {}).get(route_id)
+        stat = self._live_stats_cache.get(route_id)
         if stat is None:
             return None
         return refresh_route_stat(stat, now=time.time(), max_age_s=effective_entity_max_age_s())
@@ -206,7 +207,7 @@ class RetimeModel:
             )
             if candidate is not None
         ]
-        loaded_files = [str(path) for path in getattr(self, "_loaded_passage_files", [])]
+        loaded_files = [str(path) for path in self._loaded_passage_files]
         base = {
             "visible_observations": len(visible),
             "same_day_observations": len(same_day),
@@ -246,20 +247,19 @@ class RetimeModel:
         self.route_geometries = build_route_geometry(passages)
         route_stops: dict[int, tuple[str, dict[int, str]]] = {}
         for passage in passages:
-            self.stop_events[(passage.route_id, passage.stop_id)].append(passage)
-            if passage.route_id not in route_stops:
-                route_stops[passage.route_id] = (passage.direction, {})
-            seq_map = route_stops[passage.route_id][1]
-            if passage.stop_sequence not in seq_map:
-                seq_map[passage.stop_sequence] = passage.stop_id
+            _, seq_map = route_stops.setdefault(passage.route_id, (passage.direction, {}))
+            seq_map.setdefault(passage.stop_sequence, passage.stop_id)
         self.route_patterns = {
             rid: (direction, sorted(seq_map.items()))
             for rid, (direction, seq_map) in route_stops.items()
         }
+        self.index_stop_events(passages)
+        self.index_records([TimingRecord(row) for row in build_stretch_errors(passages)])
 
-        self.records = [TimingRecord(row) for row in build_stretch_errors(passages)]
+    def index_records(self, records: list[TimingRecord]) -> None:
+        self.records.extend(records)
         sched_samples: dict[tuple[int, str, str], list[int]] = defaultdict(list)
-        for record in self.records:
+        for record in records:
             stretch = record.stretch
             key = (stretch.route_id, stretch.from_stop_id, stretch.to_stop_id)
             self.exact[key].append(record)
@@ -267,9 +267,13 @@ class RetimeModel:
             if stretch.target_observed:
                 self.route_hour[(stretch.route_id, record.hour)].append(record)
                 self.global_hour[record.hour].append(record)
-        self.stretch_typical_scheduled = {
-            key: float(median(vals)) for key, vals in sched_samples.items() if vals
-        }
+        self.stretch_typical_scheduled.update(
+            {key: float(median(vals)) for key, vals in sched_samples.items()}
+        )
+
+    def index_stop_events(self, passages: Iterable[PassageRow]) -> None:
+        for passage in passages:
+            self.stop_events[(passage.route_id, passage.stop_id)].append(passage)
         for group in self.stop_events.values():
             group.sort(key=lambda row: row.ts)
 
@@ -349,13 +353,12 @@ class RetimeModel:
     ) -> CausalFeatures:
         depart = depart.astimezone(IST)
         as_of_ts = int((as_of or depart).timestamp())
-        dt_ist = depart
-        hour = dt_ist.hour
-        minute_of_day = hour * 60 + dt_ist.minute
+        hour = depart.hour
+        minute_of_day = hour * 60 + depart.minute
         angle = 2.0 * math.pi * minute_of_day / 1440.0
         dow, day_type, coarse_day_type, is_weekend = day_type_for_timestamp(int(depart.timestamp()))
 
-        geom = getattr(self, "route_geometries", {}).get((route_id, direction))
+        geom = self.route_geometries.get((route_id, direction))
         if geom is not None:
             remaining_stops = max(0, geom.max_sequence - from_seq)
             stretch_distance_m = geom.stretch_distances_m.get((from_seq, to_seq), math.nan)
@@ -432,7 +435,6 @@ class RetimeModel:
                     raw_delay = last_p.effective_schedule_error_s
                     if abs(raw_delay) <= 21_600:
                         last_stop_delay_s = float(raw_delay)
-                    # Causal prior stretches of that same approaching run (strictly <= depart_ts)
                     run_prior = [
                         r.stretch
                         for r in same_day_route
@@ -516,22 +518,20 @@ class RetimeModel:
         replay_delay_s: float,
     ) -> TimingEstimate | None:
         """Time a leg on a covered route using the loaded selected-rung artifact."""
-        pattern_info = getattr(self, "route_patterns", {}).get(route_id)
+        pattern_info = self.route_patterns.get(route_id)
         if pattern_info is None:
             return None
         direction, ordered_stops = pattern_info
         stop_ids = [sid for _, sid in ordered_stops]
         live_fresh = int(live_stat.get("fresh_vehicle_count", 0)) if live_stat else 0
 
-        # Locate constituent stretches along the route pattern
         stretches: list[tuple[int, int, str, str, float]] = []
         if from_stop in stop_ids and to_stop in stop_ids:
             from_idx = stop_ids.index(from_stop)
             to_idx = stop_ids.index(to_stop)
             if from_idx < to_idx:
-                typical_map = getattr(self, "stretch_typical_scheduled", {})
                 raw_scheds = [
-                    typical_map.get((route_id, ordered_stops[i][1], ordered_stops[i + 1][1]), 60.0)
+                    self.stretch_typical_scheduled.get((route_id, ordered_stops[i][1], ordered_stops[i + 1][1]), 60.0)
                     for i in range(from_idx, to_idx)
                 ]
                 total_raw = sum(raw_scheds) or float(len(raw_scheds))
@@ -564,14 +564,14 @@ class RetimeModel:
             total_error = sum(p.error_s for p in preds)
             duration = max(max(1.0, scheduled * 0.25), scheduled + total_error)
         else:
-            # Fallback to route midpoint stretch on the covered route
+            # The leg's stops are not on the reconstructed pattern, so project the ratio the
+            # model predicts for the route's middle stretch onto the whole leg.
             if len(ordered_stops) < 2:
                 return None
             mid = len(ordered_stops) // 2
             seq_a, sid_a = ordered_stops[mid - 1]
             seq_b, sid_b = ordered_stops[mid]
-            typical_map = getattr(self, "stretch_typical_scheduled", {})
-            mid_sched = max(1.0, typical_map.get((route_id, sid_a, sid_b), 60.0))
+            mid_sched = max(1.0, self.stretch_typical_scheduled.get((route_id, sid_a, sid_b), 60.0))
             feat = self._causal_features_for_stretch(
                 route_id=route_id,
                 direction=direction,
@@ -725,17 +725,12 @@ class RetimeModel:
         live_stat = self._live_route_stat(route_id) if mode == "live" else None
         live_fresh = int(live_stat.get("fresh_vehicle_count", 0)) if live_stat else 0
 
-        artifact = getattr(self, "_artifact", None)
-        artifact_eligible = artifact is not None and (
+        artifact = self._artifact
+        artifact_covers_route = artifact is not None and route_id in artifact.covered_routes
+        artifact_eligible = artifact_covers_route and (
             mode != "replay" or artifact.is_eligible_as_of(as_of_ts)
         )
-        artifact_usable = (
-            artifact_eligible
-            and artifact.rung == self.selected_rung
-            and self.selected_rung != "1"
-            and route_id in artifact.covered_routes
-        )
-        if artifact_usable:
+        if artifact_eligible:
             estimate = self._predict_covered_route_with_artifact(
                 artifact=artifact,
                 route_id=route_id,
@@ -754,25 +749,15 @@ class RetimeModel:
                 return estimate
 
         # Uncovered and ineligible-artifact routes use the causal rung-1 fallback chain.
-        is_covered = artifact_usable and route_id in artifact.covered_routes
-        artifact_ineligible = (
-            artifact is not None
-            and not artifact_eligible
-            and mode == "replay"
-            and self.selected_rung != "1"
-            and route_id in artifact.covered_routes
-        )
-        if artifact_ineligible:
+        if artifact_covers_route and not artifact_eligible:
             fallback_suffix = (
                 f" (selected artifact ineligible as of {observation_cutoff.isoformat()}; "
                 "causal rung 1 fallback)"
             )
+        elif self.selected_rung != "1" and not artifact_eligible:
+            fallback_suffix = f" (route {route_id} outside rung {self.selected_rung} model scope)"
         else:
-            fallback_suffix = (
-                f" (route {route_id} outside rung {self.selected_rung} model scope)"
-                if self.selected_rung != "1" and not is_covered
-                else ""
-            )
+            fallback_suffix = ""
 
         if mode == "replay" and same_day:
             previous = max(same_day, key=lambda record: record.stretch.query_ts)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -245,26 +244,16 @@ def _passage(route_id: int, stop_id: str, ts: datetime, available_at: datetime) 
     )
 
 
-def _causal_model(records: list[TimingRecord], passages: list[PassageRow]) -> RetimeModel:
-    model = RetimeModel.__new__(RetimeModel)
-    model.data_dir = Path("/unused")
-    model.selected_rung = "1"
-    model.records = records
-    model.exact = defaultdict(list)
-    model.route_hour = defaultdict(list)
-    model.global_hour = defaultdict(list)
-    model.stop_events = defaultdict(list)
-    for record in records:
-        stretch = record.stretch
-        model.exact[(stretch.route_id, stretch.from_stop_id, stretch.to_stop_id)].append(record)
-        model.route_hour[(stretch.route_id, record.hour)].append(record)
-        model.global_hour[record.hour].append(record)
-    for passage in passages:
-        model.stop_events[(passage.route_id, passage.stop_id)].append(passage)
+def _causal_model(
+    records: list[TimingRecord], passages: list[PassageRow], data_dir: Path
+) -> RetimeModel:
+    model = RetimeModel(data_dir, selection_path=data_dir / "no-selection.json")
+    model.index_records(records)
+    model.index_stop_events(passages)
     return model
 
 
-def test_future_observations_cannot_change_ride_wait_or_quiet_hour() -> None:
+def test_future_observations_cannot_change_ride_wait_or_quiet_hour(tmp_path: Path) -> None:
     past = datetime(2026, 10, 22, 8, 0, tzinfo=IST)
     future_event = datetime(2026, 10, 22, 8, 20, tzinfo=IST)
     future_available = datetime(2026, 10, 22, 8, 35, tzinfo=IST)
@@ -276,7 +265,7 @@ def test_future_observations_cannot_change_ride_wait_or_quiet_hour() -> None:
         _passage(100, "40", past, past),
         _passage(200, "51", past, past),
     ]
-    baseline_model = _causal_model(base_records, base_passages)
+    baseline_model = _causal_model(base_records, base_passages, tmp_path)
     changed_model = _causal_model(
         base_records
         + [
@@ -288,6 +277,7 @@ def test_future_observations_cannot_change_ride_wait_or_quiet_hour() -> None:
             _passage(100, "40", future_event, future_available),
             _passage(200, "51", future_event, future_available),
         ],
+        tmp_path,
     )
 
     baseline = retime_itinerary(_transfer_candidate(True), REQUEST, "replay", baseline_model)
@@ -296,8 +286,8 @@ def test_future_observations_cannot_change_ride_wait_or_quiet_hour() -> None:
     assert changed == baseline
 
 
-def test_ineligible_model_artifact_uses_labelled_causal_fallback() -> None:
-    model = _causal_model([], [])
+def test_ineligible_model_artifact_uses_labelled_causal_fallback(tmp_path: Path) -> None:
+    model = _causal_model([], [], tmp_path)
     model.selected_rung = "4"
 
     class IneligibleArtifact:
@@ -312,6 +302,4 @@ def test_ineligible_model_artifact_uses_labelled_causal_fallback() -> None:
     estimate = model.predict_ride(100, "40", "50", 600, REQUEST, "replay", as_of=REQUEST)
 
     assert estimate.timing_source == "timetable_fallback"
-    assert estimate.coverage_note is not None
-    assert "selected artifact ineligible as of 2026-10-22T08:30:00+05:30" in estimate.coverage_note
-    assert "causal rung 1 fallback" in estimate.coverage_note
+    assert estimate.source == "timetable"

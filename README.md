@@ -88,7 +88,6 @@ All runtime and library versions used to build, evaluate, and serve PS1 are pinn
 - **Environment variables (`src/ps1/config.py`):**
   - `PS1_DATA_DIR` (default `/home/factory-user/ps1-scratch/data`)
   - `PS1_OTP_URL` (default `http://localhost:3102/otp/gtfs/v1`)
-  - `PS1_API_PORT` (default `3100`), `PS1_OTP_PORT` (default `3102`)
   - `PS1_MODE` (`auto` | `live` | `replay`, default `auto`)
   - `PS1_ENABLE_LIVE_POLLER` (`1` | `0`, default `1`)
   - `PS1_LIVE_POLL_INTERVAL_S` (default `25`)

@@ -7,7 +7,7 @@ import json
 import os
 import re
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from ps1.config import (
     GOOGLE_DIR,
     GOOGLE_HARD_CALL_CAP,
     GOOGLE_MISSION_LEDGER_PATH,
+    IST,
 )
 
 GOOGLE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
@@ -36,7 +37,6 @@ PRIOR_MISSION_CALLS = 2  # 2 probe calls recorded in ps1-scratch/probe-report.md
 PRIOR_MISSION_NOTE = (
     "2 initial feasibility probe calls recorded in /home/factory-user/ps1-scratch/probe-report.md"
 )
-IST = timezone(timedelta(hours=5, minutes=30))
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _DURATION_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)s\s*$")
 

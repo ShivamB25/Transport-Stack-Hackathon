@@ -15,8 +15,8 @@ import lightgbm as lgb
 import numpy as np
 from sklearn.linear_model import HuberRegressor
 
+from ps1.config import IST
 from ps1.features import (
-    IST,
     NUMERIC_FEATURE_NAMES,
     CausalFeatures,
     ReplayQuery,
@@ -24,7 +24,6 @@ from ps1.features import (
 )
 
 ALL_RUNGS: tuple[str, ...] = ("0", "1", "1h", "2", "3", "4")
-LADDER_ORDER: tuple[str, ...] = ("0", "1", "1h", "2", "3", "4")
 
 RUNG4_EXTRA_FEATURE_NAMES: tuple[str, ...] = (
     "hist_dow_hour_median_s",
@@ -824,7 +823,7 @@ def load_model_artifact(model_dir: Path) -> LoadedModelArtifact | None:
     if not metadata_path.exists():
         return None
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    rung = str(metadata["selected_rung"]).removeprefix("rung")
+    rung = str(metadata["selected_rung"])
     covered = frozenset(int(r) for r in metadata.get("covered_routes", []))
     model: BaselineModel | Rung2DayTypeModel | Rung3LastDelayModel | Rung4QuantileLightGBMModel
     if rung == "4":

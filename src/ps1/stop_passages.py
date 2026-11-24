@@ -7,7 +7,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
 
@@ -16,12 +16,11 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ps1.config import DATA_DIR
+from ps1.config import DATA_DIR, IST
 
 EARTH_RADIUS_M = 6_371_000.0
 DEFAULT_RADIUS_M = 60.0
 MAX_OBSERVED_SPAN_S = 6 * 3600
-IST = timezone(timedelta(hours=5, minutes=30))
 SCOPED_DAYS = tuple(
     f"2026-10-{day:02d}" for day in (5, 6, 7, 8, 13, 14, 15, 22, 27, 28)
 )
@@ -101,7 +100,6 @@ PASSAGE_SCHEMA = pa.schema(
 
 
 def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    """Return great-circle distance in metres."""
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dp = p2 - p1
     dl = math.radians(lng2 - lng1)
