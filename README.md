@@ -68,7 +68,7 @@ Run from the repository root.
 | Re-apply the selection rule to `reports/eval-full.csv` | `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.selection` |
 | One live feed poll | `scripts/live_poller.sh --once` |
 | Render the Google comparison from frozen inputs (no network calls) | `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --render-only` |
-| Record the demo | `demo/record_demo.sh` (API started with `PS1_LIVE_STALE_THRESHOLD_S=45`) |
+| Record the demo | `demo/record_demo.sh` (API started with `PS1_LIVE_STALE_THRESHOLD_S=45`; the normal stale-feed threshold is 600 s) |
 
 Example API calls:
 
@@ -82,6 +82,11 @@ curl -s 'http://localhost:3100/replay/demo'
 ```
 
 `from` and `to` accept `lat,lng` or an exact GTFS stop name. `depart` is ISO 8601 with an offset. OpenAPI docs are at `http://localhost:3100/docs`.
+
+How `depart` and `mode` combine:
+
+- **No `depart`.** Replay is used only when it is explicit: `mode=replay`, or the default `mode=auto` with `PS1_MODE=replay`. The request then uses the scripted demo departure, 2026-10-22T08:30+05:30. In every other case the request departs now in Asia/Kolkata in live mode.
+- **Explicit `depart`.** `mode=live` or `mode=replay` is used as given. With `mode=auto`, `PS1_MODE` (`live` or `replay`) decides if it is set; otherwise October 2026 departures run in replay and all others in live. Replay outside October 2026 returns 422.
 
 ## Results
 
@@ -115,12 +120,12 @@ Method details are in [`docs/technical-note.md`](docs/technical-note.md), the fr
 2. A replay query on 717A for October 22 08:30, with legs timed by `model_replay`.
 3. The same Kashmere Gate query in October replay, which abstains because no candidate route has replay observations.
 4. The October 22 missed-transfer replay: the timetable recommends a 717AUP transfer at Hamdard Nagar / Sangam Vihar, the advice flips as the first bus falls behind, and the observed GPS passages show the connection was missed by 27m 43s.
-5. A stale live feed (poller paused past a 45 s threshold) producing "Not enough data", then recovery after the poller resumes.
+5. A stale live feed producing "Not enough data", then recovery after the poller resumes. The recording runs the API with `PS1_LIVE_STALE_THRESHOLD_S=45` so the feed goes stale quickly; the normal default is 600 s.
 
 ## Known limitations
 
 - **October data.** Models and replay use October 2026 GPS. Live mode applies them to current feed positions; nothing has been re-evaluated on later months.
-- **One modelled corridor.** Stop passages and the rung 4 model exist only for route 717A (UP 2171, DOWN 2170). Other routes are timed from historical ratios or the timetable and labelled as fallbacks. In replay mode, journeys with no 717A leg abstain with `insufficient_route_coverage`.
+- **One modelled corridor.** Stop passages, replay observations and the learned rung 4 model exist only for route 717A (UP 2171, DOWN 2170). On any other route, live mode blends the route's fresh vehicle speeds with the historical profile and labels the ride `model_live` (502UP in [`reports/google-comparator.md`](reports/google-comparator.md) is an example). Without fresh vehicles, a ride falls back to the historical profile (`historical_fallback`) and then to the timetable (`timetable_fallback`). In replay mode, journeys with no 717A leg abstain with `insufficient_route_coverage`.
 - **GTFS v32 drift.** The static feed (v32, 6,862 stops) is newer than the snapshot behind the older reference numbers (41 s persistence vs 59 s timetable MAE). Those numbers are not reproduced; the results above are on v32.
 - **About half the stops are observed.** Roughly 50% of stop passages are observed and the rest are schedule-interpolated, so model selection uses observed stop pairs only.
 - **Google is a comparator, not ground truth.** It covers one future date, includes only 41 of 90 slots, and measures journeys differently (our totals include the first boarding wait). Google cannot be queried for October dates.
