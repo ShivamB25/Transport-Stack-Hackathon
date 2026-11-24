@@ -87,8 +87,8 @@ Python commands run from `backend/` after `uv sync --frozen`. Report paths defau
 | Re-apply the selection rule to `reports/eval-full.csv` | `uv run python -m delhi_transit.model.selection` |
 | One live feed poll | `uv run python -m delhi_transit.live.poller --once` |
 | Render the Google comparison from frozen inputs (no network calls) | `uv run python -m delhi_transit.comparator --render-only` |
-| Record a live check (from the repository root; reuses or starts OTP on 3102, runs the API with the live poller on 3120) | `livecheck/launch.sh /home/factory-user/ps1-scratch/live-check/2026-11-24 23:30` |
-| Rebuild live-check actuals and write `reports/live-check-<day>.{md,csv,json}` | `uv run python -m delhi_transit.livecheck actuals --in /home/factory-user/ps1-scratch/live-check/2026-11-24` then `uv run python -m delhi_transit.livecheck analyze --in /home/factory-user/ps1-scratch/live-check/2026-11-24 --report-dir ../reports` |
+| Record a live check (from the repository root; reuses or starts OTP on 3102, runs the API with the live poller on 3120) | `livecheck/launch.sh $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24 23:30` |
+| Rebuild live-check actuals and write `reports/live-check-<day>.{md,csv,json}` | `uv run python -m delhi_transit.livecheck actuals --in $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24` then `uv run python -m delhi_transit.livecheck analyze --in $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24 --report-dir ../reports` |
 | Record the demo (from the repository root) | `demo/record_demo.sh` (API started with `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45`; the normal stale-feed threshold is 600 s) |
 
 Example API calls:
