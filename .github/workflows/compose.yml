@@ -22,7 +22,8 @@ jobs:
           set -o pipefail
           mkdir -p stub-data/gtfs
           echo "stop_id,stop_name,stop_lat,stop_lon" > stub-data/gtfs/stops.txt
-          image=$(docker compose config --images api)
+          image=$(docker compose images api --format json 2>/dev/null | jq -r '.[0].Repository // empty')
+          image=${image:-delhi-transit-api}
           docker run -d --name api-smoke -p 127.0.0.1:3100:3100 \
             -e DELHI_TRANSIT_DATA_DIR=/data -e DELHI_TRANSIT_ENABLE_LIVE_POLLER=0 \
             -v "$PWD/stub-data:/data" "$image"
