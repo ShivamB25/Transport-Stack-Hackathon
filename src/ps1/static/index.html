@@ -769,7 +769,8 @@
 
             <div class="preset-row" aria-label="Quick presets">
               <button type="button" class="chip-btn" id="preset-example-live">Example Tue 08:30 (Live)</button>
-              <button type="button" class="chip-btn" id="preset-example-replay">Oct 22 08:30 (Replay)</button>
+              <button type="button" class="chip-btn" id="preset-example-replay">Oct 22 08:30 717A (Replay)</button>
+              <button type="button" class="chip-btn" id="preset-replay-abstain">Oct 22 08:30 no 717A (Abstains)</button>
               <button type="button" class="chip-btn" id="preset-peak">09:00 Peak</button>
               <button type="button" class="chip-btn" id="preset-quiet">23:00 Quiet</button>
             </div>
@@ -1629,7 +1630,15 @@
         modeSelect.value = "live";
       });
 
+      // October replay passages exist only for route 717A (UP 2171 / DOWN 2170).
       document.getElementById("preset-example-replay").addEventListener("click", function () {
+        originInput.value = "Badarpur Border (T)";
+        destinationInput.value = "Kapashera Border";
+        departInput.value = "2026-10-22T08:30:00+05:30";
+        modeSelect.value = "replay";
+      });
+
+      document.getElementById("preset-replay-abstain").addEventListener("click", function () {
         originInput.value = "Kashmere Gate ISBT";
         destinationInput.value = "Nehru Place";
         departInput.value = "2026-10-22T08:30:00+05:30";

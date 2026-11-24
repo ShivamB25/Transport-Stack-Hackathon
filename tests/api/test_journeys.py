@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from ps1.api import create_app
+from ps1.config import IST
 from ps1.retime import TimingEstimate, WaitEstimate
 
 
@@ -195,6 +197,19 @@ def test_invalid_inputs_are_controlled_and_service_recovers(tmp_path: Path) -> N
         assert response.json()["detail"]
         assert "Traceback" not in response.text
     assert client.get("/journeys", params=base).status_code == 200
+
+
+def test_missing_depart_defaults_to_now_in_delhi_live_mode(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    before = datetime.now(IST).replace(microsecond=0)
+    response = client.get("/journeys", params={"from": "Kashmere Gate ISBT", "to": "Nehru Place"})
+    after = datetime.now(IST)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "live"
+    depart = datetime.fromisoformat(body["depart"])
+    assert depart.utcoffset() == IST.utcoffset(None)
+    assert before <= depart <= after
 
 
 def test_openapi_documents_journey_contract(tmp_path: Path) -> None:

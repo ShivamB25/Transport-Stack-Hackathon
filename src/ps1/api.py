@@ -366,14 +366,18 @@ def create_app(
     async def journeys(
         from_: str = Query(alias="from", min_length=1),
         to: str = Query(min_length=1),
-        depart: str = Query(min_length=1),
+        depart: str | None = Query(
+            default=None,
+            min_length=1,
+            description="ISO 8601 date-time with offset; defaults to the current time in Asia/Kolkata.",
+        ),
         mode: Literal["auto", "live", "replay"] = Query(default="auto"),
         replay_delay_s: float = Query(default=0, ge=0, le=3600),
         min_coverage: float | None = Query(default=None, ge=0.0, le=1.0),
     ) -> JourneyResponse:
         origin = resolver.resolve(from_, "from")
         destination = resolver.resolve(to, "to")
-        departure = _parse_depart(depart)
+        departure = _parse_depart(depart) if depart is not None else datetime.now(IST).replace(microsecond=0)
         effective_mode = _resolve_mode(mode, departure)
         if replay_delay_s and effective_mode != "replay":
             raise HTTPException(422, "replay_delay_s is only valid for October replay queries")

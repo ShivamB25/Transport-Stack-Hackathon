@@ -17,6 +17,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+
+# local CodeGraph index
+.codegraph/
 venv/
 .venv/
 
