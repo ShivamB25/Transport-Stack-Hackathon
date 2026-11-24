@@ -10,7 +10,7 @@ This project estimates how long Delhi DTC bus journeys actually take. It reconst
 4. **Live and replay.** In live mode a background poller reads the Delhi GTFS-RT VehiclePositions feed every 25 s. October 2026 departures run in replay mode from the reconstructed passages, using only observations available before the requested departure.
 5. **Abstention.** `GET /journeys` returns `status: "insufficient_data"` with a reason code (`stale_feed`, `feed_unavailable`, `insufficient_coverage`, `insufficient_route_coverage`, `replay_data_unavailable`) instead of options when the feed is stale or no candidate route has observations.
 
-The Leaflet UI at `http://localhost:3100/` shows the options on a map, the live/replay badge and feed age, the abstention panel, and a scripted October 22 missed-transfer replay.
+The React UI in `frontend/` (built into `frontend/dist` and served by the API at `http://localhost:3100/`) shows the options on a map, the live/replay badge and feed age, the abstention panel, and a scripted October 22 missed-transfer replay.
 
 ## Quickstart
 
@@ -18,11 +18,12 @@ Both paths need the data directory (GPS Parquet, passages, GTFS, model artifact)
 
 ### Native
 
-Requirements: [uv](https://docs.astral.sh/uv/) (Python 3.12; `backend/pyproject.toml` and `backend/uv.lock` pin every version), Temurin 21 at `/home/factory-user/ps1-scratch/jdk`, data in `/home/factory-user/ps1-scratch/data` (`DELHI_TRANSIT_DATA_DIR`) and OTP files in `/home/factory-user/ps1-scratch/otp` (`DELHI_TRANSIT_OTP_DIR`).
+Requirements: [uv](https://docs.astral.sh/uv/) (Python 3.12; `backend/pyproject.toml` and `backend/uv.lock` pin every version), [Bun](https://bun.sh/) for the UI (`frontend/bun.lock` pins every version), Temurin 21 at `/home/factory-user/ps1-scratch/jdk`, data in `/home/factory-user/ps1-scratch/data` (`DELHI_TRANSIT_DATA_DIR`) and OTP files in `/home/factory-user/ps1-scratch/otp` (`DELHI_TRANSIT_OTP_DIR`).
 
 ```bash
 otp/build.sh                  # one-time: downloads the OTP jar and OSM extract if missing, builds the graph (about 1.5 min)
 otp/serve.sh                  # OTP on port 3102; leave it running and start the API in another shell
+(cd frontend && bun install --frozen-lockfile && bun run build)   # builds frontend/dist, which the API serves at /
 cd backend
 uv sync --frozen
 DELHI_TRANSIT_DATA_DIR=/home/factory-user/ps1-scratch/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
@@ -63,6 +64,8 @@ Python commands run from `backend/` after `uv sync --frozen`. Report paths defau
 | Tests | `uv run pytest -q` |
 | Bytecode check | `uv run python -m compileall -q src` |
 | Lint | `uv run ruff check src tests` |
+| Frontend install, type check, build and tests (from `frontend/`) | `bun install --frozen-lockfile && bun run typecheck && bun run build && bun test` |
+| Frontend dev server on port 3110 (proxies API calls to 3100) | `bun run dev` (from `frontend/`) |
 | Extract one GPS day | `uv run python -m delhi_transit.data.extract_day --day 2026-10-15 --output /tmp/repro15.parquet` |
 | 717A stop passages (10 days) and `reports/coverage-717a.md` | `uv run python -m delhi_transit.data.stop_passages --overwrite` |
 | Evaluate all rungs, write reports, selection and model artifact | `uv run python -m delhi_transit.model.evaluate` |
@@ -134,4 +137,4 @@ Method details are in [`docs/technical-note.md`](docs/technical-note.md), the fr
 
 ## Repository layout
 
-`backend/` is the uv project: `src/delhi_transit/` holds the `core`, `data`, `model`, `planner`, `live`, `comparator` and `api` packages and `tests/` the pytest suite mirroring them; `otp/` the OTP build and serve scripts and build config; `reports/` the committed results; `docs/` the technical note, protocol and OTP notes; `demo/` the recording. [`AGENTS.md`](AGENTS.md) describes each module and the rules contributors follow.
+`backend/` is the uv project: `src/delhi_transit/` holds the `core`, `data`, `model`, `planner`, `live`, `comparator` and `api` packages and `tests/` the pytest suite mirroring them; `frontend/` the React UI (Bun, Vite, TypeScript, Tailwind, shadcn/ui, TanStack Query and plain Leaflet); `otp/` the OTP build and serve scripts and build config; `reports/` the committed results; `docs/` the technical note, protocol and OTP notes; `demo/` the recording. [`AGENTS.md`](AGENTS.md) describes each module and the rules contributors follow.

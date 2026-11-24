@@ -9,7 +9,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 ## Layout
 
 - `backend/`: uv project (`pyproject.toml`, `uv.lock`, `.python-version` 3.12). Package `src/delhi_transit/`:
-  - `core/config.py`: `REPO_ROOT` (every repo-relative path such as `reports/` and `.env` resolves through it), env-driven paths (`DELHI_TRANSIT_DATA_DIR`, `DELHI_TRANSIT_WORK_DIR`), `DELHI_TRANSIT_OTP_URL`, the shared `IST` timezone, Delhi bbox, archive URL and user agent, live feed settings, request-time getters for the API settings (`live_stale_threshold_s`, `live_min_vehicles`, `min_route_coverage`, `runtime_mode`, `live_poller_enabled`), Google 300-call cap and ledger path, and `load_env_key` (the one reader of `.env` secrets; never logs values).
+  - `core/config.py`: `REPO_ROOT` (every repo-relative path such as `reports/` and `.env` resolves through it), env-driven paths (`DELHI_TRANSIT_DATA_DIR`, `DELHI_TRANSIT_WORK_DIR`, `DELHI_TRANSIT_FRONTEND_DIR`), `DELHI_TRANSIT_OTP_URL`, the shared `IST` timezone, Delhi bbox, archive URL and user agent, live feed settings, request-time getters for the API settings (`live_stale_threshold_s`, `live_min_vehicles`, `min_route_coverage`, `runtime_mode`, `live_poller_enabled`), Google 300-call cap and ledger path, and `load_env_key` (the one reader of `.env` secrets; never logs values).
   - `core/time.py` (IST/UTC formatting), `core/geo.py` (`haversine_m`), `core/io.py` (atomic text/JSON/Parquet writers: sibling temp file, fsync for text, `os.replace`).
   - `data/range_reader.py`: bounded HTTP range reader for the remote 7z archive.
   - `data/extract_day.py`: extracts one archive day, dedupes on `(vehicle_id, ts, lat, lng)` keeping the first SQLite `rowid`, filters bbox/timestamps, casts `route_id` to integer, verifies (`verify_day`) and publishes Parquet atomically, deletes the SQLite file.
@@ -26,7 +26,8 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
   - `comparator/slots.py`: the 30 OD pairs (one compact table), three Tuesday slots and the schedule check run before any call. `comparator/compare.py`: planner queries, slot comparison, frozen-input collection and rendering. `comparator/report.py`: CSV, manifest and Markdown writers. `comparator/__main__.py`: CLI (`python -m delhi_transit.comparator`).
   - `api/app.py`: `create_app` (runtime wiring, background live poller) and the app exported as `delhi_transit.api:app`. `api/routes.py`: the routes (`GET /journeys`, `/health`, `/live/status`, `POST /live/pause`, `POST /live/resume`, `GET /replay/demo`, `/docs`, UI at `/` from `api/static.py`), exact stop-name resolution, depart/mode parsing, live-feed checks and the one abstention builder; request-time settings come from the `core/config.py` getters. `api/schemas.py`: response models. `depart` is optional: it defaults to now in Asia/Kolkata in live mode, or to 2026-10-22T08:30+05:30 when replay is explicit (`mode=replay`, or `mode=auto` with `DELHI_TRANSIT_MODE=replay`).
   - `api/replay_demo.py`: scripted Oct 22 missed-transfer replay for OTP trips `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300; returns `status="unavailable"` if OTP does not return that pair.
-  - `api/static/index.html`: single-file Leaflet UI (badge, feed age, abstention panel, presets, replay demo).
+  - `api/static.py`: serves the built UI from `FRONTEND_DIR` (default `frontend/dist`) at `/` and `/assets/*` (paths cannot escape the directory); if the UI is not built, `/` returns a short plain-text message.
+- `frontend/`: the UI. Bun + Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui (`src/components/ui/`) + TanStack Query, with plain Leaflet through `hooks/useLeafletMap.ts` (no react-leaflet). `src/api/` holds the response types matching the API JSON, the fetch client and the query options; `hooks/useLatestAction.ts` gives every user action a new id and the results pane reads only the newest action's query. Components: `JourneyForm` (presets), `ModeBadge` (live/replay and feed age), `OptionList`, `LegBreakdown` (windows, provenance, coverage), `RouteMap`, `AbstentionPanel` (reason code), `ReplayDemo` (stages, flip, outcome, quiet-hour comparison). `bun.lock` is committed; `dist/` and `node_modules/` are gitignored.
 - `backend/tests/`: pytest suites in `data`, `model`, `planner`, `live`, `api`, `comparator` (`conftest.py` provides the VehiclePositions protobuf builder).
 - `otp/`: `build.sh`, `serve.sh`, `build-config.json` (copied into the graph directory by `build.sh`).
 - `reports/`: committed results (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`, `otp-plan-*.json`).
@@ -37,13 +38,14 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 ## Setup
 
 - Python through uv only: `cd backend && uv sync --frozen` creates `backend/.venv` (gitignored) with the exact pinned versions (Python 3.12). Run Python with `uv run ...` from `backend/`.
+- Frontend through Bun only (`/usr/bin/bun`, no npm/yarn/pnpm lockfiles): `cd frontend && bun install --frozen-lockfile && bun run build` writes `frontend/dist`, which the API serves.
 - Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk` (`DELHI_TRANSIT_JAVA`). OTP jar, OSM extract and graph: `/home/factory-user/ps1-scratch/otp/` (`DELHI_TRANSIT_OTP_DIR`). OTP heap is capped at `-Xmx2500m`.
 - `.env` in the repository root (gitignored, see `.env.example`): `DELHI_TS_API_KEY` (live feed and static GTFS), `GOOGLE_MAPS_API_KEY` (comparator). Read in-process only; never print, log or commit values.
 - Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively.
 
 ## Ports and data
 
-- Ports: `3100` (API and UI), `3102` (OTP). Stay within `3100–3199`.
+- Ports: `3100` (API and UI), `3102` (OTP), `3110` (Vite dev server, proxies API paths to 3100). Stay within `3100–3199`.
 - `DELHI_TRANSIT_DATA_DIR` (default `/home/factory-user/ps1-scratch/data`, outside the repo):
   - `gps/day=YYYY-MM-DD.parquet`: 31 deduplicated days.
   - `gtfs/`: static feed v32 (unzipped files plus `delhi_buses_static_gtfs_v1.zip`).
@@ -58,6 +60,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 Python commands run from `backend/` (`cd /home/factory-user/repos/Transport-Stack-Hackathon/backend`); shell scripts from the repository root. These match the mission `services.yaml`.
 
 - Install: `uv sync --frozen`
+- Frontend (from `frontend/`): `bun install --frozen-lockfile`, `bun run typecheck`, `bun run build`, `bun test`, dev server on 3110: `bun run dev`
 - Tests: `uv run pytest -q`
 - Bytecode check: `uv run python -m compileall -q src`
 - Lint: `uv run ruff check src tests`
