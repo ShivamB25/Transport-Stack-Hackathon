@@ -333,14 +333,21 @@ def test_future_observations_cannot_change_ride_wait_or_quiet_hour(tmp_path: Pat
 def test_ineligible_model_artifact_uses_labelled_causal_fallback(tmp_path: Path) -> None:
     model = _causal_model([], [], tmp_path)
     model.selected_rung = "4"
+    model.route_patterns[100] = ("UP", [(1, "40"), (2, "50")])
 
     class IneligibleArtifact:
+        """Becomes eligible one second after the replay cutoff, so any later clock would use it."""
+
         rung = "4"
         covered_routes = frozenset({100})
 
         @staticmethod
         def is_eligible_as_of(as_of_ts: int) -> bool:
-            return False
+            return as_of_ts > int(REQUEST.timestamp())
+
+        @staticmethod
+        def predict_batch_from_features(items: object) -> list:
+            raise AssertionError("artifact used although not eligible at the replay cutoff")
 
     model._artifact = IneligibleArtifact()
     estimate = model.predict_ride(100, "40", "50", 600, REQUEST, "replay", as_of=REQUEST)
