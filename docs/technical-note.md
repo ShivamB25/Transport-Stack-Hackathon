@@ -181,6 +181,8 @@ Per-day, per-direction `observed-only` MAE (seconds) and Rung 4 interval perform
 
 **Ship decision (`reports/selection.json`):** **`selected_rung = "4"`**. On the held-out `observed-only` stratum (13,299 queries, 100% observed, 0% interpolated; 34.740% of the 38,282 all-stop held-out queries), Rung 4 beats persistence by **12.588 s** overall (**-17.3%** relative to Rung 1, and **-31.0%** relative to the Rung 0 timetable), wins on **6/6** held-out day × direction groups at identical coverage, and achieves **79.156%** held-out empirical coverage on its nominal 80% conformal `[p10, p90]` intervals.
 
+**Marginal, not conditional, coverage.** The single conformal offset `q_conf = 2.359 s` is calibrated on one training day (`2026-10-15`) and applied to every day and direction. Split conformal prediction guarantees only marginal coverage, over queries exchangeable with the calibration set; it gives no per-day or per-direction (conditional) guarantee. The per-group column above shows the consequence: held-out `observed-only` coverage ranges from 76.197% (`2026-10-22` DOWN) to 81.208% (`2026-10-27` UP), and two of six groups (`2026-10-22` DOWN, `2026-10-28` UP) fall below the nominal 80%. The pooled 79.156% is itself slightly below nominal; the marginal guarantee assumes held-out queries are exchangeable with the calibration day, and later days need not be. A group-conditional (Mondrian) calibration, for example one offset per direction, could target per-group validity, but it would have to be calibrated on training days only and is not implemented.
+
 ---
 
 ## 5. Coverage Provenance and Abstention Behavior (Consistent with the API)
