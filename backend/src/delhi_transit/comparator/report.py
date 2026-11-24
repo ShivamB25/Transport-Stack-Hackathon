@@ -27,6 +27,8 @@ CSV_COLUMNS: tuple[str, ...] = (
     "our_routes",
     "our_transfers",
     "our_timing_sources",
+    "our_option_index",
+    "our_option_supported",
     "google_status",
     "google_http_status",
     "google_duration_s",
@@ -139,6 +141,14 @@ def render_markdown_report(
             "lines or transfer points. The CSV also tracks `diff_excl_board_s`, an optional diagnostic computed "
             "from the sum of marginal walk/ride/transfer leg medians excluding boarding (not the joint total minus "
             f"boarding wait). See `{csv_rel_path}`."
+        ),
+        (
+            "- **Only supported journeys are compared.** `GET /journeys` abstains unless some option has a ride "
+            "with route-level observations (`observed_coverage > 0`), and the compared option must be one of "
+            "those. Rows whose reported option has none are kept as `our_unsupported_option` "
+            "(`our_option_supported = False`). Inputs frozen before per-ride coverage was recorded are classified "
+            "from their timing sources and routes: only 717A rides (the one corridor with stop passages) and "
+            "`model_live` rides carry observed coverage."
         ),
         "",
         "## Collection Contract & Call Accounting",

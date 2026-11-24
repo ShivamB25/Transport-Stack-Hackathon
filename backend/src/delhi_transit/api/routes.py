@@ -40,6 +40,10 @@ from delhi_transit.live.poller import (
 )
 from delhi_transit.planner.itinerary import retime_itinerary
 from delhi_transit.planner.otp_client import OTPClientError
+from delhi_transit.planner.provenance import (
+    option_has_supported_route,
+    option_ride_coverage,
+)
 
 DEFAULT_REPLAY_DEPART = datetime(2026, 10, 22, 8, 30, tzinfo=IST)
 
@@ -210,23 +214,8 @@ def _evaluate_live_feed(
     return state, age, None
 
 
-def _option_has_supported_route(option: dict[str, Any]) -> bool:
-    """A journey is supported when at least one ride has route-level observations."""
-    return any(
-        leg.get("type") == "ride" and float(leg.get("observed_coverage") or 0.0) > 0.0
-        for leg in option.get("legs", [])
-    )
-
-
-def _max_option_ride_coverage(options: list[dict[str, Any]]) -> float:
-    best = 0.0
-    for option in options:
-        rides = [leg for leg in option["legs"] if leg["type"] == "ride"]
-        if not rides:
-            continue
-        avg_cov = sum(float(leg.get("observed_coverage") or 0.0) for leg in rides) / len(rides)
-        best = max(best, avg_cov)
-    return round(best, 4)
+def _option_passes_gate(option: dict[str, Any], coverage_floor: float) -> bool:
+    return option_has_supported_route(option) and option_ride_coverage(option) >= coverage_floor
 
 
 def _replay_feed_summary(replay_info: dict[str, Any]) -> dict[str, Any]:
@@ -388,9 +377,16 @@ def build_router(rt: ApiRuntime) -> APIRouter:
         ]
         if not options:
             raise HTTPException(404, "no bus itineraries found for this request")
-        options.sort(key=lambda option: option["total_duration_s"])
+        # Options that pass the support gate come first, so options[0] (what the UI and the
+        # comparator show) is never an unsupported journey on an "ok" response.
+        options.sort(
+            key=lambda option: (
+                not _option_passes_gate(option, coverage_floor),
+                option["total_duration_s"],
+            )
+        )
 
-        if not any(_option_has_supported_route(option) for option in options):
+        if not any(option_has_supported_route(option) for option in options):
             return respond("insufficient_data", abstention=_abstain(
                 "insufficient_route_coverage",
                 (
@@ -404,7 +400,7 @@ def build_router(rt: ApiRuntime) -> APIRouter:
             ))
 
         if coverage_floor > 0.0:
-            best_cov = _max_option_ride_coverage(options)
+            best_cov = max(option_ride_coverage(option) for option in options)
             if best_cov < coverage_floor:
                 return respond("insufficient_data", abstention=_abstain(
                     "insufficient_route_coverage",

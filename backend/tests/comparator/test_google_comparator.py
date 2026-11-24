@@ -230,6 +230,7 @@ def test_end_to_end_compare_report_retains_missing_rows_and_honesty_notice(tmp_p
                                 "estimated_duration_s": 3100,
                                 "source": "historical",
                                 "timing_source": "historical_fallback",
+                                "observed_coverage": 1.0,
                             },
                             {"type": "walk", "estimated_duration_s": 120},
                         ],
@@ -535,6 +536,7 @@ def _planner_success(_request: httpx.Request) -> httpx.Response:
                             "route_name": "717AUP",
                             "estimated_duration_s": 3100,
                             "timing_source": "model_live",
+                            "observed_coverage": 0.8,
                         },
                         {"type": "walk", "estimated_duration_s": 120},
                     ],
@@ -619,3 +621,94 @@ def test_cap_exhaustion_retains_collected_and_unavailable_rows(tmp_path: Path) -
     assert manifest["corpus_summary"]["planned_slots"] == 3
     assert manifest["call_accounting"]["total_mission_calls"] == 4
     assert manifest["call_accounting"]["network_calls_this_run"] == 2
+
+def _planner_option(duration_s: int, route_name: str, timing_source: str, coverage: float) -> dict:
+    return {
+        "total_duration_s": duration_s,
+        "total_window_p10_s": duration_s - 300,
+        "total_window_p90_s": duration_s + 600,
+        "legs": [
+            {"type": "walk", "estimated_duration_s": 200},
+            {"type": "board", "estimated_duration_s": 180},
+            {
+                "type": "ride",
+                "route_name": route_name,
+                "estimated_duration_s": duration_s - 500,
+                "timing_source": timing_source,
+                "observed_coverage": coverage,
+            },
+            {"type": "walk", "estimated_duration_s": 120},
+        ],
+    }
+
+
+def _query_with_options(options: list[dict]) -> dict:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "ok", "mode": "live", "selected_rung": "4", "options": options})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        return compare_mod.query_our_api(
+            client, "http://127.0.0.1:3100", DEFAULT_OD_PAIRS[0], datetime(2026, 11, 24, 8, 30, tzinfo=IST)
+        )
+
+
+def test_comparator_compares_the_first_supported_option() -> None:
+    res = _query_with_options(
+        [
+            _planner_option(1800, "505UP", "historical_fallback", 0.0),
+            _planner_option(2400, "717AUP", "historical_fallback", 1.0),
+        ]
+    )
+    assert res["our_status"] == "ok"
+    assert res["our_option_index"] == 1
+    assert res["our_routes"] == ["717AUP"]
+    assert res["our_total_duration_s"] == 2400
+    assert res["our_ride_observed_coverage"] == [1.0]
+    assert compare_mod.reported_option_supported(res) is True
+
+    unsupported = _query_with_options([_planner_option(1800, "505UP", "historical_fallback", 0.0)])
+    assert unsupported["our_status"] == "unsupported_options"
+    assert "our_total_duration_s" not in unsupported
+
+
+def test_unsupported_reported_option_is_not_compared() -> None:
+    od, slot = DEFAULT_OD_PAIRS[0], DEFAULT_TIME_SLOTS[0]
+    depart = datetime(2026, 11, 24, 8, 30, tzinfo=IST)
+    google = {
+        "http_status": 200,
+        "parsed": {
+            "raw_route_count": 1,
+            "bus_only_count": 1,
+            "best_bus_route": {"duration_s": 3000, "route_names": ["425"], "vehicle_types": ["BUS"]},
+        },
+    }
+    base = {
+        "our_status": "ok",
+        "our_total_duration_s": 3300,
+        "our_window_p10_s": 3000,
+        "our_window_p90_s": 3900,
+        "our_ride_walk_duration_s": 3100,
+    }
+    cases = [
+        # Frozen before per-ride coverage was recorded: classified from routes and sources.
+        ({"our_routes": ["505UP"], "our_timing_sources": ["historical_fallback"]}, False),
+        ({"our_routes": ["717EDOWN", "544UP"], "our_timing_sources": ["historical_fallback"]}, False),
+        ({"our_routes": ["717AUP"], "our_timing_sources": ["historical_fallback"]}, True),
+        ({"our_routes": ["502UP"], "our_timing_sources": ["model_live"]}, True),
+        ({"our_routes": ["717AUP"], "our_timing_sources": ["timetable_fallback"]}, False),
+        # Recorded per-ride coverage wins over the route-name rule.
+        ({"our_routes": ["505UP"], "our_timing_sources": ["model_live"], "our_ride_observed_coverage": [0.0]}, False),
+        ({"our_routes": ["505UP"], "our_timing_sources": ["model_live"], "our_ride_observed_coverage": [0.4]}, True),
+    ]
+    for extra, supported in cases:
+        row, entry = compare_mod.evaluate_slot_comparison(od, slot, depart, {**base, **extra}, google)
+        assert row["our_option_supported"] is supported, extra
+        assert entry["our_option_supported"] is supported
+        if supported:
+            assert row["row_status"] == "compared"
+            assert row["diff_s"] == 300
+        else:
+            assert row["row_status"] == "our_unsupported_option"
+            assert row["our_total_duration_s"] is None
+            assert row["diff_s"] is None
+            assert "support gate" in row["note"]

@@ -632,3 +632,51 @@ def test_transport_exception_never_persists_or_exposes_credential(tmp_path: Path
     )
     assert secret_key not in exposed_text
     assert "Illegal header value" not in exposed_text
+
+class _UnsupportedFirstOTP:
+    """A faster single-ride candidate on a route with no observations, then the supported one."""
+
+    async def plan(self, origin, destination, depart):
+        supported = deepcopy(_candidate(depart.isoformat()))
+        fast = deepcopy(supported)
+        walk_in, ride, _, walk_out = fast["legs"]
+        ride["route"] = {"gtfsId": "DTC:300", "shortName": "300UP"}
+        ride["trip"] = {"gtfsId": "DTC:300_08_00"}
+        ride["to"] = walk_out["from"]
+        walk_out["start"] = {"scheduledTime": ride["end"]["scheduledTime"]}
+        walk_out["end"] = {
+            "scheduledTime": (datetime.fromisoformat(ride["end"]["scheduledTime"]) + timedelta(minutes=1)).isoformat()
+        }
+        fast["legs"] = [walk_in, ride, walk_out]
+        return [fast, supported]
+
+
+def test_supported_option_is_listed_first_even_when_an_unsupported_one_is_faster(
+    tmp_path: Path, make_protobuf
+) -> None:
+    _make_stops(tmp_path)
+    now = int(time.time())
+    payload = make_protobuf(now, [(f"FRESH{i}", "100", 28.65, 77.22, 5.0, now - 5) for i in range(12)])
+    persist_decoded_feed(tmp_path, decode_vehicle_positions(payload, polled_at=now))
+    app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=_UnsupportedFirstOTP(),
+        model=_build_retime_model(tmp_path, []),
+        enable_poller=False,
+        min_live_vehicles=10,
+    )
+    params = {"from": "Kashmere Gate ISBT", "to": "Nehru Place", "depart": "2026-11-24T08:30:00+05:30"}
+    body = TestClient(app).get("/journeys", params=params).json()
+
+    assert body["status"] == "ok"
+    assert len(body["options"]) == 2
+    first, second = body["options"]
+    first_rides = [leg for leg in first["legs"] if leg["type"] == "ride"]
+    second_rides = [leg for leg in second["legs"] if leg["type"] == "ride"]
+    assert [leg["route_id"] for leg in first_rides] == [100, 200]
+    assert any(leg["observed_coverage"] > 0 for leg in first_rides)
+    assert [leg["route_id"] for leg in second_rides] == [300]
+    assert all(leg["observed_coverage"] == 0 for leg in second_rides)
+    # The unsupported option is faster, so duration alone would have put it first.
+    assert second["total_duration_s"] < first["total_duration_s"]

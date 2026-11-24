@@ -31,13 +31,13 @@
   },
   "generated_at": "2026-11-23T21:16:26Z",
   "rendered_from_frozen_inputs": true,
-  "frozen_inputs_path": "/home/factory-user/repos/Transport-Stack-Hackathon/reports/google-comparator-inputs.json",
+  "frozen_inputs_path": "/home/factory-user/ps1-scratch/worktrees/issue-9/reports/google-comparator-inputs.json",
   "corpus_summary": {
     "od_pair_count": 30,
     "time_slots_per_pair": 3,
     "planned_slots": 90,
-    "compared_rows": 41,
-    "missing_or_error_rows": 49,
+    "compared_rows": 19,
+    "missing_or_error_rows": 71,
     "google_non_bus_itineraries_filtered": 3
   },
   "entries": [
@@ -78,6 +78,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -118,8 +119,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_01",
@@ -158,8 +160,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_02",
@@ -198,6 +201,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -238,6 +242,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -278,6 +283,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -318,6 +324,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -358,6 +365,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -398,6 +406,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -438,8 +447,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_04",
@@ -478,8 +488,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_04",
@@ -518,8 +529,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_05",
@@ -558,8 +570,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_05",
@@ -598,6 +611,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -638,6 +652,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -678,6 +693,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -718,6 +734,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -758,6 +775,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -798,6 +816,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -838,6 +857,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -878,8 +898,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_08",
@@ -918,6 +939,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -958,8 +980,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_08",
@@ -998,8 +1021,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_09",
@@ -1038,6 +1062,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -1078,8 +1103,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_09",
@@ -1118,8 +1144,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_10",
@@ -1158,6 +1185,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1198,6 +1226,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -1238,6 +1267,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -1278,8 +1308,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_11",
@@ -1318,8 +1349,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_11",
@@ -1358,8 +1390,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_12",
@@ -1398,8 +1431,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_12",
@@ -1440,6 +1474,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations.; filtered 1 non-bus Google itinerary(ies) (SUBWAY)"
     },
@@ -1480,6 +1515,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1520,8 +1556,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_13",
@@ -1562,6 +1599,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": "filtered 1 non-bus Google itinerary(ies) (SUBWAY)"
     },
@@ -1604,6 +1642,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": "filtered 1 non-bus Google itinerary(ies) (SUBWAY)"
     },
@@ -1644,6 +1683,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1684,6 +1724,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1724,6 +1765,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1764,6 +1806,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1804,6 +1847,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1844,6 +1888,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1884,6 +1929,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1924,6 +1970,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -1964,6 +2011,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2004,6 +2052,7 @@
         "BUS"
       ],
       "our_status": "ok",
+      "our_option_supported": true,
       "row_status": "compared",
       "note": ""
     },
@@ -2044,6 +2093,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2084,8 +2134,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_18",
@@ -2124,6 +2175,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2164,6 +2216,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2204,6 +2257,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2244,6 +2298,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2284,6 +2339,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2324,6 +2380,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2364,6 +2421,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2404,6 +2462,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2444,6 +2503,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2484,6 +2544,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2524,6 +2585,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2564,6 +2626,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2604,8 +2667,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_22",
@@ -2644,8 +2708,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_22",
@@ -2684,8 +2749,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_23",
@@ -2724,6 +2790,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2764,6 +2831,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2804,6 +2872,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2844,6 +2913,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2884,6 +2954,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2924,6 +2995,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -2964,6 +3036,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3004,6 +3077,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3044,6 +3118,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3084,6 +3159,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3124,6 +3200,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3164,6 +3241,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3204,8 +3282,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_27",
@@ -3244,6 +3323,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3284,8 +3364,9 @@
         "BUS"
       ],
       "our_status": "ok",
-      "row_status": "compared",
-      "note": ""
+      "our_option_supported": false,
+      "row_status": "our_unsupported_option",
+      "note": "our: reported option has no route-level observations (support gate); excluded from comparison"
     },
     {
       "od_id": "od_28",
@@ -3324,6 +3405,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3364,6 +3446,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3404,6 +3487,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3444,6 +3528,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3484,6 +3569,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3524,6 +3610,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3564,6 +3651,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3604,6 +3692,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     },
@@ -3644,6 +3733,7 @@
         "BUS"
       ],
       "our_status": "insufficient_data",
+      "our_option_supported": null,
       "row_status": "our_insufficient_data",
       "note": "our: Not enough data: no candidate journey has a supported route with usable route-level observations."
     }
