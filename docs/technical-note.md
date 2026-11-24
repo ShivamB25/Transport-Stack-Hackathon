@@ -70,13 +70,13 @@ Every query is constructed in a **strictly time-ordered replay**: at `query_ts`,
 
 Every training, calibration, and evaluation partition is a disjoint set of whole days (`docs/eval-protocol.md`, `reports/eval-full.md`):
 
-- **Training days (rungs 1h, 2, 3):** `2026-10-05`, `06`, `07` (training-only), `08`, `13`, `14`, `15`.
+- **Training days (rungs 1h, 2):** `2026-10-05`, `06`, `07` (training-only), `08`, `13`, `14`, `15`.
 - **Rung 4 LightGBM fit days:** `2026-10-05`, `06`, `07`, `08`, `13`, `14` (32,418 observed queries).
 - **Rung 4 split-conformal calibration day:** `2026-10-15` (4,693 observed queries; strictly later than fit days, never touches held-out days).
 - **Held-out evaluation days:** `2026-10-22`, `2026-10-27`, `2026-10-28` (13,299 observed-only paired queries across 6 day × direction groups).
 - **Excluded holidays:** `2026-10-02`, `2026-10-20`, `2026-10-26`.
 
-### Model ladder (Rungs 0–4) and conformal calibration
+### Model ladder (Rungs 0, 1, 1h, 2, 4) and conformal calibration
 
 All rungs share one fit/predict interface (`delhi_transit/model/rungs.py`, with rung 4 in `model/lgbm.py`) and are scored on identical paired queries within each stratum, day, and direction:
 
@@ -84,7 +84,7 @@ All rungs share one fit/predict interface (`delhi_transit/model/rungs.py`, with 
 - **Rung 1 (Persistence):** predicts the latest causal same-day previous run's `error_s` on the exact same stretch.
 - **Rung 1h (Historical hourly median):** median training `error_s` by `(route, direction, from_stop, to_stop, IST hour)`, falling back to `0` on empty bins (fallback count reported; 0 on all held-out groups).
 - **Rung 2 (+ Day-type):** hierarchical observed-target median table (`HistoricalMedianTable`) backing off cleanly across `(stretch, day_of_week, hour) -> (stretch, coarse_day_type, hour) -> (stretch, hour) -> stretch -> (route, hour) -> 0` (requiring `min_day_type_samples = 3`).
-- **Rung 3 (+ This bus's last delay):** Rung 2 baseline plus a `HuberRegressor` adjustment fitted on leave-one-day-out (LODO) residuals using this vehicle's own causal prior stretch error, last stop delay, and recent pace delta.
+- **Rung 3 (removed, protocol amendment 1.4):** a Rung 2 baseline plus a `HuberRegressor` adjustment from this bus's own causal last delay. On training days its coefficients moved predictions by about 0.5 s per standard deviation of each feature, and it was worse than Rung 2 in 14/14 leave-one-training-day-out groups, so it was dropped. Its last held-out observed-only MAE before removal was 69.558 s against 69.498 s for Rung 2.
 - **Rung 4 (Quantile LightGBM + split-conformal CQR):** three gradient-boosted quantile models (`alpha = 0.10, 0.50, 0.90`, `n_estimators = 220`, `num_leaves = 31`, `learning_rate = 0.05`) trained on 28 strictly causal features: 24 base numeric features (remaining stops/distance, stretch distance, scheduled duration, ping age, upstream observed flag, recent vehicle progress ratio and speed, last stop delay, last stretch error, previous run error/age/observed flag, recent 30-minute same-direction speed and pace ratio, headway, hour/minute/cyclical time-of-day, day of week, weekend indicator, route ID, stop sequence) plus 4 LODO hierarchical historical median features (`hist_dow_hour_median_s`, `hist_hour_median_s`, `hist_stretch_median_s`, `prev_minus_hist_s`).
   - Raw quantile outputs are sorted to guarantee `p10 <= p50 <= p90`, then expanded symmetrically by the split-conformal CQR offset `q_conf = 2.359 s` computed on `2026-10-15` for nominal 80% coverage (`alpha = 0.20`). On the calibration day, conformalization raises coverage from **76.092% raw** to **80.055% calibrated** (mean width 144.406 s, median width 80.249 s).
 
@@ -157,7 +157,7 @@ A more complex model ships only if it beats rung 1 on held-out days at **identic
 
 ### Full held-out model-selection comparison (`reports/selection.json`, `reports/eval-full.md`)
 
-**Declared selection rule:** *Ship the highest shippable rung in `(4, 3, 2)` whose held-out `observed-only` query-weighted MAE is strictly lower than Rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship Rung 1. Rung 1h is report-only and cannot be selected.*
+**Declared selection rule:** *Ship the highest shippable rung in `(4, 2)` whose held-out `observed-only` query-weighted MAE is strictly lower than Rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship Rung 1. Rung 1h is report-only and cannot be selected.*
 
 | Rung | Model | Observed Queries | Overall MAE (s) | Delta vs Rung 1 (s) | Coverage Matches Rung 1 | Groups Beating Rung 1 | p10–p90 Coverage | Mean Width (s) | Pooled Median Width (s) |
 |---:|---|---:|---:|---:|---|---:|---:|---:|---:|
@@ -165,19 +165,18 @@ A more complex model ships only if it beats rung 1 on held-out days at **identic
 | `1` | Persistence (bar) | 13,299 | 72.766 | 0.000 | yes | 0/6 | — | — | — |
 | `1h` | Stretch-hour median (report-only) | 13,299 | 74.525 | +1.759 | yes | 2/6 | — | — | — |
 | `2` | + Day-type (observed targets) | 13,299 | 69.498 | -3.269 | yes | 6/6 | — | — | — |
-| `3` | + This bus's causal last delay | 13,299 | 69.558 | -3.209 | yes | 6/6 | — | — | — |
 | **`4`** | **Quantile LightGBM + CQR (shipped)** | **13,299** | **60.178** | **-12.588** | **yes** | **6/6** | **79.156%** | **144.496** | **81.518** |
 
 Per-day, per-direction `observed-only` MAE (seconds) and Rung 4 interval performance:
 
-| Day | Direction | Queries | Rung 0 | Rung 1 | Rung 1h | Rung 2 | Rung 3 | Rung 4 | Rung 4 Cov % | Rung 4 Mean / Med Width (s) |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `2026-10-22` | `DOWN` (`2170`) | 2,193 | 101.801 | 87.112 | 92.108 | 83.199 | 83.262 | **75.881** | 76.197% | 144.360 / 86.570 |
-| `2026-10-22` | `UP` (`2171`) | 2,397 | 95.608 | 79.936 | 80.703 | 79.477 | 79.557 | **65.930** | 80.434% | 156.702 / 79.057 |
-| `2026-10-27` | `DOWN` (`2170`) | 2,372 | 75.619 | 60.186 | 63.577 | 57.603 | 57.616 | **49.172** | 79.764% | 131.762 / 81.423 |
-| `2026-10-27` | `UP` (`2171`) | 2,368 | 73.865 | 60.938 | 59.691 | 55.859 | 55.912 | **47.914** | 81.208% | 136.326 / 73.107 |
-| `2026-10-28` | `DOWN` (`2170`) | 2,047 | 70.603 | 59.895 | 59.278 | 53.989 | 54.036 | **46.648** | 79.238% | 135.248 / 82.424 |
-| `2026-10-28` | `UP` (`2171`) | 1,922 | 108.954 | 91.263 | 94.787 | 89.418 | 89.531 | **78.193** | 77.575% | 165.060 / 87.092 |
+| Day | Direction | Queries | Rung 0 | Rung 1 | Rung 1h | Rung 2 | Rung 4 | Rung 4 Cov % | Rung 4 Mean / Med Width (s) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `2026-10-22` | `DOWN` (`2170`) | 2,193 | 101.801 | 87.112 | 92.108 | 83.199 | **75.881** | 76.197% | 144.360 / 86.570 |
+| `2026-10-22` | `UP` (`2171`) | 2,397 | 95.608 | 79.936 | 80.703 | 79.477 | **65.930** | 80.434% | 156.702 / 79.057 |
+| `2026-10-27` | `DOWN` (`2170`) | 2,372 | 75.619 | 60.186 | 63.577 | 57.603 | **49.172** | 79.764% | 131.762 / 81.423 |
+| `2026-10-27` | `UP` (`2171`) | 2,368 | 73.865 | 60.938 | 59.691 | 55.859 | **47.914** | 81.208% | 136.326 / 73.107 |
+| `2026-10-28` | `DOWN` (`2170`) | 2,047 | 70.603 | 59.895 | 59.278 | 53.989 | **46.648** | 79.238% | 135.248 / 82.424 |
+| `2026-10-28` | `UP` (`2171`) | 1,922 | 108.954 | 91.263 | 94.787 | 89.418 | **78.193** | 77.575% | 165.060 / 87.092 |
 
 **Ship decision (`reports/selection.json`):** **`selected_rung = "4"`**. On the held-out `observed-only` stratum (13,299 queries, 100% observed, 0% interpolated; 34.740% of the 38,282 all-stop held-out queries), Rung 4 beats persistence by **12.588 s** overall (**-17.3%** relative to Rung 1, and **-31.0%** relative to the Rung 0 timetable), wins on **6/6** held-out day × direction groups at identical coverage, and achieves **79.156%** held-out empirical coverage on its nominal 80% conformal `[p10, p90]` intervals.
 

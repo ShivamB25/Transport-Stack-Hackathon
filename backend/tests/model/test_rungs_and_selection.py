@@ -23,7 +23,7 @@ from delhi_transit.model.features import (
     build_stretch_errors,
 )
 from delhi_transit.model.lgbm import Rung4QuantileLightGBMModel
-from delhi_transit.model.rungs import Rung2DayTypeModel, Rung3LastDelayModel
+from delhi_transit.model.rungs import Rung2DayTypeModel
 from delhi_transit.model.selection import (
     load_eval_csv,
     select_shipped_rung,
@@ -81,20 +81,6 @@ def test_rung2_day_type_hierarchy_and_fallback() -> None:
     assert not tue_pred.used_fallback
     assert not thu_pred.used_fallback
     assert thu_pred.error_s > tue_pred.error_s + 30.0
-
-
-def test_rung3_uses_this_bus_last_observed_delay() -> None:
-    train_p = _make_day_passages("2026-10-05", 20, runs=12) + _make_day_passages("2026-10-06", 20, runs=12)
-    train_s = build_stretch_errors(train_p)
-    train_q = build_replay_queries(train_s, train_p)
-
-    model = Rung3LastDelayModel().fit(train_s, train_q)
-
-    fast_p = _make_day_passages("2026-10-22", 0, runs=3)
-    slow_p = _make_day_passages("2026-10-22", 120, runs=3)
-    fast_q = [q for q in build_replay_queries(build_stretch_errors(fast_p), fast_p) if q.stretch.from_sequence == 2]
-    slow_q = [q for q in build_replay_queries(build_stretch_errors(slow_p), slow_p) if q.stretch.from_sequence == 2]
-    assert model.predict(slow_q[0]).error_s > model.predict(fast_q[0]).error_s
 
 
 def test_rung4_quantile_ordering_calibration_and_artifact_roundtrip(tmp_path: Path) -> None:
@@ -202,19 +188,18 @@ def test_selection_rule_ladder_and_coverage_match() -> None:
         _metric_row("2026-10-22", "UP", "1", 85.0),
         _metric_row("2026-10-22", "UP", "1h", 80.0),
         _metric_row("2026-10-22", "UP", "2", 78.0),
-        _metric_row("2026-10-22", "UP", "3", 77.0),
         _metric_row("2026-10-22", "UP", "4", 68.0),
     ]
     assert select_shipped_rung(rows)["selected_rung"] == "4"
 
-    # 2. Rung 4 has mismatched query coverage -> disqualified; rung 3 ships
+    # 2. Rung 4 has mismatched query coverage -> disqualified; rung 2 ships
     mismatch_rows = [
         _metric_row("2026-10-22", "UP", "1", 85.0, queries=100),
-        _metric_row("2026-10-22", "UP", "3", 77.0, queries=100),
+        _metric_row("2026-10-22", "UP", "2", 77.0, queries=100),
         _metric_row("2026-10-22", "UP", "4", 50.0, queries=90),
     ]
     decision = select_shipped_rung(mismatch_rows)
-    assert decision["selected_rung"] == "3"
+    assert decision["selected_rung"] == "2"
     assert not decision["candidates"]["4"]["coverage_matches_rung1"]
 
     # 3. No higher rung beats rung 1 -> ships rung 1
@@ -223,7 +208,6 @@ def test_selection_rule_ladder_and_coverage_match() -> None:
         _metric_row("2026-10-22", "UP", "1", 85.0),
         _metric_row("2026-10-22", "UP", "1h", 86.0),
         _metric_row("2026-10-22", "UP", "2", 87.0),
-        _metric_row("2026-10-22", "UP", "3", 88.0),
         _metric_row("2026-10-22", "UP", "4", 85.0),  # tie does not beat strictly
     ]
     assert select_shipped_rung(worse_rows)["selected_rung"] == "1"
@@ -245,12 +229,11 @@ def test_1h_only_winner_is_reported_but_persistence_ships() -> None:
         _metric_row("2026-10-22", "UP", "1", 85.0),
         _metric_row("2026-10-22", "UP", "1h", 70.0),
         _metric_row("2026-10-22", "UP", "2", 86.0),
-        _metric_row("2026-10-22", "UP", "3", 87.0),
         _metric_row("2026-10-22", "UP", "4", 88.0),
     ]
     decision = select_shipped_rung(rows)
     assert decision["selected_rung"] == "1"
-    assert decision["shippable_rungs"] == ["1", "2", "3", "4"]
+    assert decision["shippable_rungs"] == ["1", "2", "4"]
     assert decision["candidates"]["1h"]["beats_rung1_overall"]
     assert not decision["candidates"]["1h"]["shippable"]
 
