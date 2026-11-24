@@ -30,8 +30,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
   - `api/static.py`: serves the built UI from `FRONTEND_DIR` (default `frontend/dist`) at `/` and `/assets/*` (paths cannot escape the directory); if the UI is not built, `/` returns a short plain-text message.
 - `livecheck/launch.sh`: reuses a healthy OTP on 3102 (otherwise starts it and stops it afterwards), starts the API with the live poller on 3120, runs `livecheck run`, then stops what it started.
 - `frontend/`: the UI. Bun + Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui (`src/components/ui/`) + TanStack Query, with plain Leaflet through `hooks/useLeafletMap.ts` (no react-leaflet). `src/api/` holds the response types matching the API JSON, the fetch client and the query options; `hooks/useLatestAction.ts` gives every user action a new id and the results pane reads only the newest action's query. Components: `JourneyForm` (presets), `ModeBadge` (live/replay and feed age), `OptionList`, `LegBreakdown` (windows, provenance, coverage), `RouteMap`, `AbstentionPanel` (reason code), `ReplayDemo` (stages, flip, outcome, quiet-hour comparison). `bun.lock` is committed; `dist/` and `node_modules/` are gitignored.
-- `backend/tests/`: pytest suites in `data`, `model`, `planner`, `live`, `api`, `comparator` (`conftest.py` provides the VehiclePositions protobuf builder and, when the data directory has no `gtfs/stops.txt`, points `DELHI_TRANSIT_DATA_DIR` at a temporary directory with a header-only stops file so the suite runs without the real data).
-- `.github/workflows/ci.yml`: on every push and pull request, runs `uv sync --frozen`, `uv run pytest -q`, `uv run ruff check src tests` and `uv run python -m compileall -q src` in `backend/`, and `bun install --frozen-lockfile`, `bun run typecheck` and `bun test` in `frontend/`.
+- `backend/tests/`: pytest suites in `data`, `model`, `planner`, `live`, `livecheck`, `api`, `comparator` (`conftest.py` provides the VehiclePositions protobuf builder). Importing `delhi_transit.api` builds the default app, which reads `gtfs/stops.txt` from `DELHI_TRANSIT_DATA_DIR`, so the suite needs the data directory. There is no CI and the frontend has no tests; the local checks under Commands are the gate before merging.
 - `otp/`: `build.sh`, `serve.sh`, `build-config.json` (copied into the graph directory by `build.sh`).
 - `reports/`: committed results (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`, `otp-plan-*.json`).
 - `docs/`: `technical-note.md`, `eval-protocol.md`, `otp.md`.
@@ -45,7 +44,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 - Paths: every machine path in docs and reports is written relative to `DELHI_TRANSIT_SCRATCH_DIR` and the variables below; the code defaults point at the development machine (`/home/factory-user/ps1-scratch`, see `core/config.py` and the README path table).
 - Java: Temurin 21 at `$DELHI_TRANSIT_SCRATCH_DIR/jdk` (`DELHI_TRANSIT_JAVA`). OTP jar, OSM extract and graph: `$DELHI_TRANSIT_OTP_DIR/` (`DELHI_TRANSIT_OTP_DIR`, default `$DELHI_TRANSIT_SCRATCH_DIR/otp`). OTP heap is capped at `-Xmx2500m`.
 - `.env` in the repository root (gitignored, see `.env.example`): `DELHI_TS_API_KEY` (live feed and static GTFS), `GOOGLE_MAPS_API_KEY` (comparator). Read in-process only; never print, log or commit values.
-- Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively. `.github/workflows/compose.yml` builds the images with `docker compose build` in CI and smoke-tests the API image with a stub data directory; `docker compose up` with the real data and graph mounts is not exercised there.
+- Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively.
 
 ## Ports and data
 
@@ -64,7 +63,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 Python commands run from `backend/` (`cd backend`); shell scripts from the repository root. These match the mission `services.yaml`.
 
 - Install: `uv sync --frozen`
-- Frontend (from `frontend/`): `bun install --frozen-lockfile`, `bun run typecheck`, `bun run build`, `bun test`, dev server on 3110: `bun run dev`
+- Frontend (from `frontend/`): `bun install --frozen-lockfile`, `bun run typecheck`, `bun run build`, dev server on 3110: `bun run dev`
 - Tests: `uv run pytest -q`
 - Bytecode check: `uv run python -m compileall -q src`
 - Lint: `uv run ruff check src tests`

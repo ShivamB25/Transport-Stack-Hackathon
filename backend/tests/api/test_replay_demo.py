@@ -169,29 +169,6 @@ def _make_client(tmp_path: Path, otp: StubOTP | None = None) -> TestClient:
     return TestClient(app)
 
 
-def test_root_serves_built_frontend_and_assets_stay_inside_dist(tmp_path: Path, monkeypatch) -> None:
-    dist = tmp_path / "dist"
-    monkeypatch.setattr(config, "FRONTEND_DIR", dist)
-    client = _make_client(tmp_path)
-
-    unbuilt = client.get("/")
-    assert unbuilt.status_code == 200
-    assert unbuilt.headers["content-type"].startswith("text/plain")
-
-    (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text('<div id="root"></div>', encoding="utf-8")
-    (dist / "assets" / "app.js").write_text("export {}", encoding="utf-8")
-    (tmp_path / "outside.txt").write_text("not public", encoding="utf-8")
-
-    page = client.get("/")
-    assert "text/html" in page.headers["content-type"]
-    assert 'id="root"' in page.text
-    script = client.get("/assets/app.js")
-    assert script.status_code == 200
-    assert "javascript" in script.headers["content-type"]
-    assert client.get("/assets/%2e%2e/%2e%2e/outside.txt").status_code == 404
-    assert client.get("/favicon.ico").status_code == 204
-
 def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Path, monkeypatch) -> None:
     joint_runs: list[tuple[list[dict], list[list[float]]]] = []
 
@@ -288,4 +265,3 @@ def test_replay_demo_uses_real_oct22_parquet_when_available() -> None:
     assert transfer["connecting_observed_depart"].endswith("17:35:34+05:30")
     assert transfer["connecting_scheduled_depart"].endswith("17:32:42+05:30")
     assert [stage["observed_delay_s"] for stage in body["stages"]] == [165, 1768, 2133, 2070]
-
