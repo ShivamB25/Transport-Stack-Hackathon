@@ -86,7 +86,7 @@ export default function App() {
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-[440px_1fr] overflow-hidden max-[900px]:grid-cols-1 max-[900px]:grid-rows-[52vh_1fr]">
-        <aside className="sidebar flex flex-col gap-3.5 overflow-y-auto border-r border-slate-200 bg-white px-4 pt-3.5 pb-6">
+        <aside className="sidebar flex flex-col gap-3.5 *:shrink-0 overflow-y-auto border-r border-slate-200 bg-white px-4 pt-3.5 pb-6">
           <JourneyForm
             values={form}
             onChange={setForm}

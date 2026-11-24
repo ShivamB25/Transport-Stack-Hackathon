@@ -97,7 +97,7 @@ export function JourneyForm({ values, onChange, onPlan, onReplayDemo, planning, 
           </div>
 
           <div className="mt-0.5 flex gap-2">
-            <Button id="plan-btn" type="submit" size="lg" className="flex-1 bg-teal-700 font-bold hover:bg-teal-800" disabled={planning}>
+            <Button id="plan-btn" type="submit" size="lg" className="flex-1 bg-teal-700 font-bold hover:bg-teal-800" aria-busy={planning}>
               {planning ? 'Planning...' : 'Plan journey'}
             </Button>
             <Button
