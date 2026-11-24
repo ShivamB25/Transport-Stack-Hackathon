@@ -8,25 +8,26 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 
 ## Layout
 
-- `src/ps1/`
-  - `config.py`: env-driven paths (`PS1_DATA_DIR`, `PS1_WORK_DIR`), `PS1_OTP_URL`, the shared `IST` timezone, Delhi bbox, archive URL and user agent, live feed settings, Google 300-call cap and ledger path.
-  - `range_reader.py`: bounded HTTP range reader for the remote 7z archive.
-  - `extract_day.py`: extracts one archive day, dedupes on `(vehicle_id, ts, lat, lng)` keeping the first SQLite `rowid`, filters bbox/timestamps, casts `route_id` to integer, verifies (`verify_day`) and publishes Parquet atomically, deletes the SQLite file.
-  - `acquire.py`: resumable 31-day orchestrator (2 workers); writes `download.log` and `STATUS.md`, never deletes a canonical Parquet on failure.
-  - `stop_passages.py`: geometric GPS-to-stop matching for 717A (60 m, max-cardinality time-ordered anchor chain, schedule-proportional interpolation, adjacent-service-date resolution, per-passage `available_at`) and `reports/coverage-717a.md` (written only by full canonical runs).
-  - `features.py`: stretch error tables and strictly causal replay features.
-  - `model.py`: rungs `0`, `1`, `1h`, `2`, `3`, `4` (LightGBM quantile + split-conformal), artifact save/load and as-of eligibility.
-  - `evaluate.py`: whole-day evaluation; writes `reports/eval-baselines.*`, `reports/eval-full.*`, `reports/selection.json` and the model artifact.
-  - `selection.py`: ship rule (highest of rungs `4`/`3`/`2` beating rung 1 on held-out observed-only MAE at matching coverage, else rung 1; `1h` is report-only). Only observed-only decisions can be written.
-  - `live_poller.py`: polls VehiclePositions into `data/live/`, gates entities by their own timestamps, stores only fixed error categories; pause/resume/status controls.
-  - `otp_client.py`: GraphQL `planConnection` client for `/otp/gtfs/v1`.
-  - `retime.py`: re-times OTP transit legs with the selected rung and fallback chain, waits, joint-scenario transfer risk and windows. Reads `reports/selection.json` relative to the package and refuses a non-observed-only selection.
-  - `replay_demo.py`: scripted Oct 22 missed-transfer replay for OTP trips `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300; returns `status="unavailable"` if OTP does not return that pair.
-  - `api.py`: FastAPI app (`GET /journeys`, `/health`, `/live/status`, `POST /live/pause`, `POST /live/resume`, `GET /replay/demo`, `/docs`, UI at `/`). `depart` is optional: it defaults to now in Asia/Kolkata in live mode, or to 2026-10-22T08:30+05:30 when replay is explicit (`mode=replay`, or `mode=auto` with `PS1_MODE=replay`).
-  - `google_client.py`: cached, field-masked Google Routes client with atomic reservations in the mission-wide ledger. A missing fixed ledger is seeded from the canonical `data/google/call_counter.json`, never restarted from zero; if neither exists, paid cache misses are refused while cache reads keep working.
-  - `static/index.html`: single-file Leaflet UI (badge, feed age, abstention panel, presets, replay demo).
-- `scripts/`: `otp_build.sh`, `otp_serve.sh`, `live_poller.sh`, `compare_google.py`.
-- `tests/`: pytest suites in `tests/data`, `tests/model`, `tests/api`, `tests/comparator`.
+- `backend/`: uv project (`pyproject.toml`, `uv.lock`, `.python-version` 3.12). Package `src/delhi_transit/`:
+  - `core/config.py`: `REPO_ROOT` (every repo-relative path such as `reports/` and `.env` resolves through it), env-driven paths (`DELHI_TRANSIT_DATA_DIR`, `DELHI_TRANSIT_WORK_DIR`), `DELHI_TRANSIT_OTP_URL`, the shared `IST` timezone, Delhi bbox, archive URL and user agent, live feed settings, Google 300-call cap and ledger path.
+  - `data/range_reader.py`: bounded HTTP range reader for the remote 7z archive.
+  - `data/extract_day.py`: extracts one archive day, dedupes on `(vehicle_id, ts, lat, lng)` keeping the first SQLite `rowid`, filters bbox/timestamps, casts `route_id` to integer, verifies (`verify_day`) and publishes Parquet atomically, deletes the SQLite file.
+  - `data/acquire.py`: resumable 31-day orchestrator (2 workers); writes `download.log` and `STATUS.md`, never deletes a canonical Parquet on failure.
+  - `data/stop_passages.py`: geometric GPS-to-stop matching for 717A (60 m, max-cardinality time-ordered anchor chain, schedule-proportional interpolation, adjacent-service-date resolution, per-passage `available_at`) and `reports/coverage-717a.md` (written only by full canonical runs).
+  - `model/features.py`: stretch error tables and strictly causal replay features.
+  - `model/rungs.py`: rungs `0`, `1`, `1h`, `2`, `3`, `4` (LightGBM quantile + split-conformal), artifact save/load and as-of eligibility.
+  - `model/evaluate.py`: whole-day evaluation; writes `reports/eval-baselines.*`, `reports/eval-full.*`, `reports/selection.json` and the model artifact.
+  - `model/selection.py`: ship rule (highest of rungs `4`/`3`/`2` beating rung 1 on held-out observed-only MAE at matching coverage, else rung 1; `1h` is report-only). Only observed-only decisions can be written.
+  - `live/poller.py`: polls VehiclePositions into `data/live/`, gates entities by their own timestamps, stores only fixed error categories; pause/resume/status controls.
+  - `planner/otp_client.py`: GraphQL `planConnection` client for `/otp/gtfs/v1`.
+  - `planner/retime.py`: re-times OTP transit legs with the selected rung and fallback chain, waits, joint-scenario transfer risk and windows. Reads `REPO_ROOT/reports/selection.json` and refuses a non-observed-only selection.
+  - `comparator/client.py`: cached, field-masked Google Routes client with atomic reservations in the mission-wide ledger. A missing fixed ledger is seeded from the canonical `data/google/call_counter.json`, never restarted from zero; if neither exists, paid cache misses are refused while cache reads keep working.
+  - `comparator/compare.py` (+ `__main__.py`): OD pairs, slots, collection and report rendering (`python -m delhi_transit.comparator`).
+  - `api/app.py`: FastAPI app (`GET /journeys`, `/health`, `/live/status`, `POST /live/pause`, `POST /live/resume`, `GET /replay/demo`, `/docs`, UI at `/`), exported as `delhi_transit.api:app`. `depart` is optional: it defaults to now in Asia/Kolkata in live mode, or to 2026-10-22T08:30+05:30 when replay is explicit (`mode=replay`, or `mode=auto` with `DELHI_TRANSIT_MODE=replay`).
+  - `api/replay_demo.py`: scripted Oct 22 missed-transfer replay for OTP trips `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300; returns `status="unavailable"` if OTP does not return that pair.
+  - `api/static/index.html`: single-file Leaflet UI (badge, feed age, abstention panel, presets, replay demo).
+- `backend/tests/`: pytest suites in `data`, `model`, `planner`, `api`, `comparator`.
+- `otp/`: `build.sh`, `serve.sh`, `build-config.json` (copied into the graph directory by `build.sh`).
 - `reports/`: committed results (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`, `otp-plan-*.json`).
 - `docs/`: `technical-note.md`, `eval-protocol.md`, `otp.md`.
 - `demo/`: `record_demo.sh` and `demo.webm`.
@@ -34,42 +35,44 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
 
 ## Setup
 
-- Python 3.12 venv: `/home/factory-user/ps1-scratch/venv` (`pip install -r requirements.txt`).
-- Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk`. OTP jar, OSM extract and graph: `/home/factory-user/ps1-scratch/otp/` (`PS1_OTP_DIR`). OTP heap is capped at `-Xmx2500m`.
-- `.env` (gitignored, see `.env.example`): `DELHI_TS_API_KEY` (live feed and static GTFS), `GOOGLE_MAPS_API_KEY` (comparator). Read in-process only; never print, log or commit values.
+- Python through uv only: `cd backend && uv sync --frozen` creates `backend/.venv` (gitignored) with the exact pinned versions (Python 3.12). Run Python with `uv run ...` from `backend/`.
+- Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk` (`DELHI_TRANSIT_JAVA`). OTP jar, OSM extract and graph: `/home/factory-user/ps1-scratch/otp/` (`DELHI_TRANSIT_OTP_DIR`). OTP heap is capped at `-Xmx2500m`.
+- `.env` in the repository root (gitignored, see `.env.example`): `DELHI_TS_API_KEY` (live feed and static GTFS), `GOOGLE_MAPS_API_KEY` (comparator). Read in-process only; never print, log or commit values.
 - Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively.
 
 ## Ports and data
 
 - Ports: `3100` (API and UI), `3102` (OTP). Stay within `3100–3199`.
-- `PS1_DATA_DIR` (default `/home/factory-user/ps1-scratch/data`, outside the repo):
+- `DELHI_TRANSIT_DATA_DIR` (default `/home/factory-user/ps1-scratch/data`, outside the repo):
   - `gps/day=YYYY-MM-DD.parquet`: 31 deduplicated days.
   - `gtfs/`: static feed v32 (unzipped files plus `delhi_buses_static_gtfs_v1.zip`).
   - `passages/day=YYYY-MM-DD.parquet`: 717A passages for the 10 train and held-out days.
   - `model/`: selected model artifact. `live/`: poller snapshots and state. `google/`: cached Google responses.
   - `download.log`, `STATUS.md`: acquisition ledger.
-- `PS1_WORK_DIR` (default `/home/factory-user/ps1-scratch/work`): temporary SQLite files (at most 2 at once) and DuckDB temp space.
+- `DELHI_TRANSIT_WORK_DIR` (default `/home/factory-user/ps1-scratch/work`): temporary SQLite files (at most 2 at once) and DuckDB temp space.
+- Other settings: `DELHI_TRANSIT_MODE` (`auto`/`live`/`replay`), `DELHI_TRANSIT_ENABLE_LIVE_POLLER`, `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S` (600), `DELHI_TRANSIT_LIVE_MIN_VEHICLES` (10), `DELHI_TRANSIT_MIN_ROUTE_COVERAGE`, `DELHI_TRANSIT_LIVE_*` poller settings (see `core/config.py`).
 
 ## Commands
 
-Run from `/home/factory-user/repos/Transport-Stack-Hackathon`. These match the mission `services.yaml`.
+Python commands run from `backend/` (`cd /home/factory-user/repos/Transport-Stack-Hackathon/backend`); shell scripts from the repository root. These match the mission `services.yaml`.
 
-- Tests: `/home/factory-user/ps1-scratch/venv/bin/python -m pytest tests -q`
-- Bytecode check: `/home/factory-user/ps1-scratch/venv/bin/python -m compileall -q src`
-- Lint: `/home/factory-user/ps1-scratch/venv/bin/ruff check src tests`
-- Acquire all GPS days: `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.acquire`
-- One GPS day: `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.extract_day --day 2026-10-15 --output /tmp/repro15.parquet`
-- 717A passages (canonical 10 days and coverage report): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.stop_passages --overwrite`
-- 717A passages for one day (never touches the canonical report): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.stop_passages --day 2026-10-22 --output-dir /tmp/passages-check --overwrite`
-- Evaluation and selection: `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate`
-- OTP graph build: `scripts/otp_build.sh`. OTP serve (3102): `scripts/otp_serve.sh`
-- API serve (3100): `PS1_DATA_DIR=/home/factory-user/ps1-scratch/data PS1_OTP_URL=http://localhost:3102/otp/gtfs/v1 /home/factory-user/ps1-scratch/venv/bin/python -m uvicorn ps1.api:app --app-dir src --host 127.0.0.1 --port 3100`
-- Live poller, single poll: `scripts/live_poller.sh --once`
-- Google comparator render (no network): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --render-only`
-- Google comparator collection (planner calls, cached Google only): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --date 2026-11-24 --cache-only`
-- Demo recording (API started with `PS1_LIVE_STALE_THRESHOLD_S=45`; the normal default is 600 s): `demo/record_demo.sh`
+- Install: `uv sync --frozen`
+- Tests: `uv run pytest -q`
+- Bytecode check: `uv run python -m compileall -q src`
+- Lint: `uv run ruff check src tests`
+- Acquire all GPS days: `uv run python -m delhi_transit.data.acquire`
+- One GPS day: `uv run python -m delhi_transit.data.extract_day --day 2026-10-15 --output /tmp/repro15.parquet`
+- 717A passages (canonical 10 days and coverage report): `uv run python -m delhi_transit.data.stop_passages --overwrite`
+- 717A passages for one day (never touches the canonical report): `uv run python -m delhi_transit.data.stop_passages --day 2026-10-22 --output-dir /tmp/passages-check --overwrite`
+- Evaluation and selection: `uv run python -m delhi_transit.model.evaluate`
+- Re-apply the selection rule to `reports/eval-full.csv`: `uv run python -m delhi_transit.model.selection`
+- OTP graph build: `otp/build.sh`. OTP serve (3102): `otp/serve.sh`
+- API serve (3100): `DELHI_TRANSIT_DATA_DIR=/home/factory-user/ps1-scratch/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100`
+- Live poller, single poll: `uv run python -m delhi_transit.live.poller --once`
+- Google comparator render (no network): `uv run python -m delhi_transit.comparator --render-only`
+- Google comparator collection (planner calls, cached Google only): `uv run python -m delhi_transit.comparator --date 2026-11-24 --cache-only`
+- Demo recording (API started with `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45`; the normal default is 600 s): `demo/record_demo.sh`
 - Docker Compose: `docker compose --profile build run --rm otp-build` (graph build), `docker compose up -d --build`
-
 ## Rules
 
 - **Causality.** Every passage carries `available_at`, the latest of its own rule (observed = own ping; interior interpolated = later anchor; extrapolated = anchor used), the run's second surviving anchor, and the ping after which every raw-GPS prefix reconstruction reproduces it. Features, replay and evaluation use only passages with `available_at` strictly before the query time.

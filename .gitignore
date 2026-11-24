@@ -2,7 +2,7 @@
 .env
 .env.save
 
-# data lives outside the repo (PS1_DATA_DIR); root-anchored so tests/data/ is tracked
+# data lives outside the repo (DELHI_TRANSIT_DATA_DIR); root-anchored so backend/tests/data/ is tracked
 /data/
 /work/
 *.parquet
@@ -23,8 +23,8 @@ __pycache__/
 venv/
 .venv/
 
-# OTP / Java artifacts
+# OTP / Java artifacts (otp/ itself holds the tracked build and serve scripts)
 *.jar
-otp/
+*.osm.pbf
 graph.obj
 graphs/

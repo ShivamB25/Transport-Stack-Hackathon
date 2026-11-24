@@ -1,0 +1,69 @@
+[project]
+name = "delhi-transit"
+version = "0.1.0"
+description = "Delhi DTC bus travel-time model and journey planner"
+requires-python = "==3.12.*"
+dependencies = [
+    "duckdb==2.0.1",
+    "fastapi==0.165.0",
+    "gtfs-realtime-bindings==3.0.0",
+    "httpx==0.28.1",
+    "lightgbm==4.7.0",
+    "numpy==2.5.5",
+    "protobuf==7.36.2",
+    "py7zr==1.1.4",
+    "pyarrow==26.0.1",
+    "pydantic==2.14.4",
+    "python-dotenv==1.2.4",
+    "scikit-learn==1.9.1",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "ruff==0.17.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Transitive versions match the environment the committed reports were produced with.
+constraint-dependencies = [
+    "annotated-doc==0.0.7",
+    "annotated-types==0.8.0",
+    "anyio==4.16.0",
+    "backports-zstd==1.8.0",
+    "brotli==1.2.1",
+    "certifi==2026.11.20",
+    "click==8.5.1",
+    "cloudpickle==3.1.3",
+    "h11==0.16.0",
+    "httpcore==1.0.9",
+    "idna==3.20",
+    "inflate64==1.0.4",
+    "iniconfig==2.3.1",
+    "joblib==1.6.0",
+    "multivolumefile==0.2.3",
+    "narwhals==2.29.0",
+    "opentelemetry-api==1.45.2",
+    "packaging==26.3",
+    "pluggy==1.7.0",
+    "psutil==7.2.2",
+    "pybcj==1.0.8",
+    "pycryptodomex==3.24.2",
+    "pydantic-core==2.50.5",
+    "pygments==2.21.0",
+    "pyppmd==1.3.1",
+    "scipy==1.18.1",
+    "starlette==1.10.0",
+    "texttable==1.7.3",
+    "threadpoolctl==3.8.0",
+    "typing-extensions==4.16.0",
+    "typing-inspection==0.4.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

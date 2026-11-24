@@ -2,12 +2,12 @@
 .env
 .env.*
 .codegraph/
-.pytest_cache/
-.ruff_cache/
+**/.pytest_cache/
+**/.ruff_cache/
 **/__pycache__/
 *.py[cod]
 venv/
-.venv/
+**/.venv/
 data/
 work/
 otp/
@@ -19,4 +19,4 @@ demo/
 docs/
 reports/*
 !reports/selection.json
-tests/
+backend/tests/

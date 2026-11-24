@@ -1,0 +1,14 @@
+{
+  "osm": [
+    { "source": "NewDelhi.osm.pbf", "osmTagMapping": "default" }
+  ],
+  "transitFeeds": [
+    { "type": "gtfs", "feedId": "DTC", "source": "delhi.gtfs.zip" }
+  ],
+  "transitServiceStart": "2026-10-01",
+  "transitServiceEnd": "2026-12-31",
+  "maxTransferDuration": "PT10M",
+  "osmCacheDataInMem": false,
+  "areaVisibility": false,
+  "dataImportReport": false
+}

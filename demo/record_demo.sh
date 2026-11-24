@@ -8,22 +8,21 @@
 #   5. Explicit stale-feed abstention ("Not enough data") and live recovery
 #
 # Prerequisites:
-#   - OTP 2.8.1 running on http://localhost:3102/otp/gtfs/v1 (scripts/otp_serve.sh)
-#   - FastAPI running on http://localhost:3100 with PS1_LIVE_STALE_THRESHOLD_S=45
+#   - OTP 2.8.1 running on http://localhost:3102/otp/gtfs/v1 (otp/serve.sh)
+#   - FastAPI running on http://localhost:3100 with DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45
 #     (production default is 600 s; 45 s override enables rapid stale-feed demo):
-#       PS1_LIVE_STALE_THRESHOLD_S=45 \
-#       PS1_DATA_DIR=/home/factory-user/ps1-scratch/data \
-#       PS1_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
-#         /home/factory-user/ps1-scratch/venv/bin/python -m uvicorn ps1.api:app \
-#         --app-dir src --host 127.0.0.1 --port 3100
+#       cd backend && DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45 \
+#       DELHI_TRANSIT_DATA_DIR=/home/factory-user/ps1-scratch/data \
+#       DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
+#         uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-API_URL="${PS1_API_URL:-http://127.0.0.1:3100}"
+API_URL="${DELHI_TRANSIT_API_URL:-http://127.0.0.1:3100}"
 OUTPUT_WEBM="$REPO_ROOT/demo/demo.webm"
-STALE_THRESHOLD_S="${PS1_LIVE_STALE_THRESHOLD_S:-45}"
-SESSION="${AGENT_BROWSER_SESSION:-ps1-demo}"
+STALE_THRESHOLD_S="${DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S:-45}"
+SESSION="${AGENT_BROWSER_SESSION:-delhi-transit-demo}"
 FPS="${DEMO_FPS:-5}"
 
 while [[ $# -gt 0 ]]; do
