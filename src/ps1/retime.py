@@ -638,10 +638,7 @@ class RetimeModel:
 
         if replay_delay_s:
             duration += replay_delay_s
-            if mode == "replay":
-                source = "replay"
-                timing_source = "model_replay"
-                coverage_note = f"{coverage_note}; +{int(replay_delay_s)}s replay delay injected"
+            coverage_note = f"{coverage_note}; +{int(replay_delay_s)}s replay delay injected"
 
         has_quantiles = all(p.p10_s is not None and p.p50_s is not None and p.p90_s is not None for p in preds)
         if has_quantiles and pattern_matched:
@@ -868,10 +865,7 @@ class RetimeModel:
 
         if replay_delay_s:
             duration += replay_delay_s
-            if mode == "replay":
-                source = "replay"
-                timing_source = "model_replay"
-                coverage_note = f"{coverage_note}; +{int(replay_delay_s)}s replay delay injected"
+            coverage_note = f"{coverage_note}; +{int(replay_delay_s)}s replay delay injected"
         p10, p90 = self._ratio_interval(reference, duration)
         if replay_delay_s:
             p10 += replay_delay_s

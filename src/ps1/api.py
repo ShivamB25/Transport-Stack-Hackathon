@@ -191,7 +191,10 @@ def _parse_depart(value: str) -> datetime:
         raise HTTPException(422, "depart must be an ISO 8601 date-time with an offset") from exc
     if depart.tzinfo is None or depart.utcoffset() is None:
         raise HTTPException(422, "depart must include a timezone offset")
-    return depart.astimezone(IST)
+    try:
+        return depart.astimezone(IST)
+    except OverflowError as exc:
+        raise HTTPException(422, "depart is outside the supported date range") from exc
 
 
 def _stale_threshold(override: float | None) -> float:

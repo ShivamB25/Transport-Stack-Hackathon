@@ -386,6 +386,20 @@ def test_replay_mode_uses_october_observations_and_never_contacts_live_feed(tmp_
     assert bad.status_code == 422
 
 
+def test_replay_delay_shifts_fallback_rides_without_relabelling(tmp_path: Path) -> None:
+    model = _build_retime_model(
+        tmp_path,
+        [_stretch_record("2026-10-22", 8, 5, 100, "4109", "50", actual_s=720, scheduled_s=600)],
+    )
+    for hour, timing_source in ((8, "historical_fallback"), (23, "timetable_fallback")):
+        depart = datetime(2026, 10, 22, hour, 30, tzinfo=IST)
+        base = model.predict_ride(200, "50", "2559", 600.0, depart, "replay", as_of=depart)
+        delayed = model.predict_ride(200, "50", "2559", 600.0, depart, "replay", 300.0, as_of=depart)
+        assert base.timing_source == delayed.timing_source == timing_source
+        assert delayed.source == base.source
+        assert delayed.duration_s == base.duration_s + 300.0
+
+
 def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_path: Path) -> None:
     _make_stops(tmp_path)
     now = int(time.time())

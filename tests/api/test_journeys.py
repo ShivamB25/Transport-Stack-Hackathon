@@ -174,6 +174,7 @@ def test_invalid_inputs_are_controlled_and_service_recovers(tmp_path: Path) -> N
         ({"from": "28.6,not-longitude"}, 400),
         ({"depart": "yesterday"}, 422),
         ({"depart": "2026-10-22T09:00:00"}, 422),
+        ({"depart": "9999-12-31T23:00:00Z"}, 422),
     ]:
         response = client.get("/journeys", params={**base, **override})
         assert response.status_code == status
