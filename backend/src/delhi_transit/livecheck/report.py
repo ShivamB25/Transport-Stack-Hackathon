@@ -90,6 +90,19 @@ def _limitations(result: dict[str, Any]) -> list[str]:
     return lines + [""]
 
 
+def run_status_line(run: dict[str, Any]) -> str:
+    if run.get("status") == "stopped_before_completion":
+        return (
+            "- Run status: stopped before completion; the recorder wrote no final status (`run-summary.json` "
+            f"still says `{run.get('summary_status')}`). Started {run.get('started_at')}, last summary update "
+            f"{run.get('updated_at')}, last successful poll {run.get('last_ok_poll')} (planned end {run.get('until')})."
+        )
+    return (
+        f"- Run status: {run.get('status')}; started {run.get('started_at')}, last update {run.get('updated_at')} "
+        f"(planned end {run.get('until')})."
+    )
+
+
 def render_markdown(result: dict[str, Any]) -> str:
     run, health, responses = result["run"], result["feed_health"], result["responses"]
     acc, actuals = result["accuracy"], result.get("actuals") or {}
@@ -105,8 +118,7 @@ def render_markdown(result: dict[str, Any]) -> str:
     lines += [
         "## Recording",
         "",
-        (f"- Run status: {run.get('status')}; started {run.get('started_at')}, last update {run.get('updated_at')} "
-        f"(planned end {run.get('until')})."),
+        run_status_line(run),
         (f"- Polls: {health['polls']} attempted, {health['ok']} ok (success rate {_fmt(health['success_rate'])}); "
         f"first ok {health['first_ok']}, last ok {health['last_ok']}; repeated snapshots {health['repeated_snapshots']}."),
         f"- Poll errors: {health['errors'] or 'none'}.",

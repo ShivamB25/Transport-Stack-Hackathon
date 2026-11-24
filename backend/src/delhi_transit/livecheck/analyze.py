@@ -368,6 +368,20 @@ def _read_jsonl(paths: list[Path]) -> list[dict[str, Any]]:
     return records
 
 
+RUN_KEYS = ("status", "started_at", "updated_at", "until", "journeys_until", "slot_minutes", "poll_interval_s")
+
+
+def run_status(summary: dict[str, Any], health: dict[str, Any]) -> dict[str, Any]:
+    run = {key: summary.get(key) for key in RUN_KEYS}
+    # Analysis reads a finished recording, so a summary still saying "running" means the recorder
+    # was stopped before it could write its final status.
+    if run["status"] == "running":
+        run["status"] = "stopped_before_completion"
+        run["summary_status"] = "running"
+        run["last_ok_poll"] = health.get("last_ok")
+    return run
+
+
 def analyze(in_dir: Path) -> dict[str, Any]:
     in_dir = Path(in_dir)
     summary = json.loads((in_dir / "run-summary.json").read_text(encoding="utf-8"))
@@ -380,9 +394,10 @@ def analyze(in_dir: Path) -> dict[str, Any]:
     calls = _read_jsonl([google_path]) if google_path.exists() else []
     runs = load_runs(passages)
     legs = [match_leg(leg, runs) for record in records for leg in ride_legs(record)]
+    health = feed_health(polls)
     return {
         "day": summary["day"],
-        "run": {key: summary.get(key) for key in ("status", "started_at", "updated_at", "until", "journeys_until", "slot_minutes", "poll_interval_s")},
+        "run": run_status(summary, health),
         "slots": slots_from_records(records, summary.get("slots", [])),
         "window": window_coverage(legs, polls),
         "matching_rule": {
@@ -390,7 +405,7 @@ def analyze(in_dir: Path) -> dict[str, Any]:
             "max_board_delay_s": MAX_BOARD_DELAY_S,
             "text": (__doc__ or "").split("Matching rule.")[1].strip(),
         },
-        "feed_health": feed_health(polls),
+        "feed_health": health,
         "responses": response_stats(records),
         "actuals": actuals,
         "accuracy": accuracy_tables(legs),
