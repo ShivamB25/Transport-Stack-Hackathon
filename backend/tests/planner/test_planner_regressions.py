@@ -216,7 +216,7 @@ def test_connection_clock_next_bus_penalty_walk_and_endpoints(with_walk: bool) -
     assert delayed["total_duration_s"] == 1980
 
 
-def test_replay_delay_shifts_short_fallback_ride_window_exactly() -> None:
+def test_replay_delay_shifts_short_fallback_ride_window_exactly(tmp_path: Path) -> None:
     origin = _place("Origin stop", "40", 28.6100, 77.2350)
     destination = _place("Sunder Nagar", "50", 28.6000, 77.2350)
     candidate = {
@@ -230,6 +230,17 @@ def test_replay_delay_shifts_short_fallback_ride_window_exactly() -> None:
     assert base_ride["window_p10_s"] == 1
     for key in ("estimated_duration_s", "window_p10_s", "window_p90_s"):
         assert delayed_ride[key] == base_ride[key] + 300
+
+    # The delay shifts fallback rides without relabelling their provenance.
+    model = _causal_model([_stretch(100, "4109", "50", REQUEST.replace(minute=5), 720)], [], tmp_path)
+    for hour, timing_source in ((8, "historical_fallback"), (23, "timetable_fallback")):
+        depart = REQUEST.replace(hour=hour)
+        base = model.predict_ride(200, "50", "2559", 600.0, depart, "replay", as_of=depart)
+        shifted = model.predict_ride(200, "50", "2559", 600.0, depart, "replay", 300.0, as_of=depart)
+        assert base.timing_source == shifted.timing_source == timing_source
+        assert shifted.source == base.source
+        assert shifted.duration_s == base.duration_s + 300.0
+        assert (shifted.p10_s, shifted.p90_s) == (base.p10_s + 300.0, base.p90_s + 300.0)
 
 
 def _stretch(

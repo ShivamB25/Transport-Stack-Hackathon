@@ -5,20 +5,16 @@ import argparse
 import asyncio
 import json
 import math
-import os
 import re
 import time
 from collections import defaultdict
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from statistics import median
 from typing import Any
 
 import httpx
 import pyarrow as pa
-import pyarrow.parquet as pq
-from dotenv import dotenv_values
 from google.protobuf.message import DecodeError
 from google.transit import gtfs_realtime_pb2
 
@@ -28,14 +24,20 @@ from delhi_transit.core.config import (
     BBOX_LNG_MAX,
     BBOX_LNG_MIN,
     DATA_DIR,
-    IST,
     LIVE_DIR,
-    LIVE_ENTITY_MAX_AGE_S,
     LIVE_FEED_URL,
     LIVE_POLL_INTERVAL_S,
     LIVE_SNAPSHOT_KEEP,
     LIVE_STALE_THRESHOLD_S,
-    REPO_ROOT,
+    load_env_key,
+)
+from delhi_transit.core.io import atomic_write_json, atomic_write_parquet
+from delhi_transit.core.time import iso_ist
+from delhi_transit.live.freshness import (
+    effective_entity_max_age_s,
+    is_fresh,
+    live_feed_age_seconds,
+    route_summary,
 )
 
 SNAPSHOT_SCHEMA = pa.schema(
@@ -105,10 +107,6 @@ class DecodedFeed:
     route_count: int
 
 
-def _iso_ist(ts: float) -> str:
-    return datetime.fromtimestamp(ts, IST).isoformat()
-
-
 def _live_dir(data_dir: Path) -> Path:
     return Path(data_dir) / LIVE_DIR
 
@@ -117,15 +115,8 @@ def _pause_path(data_dir: Path) -> Path:
     return _live_dir(data_dir) / "poller.paused"
 
 
-def _atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+def _write_state_json(path: Path, payload: dict[str, Any]) -> None:
+    atomic_write_json(path, payload, sort_keys=True)
 
 
 def _append_log(data_dir: Path, entry: dict[str, Any]) -> None:
@@ -136,83 +127,23 @@ def _append_log(data_dir: Path, entry: dict[str, Any]) -> None:
         handle.write(json.dumps(sanitized, sort_keys=True) + "\n")
 
 
-def load_api_key(env_path: Path | None = None) -> str | None:
-    """Load DELHI_TS_API_KEY from environment or repo .env without logging it."""
-    env_value = os.environ.get("DELHI_TS_API_KEY")
-    if env_value:
-        return env_value.strip()
-    candidate = env_path or (REPO_ROOT / ".env")
-    if candidate.exists():
-        values = dotenv_values(candidate)
-        raw = values.get("DELHI_TS_API_KEY")
-        if raw:
-            return str(raw).strip()
-    return None
-
-
 def is_feed_paused(data_dir: Path) -> bool:
     return _pause_path(data_dir).exists()
 
 
 def pause_feed(data_dir: Path, reason: str = "manual_pause") -> dict[str, Any]:
-    path = _pause_path(data_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
     now = time.time()
-    payload = {"paused": True, "paused_at": now, "paused_at_iso": _iso_ist(now), "reason": reason}
-    _atomic_write_json(path, payload)
-    _append_log(data_dir, {"event": "paused", "ts": now, "ts_iso": _iso_ist(now), "reason": reason})
+    payload = {"paused": True, "paused_at": now, "paused_at_iso": iso_ist(now), "reason": reason}
+    _write_state_json(_pause_path(data_dir), payload)
+    _append_log(data_dir, {"event": "paused", "ts": now, "ts_iso": iso_ist(now), "reason": reason})
     return payload
 
 
 def resume_feed(data_dir: Path) -> dict[str, Any]:
-    path = _pause_path(data_dir)
     now = time.time()
-    if path.exists():
-        path.unlink()
-    _append_log(data_dir, {"event": "resumed", "ts": now, "ts_iso": _iso_ist(now)})
-    return {"paused": False, "resumed_at": now, "resumed_at_iso": _iso_ist(now)}
-
-
-def effective_entity_max_age_s(stale_threshold_s: float | None = None) -> float:
-    threshold = LIVE_STALE_THRESHOLD_S if stale_threshold_s is None else stale_threshold_s
-    return min(float(LIVE_ENTITY_MAX_AGE_S), float(threshold))
-
-
-def _is_fresh(ts: float, now: float, max_age_s: float) -> bool:
-    return ts > 0 and 0.0 <= now - ts <= max_age_s
-
-
-def _route_summary(
-    route_id: int,
-    vehicle_count: int,
-    in_bbox_count: int,
-    fresh_entities: list[list[float]],
-) -> dict[str, Any]:
-    """Aggregate fresh in-bbox entities, each stored as [timestamp, speed]."""
-    speeds = [speed for _, speed in fresh_entities if speed > 0.2]
-    all_speeds = [speed for _, speed in fresh_entities]
-    return {
-        "route_id": route_id,
-        "vehicle_count": vehicle_count,
-        "fresh_vehicle_count": len(fresh_entities),
-        "in_bbox_count": in_bbox_count,
-        "moving_vehicle_count": len(speeds),
-        "median_speed_mps": round(float(median(speeds or all_speeds)), 3) if all_speeds else 0.0,
-        "latest_ts": int(max((ts for ts, _ in fresh_entities), default=0)),
-        "observed_coverage": round(len(fresh_entities) / vehicle_count, 4) if vehicle_count else 0.0,
-        "fresh_entities": fresh_entities,
-    }
-
-
-def refresh_route_stat(stat: dict[str, Any], *, now: float, max_age_s: float) -> dict[str, Any]:
-    """Recompute a stored route aggregate from only the entities still fresh at `now`."""
-    fresh = [entity for entity in stat.get("fresh_entities", []) if _is_fresh(entity[0], now, max_age_s)]
-    return _route_summary(
-        int(stat.get("route_id", 0)),
-        int(stat.get("vehicle_count", len(fresh))),
-        int(stat.get("in_bbox_count", len(fresh))),
-        fresh,
-    )
+    _pause_path(data_dir).unlink(missing_ok=True)
+    _append_log(data_dir, {"event": "resumed", "ts": now, "ts_iso": iso_ist(now)})
+    return {"paused": False, "resumed_at": now, "resumed_at_iso": iso_ist(now)}
 
 
 def decode_vehicle_positions(
@@ -309,17 +240,14 @@ def decode_vehicle_positions(
     fresh_count = 0
     in_bbox_count = 0
     for row in records:
-        is_fresh = _is_fresh(row["ts"], now, max_entity_age)
-        row["fresh"] = is_fresh
-        if is_fresh:
-            fresh_count += 1
-        if row["in_bbox"]:
-            in_bbox_count += 1
+        row["fresh"] = is_fresh(row["ts"], now, max_entity_age)
+        fresh_count += row["fresh"]
+        in_bbox_count += row["in_bbox"]
         if row["route_id"] is not None:
             by_route[row["route_id"]].append(row)
 
     route_stats = {
-        str(route_id): _route_summary(
+        str(route_id): route_summary(
             route_id,
             len(rows),
             sum(1 for r in rows if r["in_bbox"]),
@@ -360,28 +288,23 @@ def persist_decoded_feed(
     snapshot_path = snapshots_dir / f"vp_{decoded.header_timestamp}.parquet"
     if not snapshot_path.exists():
         table = pa.Table.from_pylist(decoded.records, schema=SNAPSHOT_SCHEMA)
-        tmp_pq = snapshot_path.with_name(f".{snapshot_path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-        pq.write_table(table, tmp_pq, compression="snappy")
-        tmp_pq.replace(snapshot_path)
-
-        latest_path = live_dir / "latest.parquet"
-        tmp_latest = latest_path.with_name(f".latest.{os.getpid()}.{time.time_ns()}.tmp")
-        pq.write_table(table, tmp_latest, compression="snappy")
-        tmp_latest.replace(latest_path)
+        atomic_write_parquet(snapshot_path, table, compression="snappy")
+        atomic_write_parquet(live_dir / "latest.parquet", table, compression="snappy")
 
         existing = sorted(snapshots_dir.glob("vp_*.parquet"))
         if keep_snapshots > 0 and len(existing) > keep_snapshots:
             for stale in existing[:-keep_snapshots]:
                 stale.unlink(missing_ok=True)
 
-    _atomic_write_json(
+    fresh_ts = [row["ts"] for row in decoded.records if row["fresh"]]
+    _write_state_json(
         live_dir / "route_stats.json",
         {
             "header_timestamp": decoded.header_timestamp,
-            "header_timestamp_iso": _iso_ist(decoded.header_timestamp),
+            "header_timestamp_iso": iso_ist(decoded.header_timestamp),
             "polled_at": decoded.polled_at,
-            "polled_at_iso": _iso_ist(decoded.polled_at),
-            "fresh_vehicle_ts": sorted(row["ts"] for row in decoded.records if row["fresh"]),
+            "polled_at_iso": iso_ist(decoded.polled_at),
+            "fresh_vehicle_ts": sorted(fresh_ts),
             "routes": decoded.route_stats,
         },
     )
@@ -390,16 +313,13 @@ def persist_decoded_feed(
     state = {
         "status": "ok",
         "header_timestamp": decoded.header_timestamp,
-        "header_timestamp_iso": _iso_ist(decoded.header_timestamp),
+        "header_timestamp_iso": iso_ist(decoded.header_timestamp),
         "timestamp": decoded.header_timestamp,
         "polled_at": round(decoded.polled_at, 3),
-        "polled_at_iso": _iso_ist(decoded.polled_at),
+        "polled_at_iso": iso_ist(decoded.polled_at),
         "vehicle_count": decoded.vehicle_count,
         "fresh_vehicle_count": decoded.fresh_vehicle_count,
-        "latest_fresh_vehicle_timestamp": max(
-            (row["ts"] for row in decoded.records if row["fresh"]),
-            default=None,
-        ),
+        "latest_fresh_vehicle_timestamp": max(fresh_ts, default=None),
         "entity_max_age_seconds": decoded.entity_max_age_s,
         "in_bbox_count": decoded.in_bbox_count,
         "route_count": decoded.route_count,
@@ -412,7 +332,7 @@ def persist_decoded_feed(
         "auth_configured": True,
         "feed_url": feed_url,
     }
-    _atomic_write_json(live_dir / "feed_state.json", state)
+    _write_state_json(live_dir / "feed_state.json", state)
     _append_log(
         data_dir,
         {
@@ -448,18 +368,18 @@ def record_poll_failure(
         **previous,
         "status": "error" if not previous.get("header_timestamp") else "degraded",
         "last_attempt_at": round(now, 3),
-        "last_attempt_iso": _iso_ist(now),
+        "last_attempt_iso": iso_ist(now),
         "consecutive_failures": failures,
         "last_error": category,
         "feed_url": feed_url,
     }
-    _atomic_write_json(_live_dir(data_dir) / "feed_state.json", state)
+    _write_state_json(_live_dir(data_dir) / "feed_state.json", state)
     _append_log(
         data_dir,
         {
             "event": "poll_error",
             "ts": round(now, 3),
-            "ts_iso": _iso_ist(now),
+            "ts_iso": iso_ist(now),
             "consecutive_failures": failures,
             "error": category,
         },
@@ -492,24 +412,14 @@ def read_live_route_stats(data_dir: Path) -> dict[int, dict[str, Any]]:
         return {}
 
 
-def fresh_fleet_count(data_dir: Path, *, now: float, max_age_s: float) -> int:
-    """Count vehicles whose own timestamps are still fresh at `now`."""
-    path = _live_dir(data_dir) / "route_stats.json"
+def _run_without_loop(coro: Coroutine[Any, Any, dict[str, Any]]) -> dict[str, Any]:
+    """Run a coroutine whose awaits never suspend (its only I/O is synchronous)."""
     try:
-        timestamps = json.loads(path.read_text(encoding="utf-8")).get("fresh_vehicle_ts", [])
-    except (OSError, ValueError, AttributeError):
-        return 0
-    return sum(1 for ts in timestamps if _is_fresh(ts, now, max_age_s))
-
-
-def live_feed_age_seconds(state: dict[str, Any] | None, *, now: float | None = None) -> float | None:
-    if not state:
-        return None
-    header_ts = state.get("header_timestamp")
-    if header_ts is None:
-        return None
-    reference = time.time() if now is None else float(now)
-    return round(max(0.0, reference - float(header_ts)), 2)
+        coro.send(None)
+    except StopIteration as done:
+        return done.value
+    coro.close()
+    raise RuntimeError("poll coroutine suspended outside an event loop")
 
 
 class LivePoller:
@@ -527,7 +437,7 @@ class LivePoller:
     ) -> None:
         self.data_dir = Path(data_dir or DATA_DIR)
         self.feed_url = feed_url or LIVE_FEED_URL
-        self._api_key = api_key if api_key is not None else load_api_key(env_path)
+        self._api_key = api_key if api_key is not None else load_env_key("DELHI_TS_API_KEY", env_path)
         self.timeout_s = timeout_s
         self.interval_s = LIVE_POLL_INTERVAL_S if interval_s is None else float(interval_s)
 
@@ -542,47 +452,43 @@ class LivePoller:
             )
         return {"x-api-key": self._api_key}
 
-    def _paused_result(self) -> dict[str, Any]:
-        return {"status": "paused", "paused": True, "state": read_live_state(self.data_dir)}
-
-    def _persist_response(self, response: httpx.Response) -> dict[str, Any]:
-        if response.status_code != 200:
-            raise LiveFeedError(
-                "upstream_http_error",
-                f"VehiclePositions upstream returned HTTP {response.status_code}",
-            )
-        decoded = decode_vehicle_positions(response.content)
-        return persist_decoded_feed(self.data_dir, decoded, feed_url=self.feed_url)
+    async def _poll(self, get: Callable[[dict[str, str]], Awaitable[httpx.Response]]) -> dict[str, Any]:
+        """Pause check, fetch, decode and persist one snapshot; failures persist only a category."""
+        if is_feed_paused(self.data_dir):
+            return {"status": "paused", "paused": True, "state": read_live_state(self.data_dir)}
+        try:
+            response = await get(self._headers())
+            if response.status_code != 200:
+                raise LiveFeedError(
+                    "upstream_http_error",
+                    f"VehiclePositions upstream returned HTTP {response.status_code}",
+                )
+            decoded = decode_vehicle_positions(response.content)
+            return persist_decoded_feed(self.data_dir, decoded, feed_url=self.feed_url)
+        except (httpx.HTTPError, LiveFeedError) as exc:
+            return record_poll_failure(self.data_dir, exc, feed_url=self.feed_url)
 
     def poll_once(self, client: httpx.Client | None = None) -> dict[str, Any]:
         """Synchronously fetch, decode, and persist one VehiclePositions snapshot."""
-        if is_feed_paused(self.data_dir):
-            return self._paused_result()
-        try:
-            headers = self._headers()
+
+        async def get(headers: dict[str, str]) -> httpx.Response:
             if client is not None:
-                response = client.get(self.feed_url, headers=headers, timeout=self.timeout_s)
-            else:
-                with httpx.Client(timeout=self.timeout_s) as own_client:
-                    response = own_client.get(self.feed_url, headers=headers)
-            return self._persist_response(response)
-        except (httpx.HTTPError, LiveFeedError) as exc:
-            return record_poll_failure(self.data_dir, exc, feed_url=self.feed_url)
+                return client.get(self.feed_url, headers=headers, timeout=self.timeout_s)
+            with httpx.Client(timeout=self.timeout_s) as own_client:
+                return own_client.get(self.feed_url, headers=headers)
+
+        return _run_without_loop(self._poll(get))
 
     async def apoll_once(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
         """Asynchronously fetch, decode, and persist one VehiclePositions snapshot."""
-        if is_feed_paused(self.data_dir):
-            return self._paused_result()
-        try:
-            headers = self._headers()
+
+        async def get(headers: dict[str, str]) -> httpx.Response:
             if client is not None:
-                response = await client.get(self.feed_url, headers=headers, timeout=self.timeout_s)
-            else:
-                async with httpx.AsyncClient(timeout=self.timeout_s) as own_client:
-                    response = await own_client.get(self.feed_url, headers=headers)
-            return self._persist_response(response)
-        except (httpx.HTTPError, LiveFeedError) as exc:
-            return record_poll_failure(self.data_dir, exc, feed_url=self.feed_url)
+                return await client.get(self.feed_url, headers=headers, timeout=self.timeout_s)
+            async with httpx.AsyncClient(timeout=self.timeout_s) as own_client:
+                return await own_client.get(self.feed_url, headers=headers)
+
+        return await self._poll(get)
 
     async def run_loop(self, stop_event: asyncio.Event | None = None) -> None:
         """Poll every interval_s; while paused, check once a second so a resume is picked up quickly."""
@@ -618,20 +524,18 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(pause_feed(args.data_dir), indent=2))
         return 0
     if args.resume:
-        info = resume_feed(args.data_dir)
-        print(json.dumps(info, indent=2))
+        print(json.dumps(resume_feed(args.data_dir), indent=2))
         return 0
     if args.status:
         state = read_live_state(args.data_dir)
         age = live_feed_age_seconds(state)
-        threshold = float(os.environ.get("DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S", str(LIVE_STALE_THRESHOLD_S)))
         print(
             json.dumps(
                 {
                     "paused": is_feed_paused(args.data_dir),
                     "current_feed_age_seconds": age,
-                    "stale_threshold_seconds": threshold,
-                    "is_stale": age is None or age > threshold,
+                    "stale_threshold_seconds": LIVE_STALE_THRESHOLD_S,
+                    "is_stale": age is None or age > LIVE_STALE_THRESHOLD_S,
                     "state": state,
                 },
                 indent=2,

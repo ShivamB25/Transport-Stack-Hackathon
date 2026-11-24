@@ -31,12 +31,14 @@ from delhi_transit.core.config import (
     LIVE_STALE_THRESHOLD_S,
     OTP_URL,
 )
-from delhi_transit.live.poller import (
-    LivePoller,
+from delhi_transit.live.freshness import (
     effective_entity_max_age_s,
     fresh_fleet_count,
-    is_feed_paused,
     live_feed_age_seconds,
+)
+from delhi_transit.live.poller import (
+    LivePoller,
+    is_feed_paused,
     pause_feed,
     read_live_state,
     resume_feed,

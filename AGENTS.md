@@ -19,7 +19,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
   - `model/rungs.py`: rungs `0`, `1`, `1h`, `2`, `3`, `4` (LightGBM quantile + split-conformal), artifact save/load and as-of eligibility.
   - `model/evaluate.py`: whole-day evaluation; writes `reports/eval-baselines.*`, `reports/eval-full.*`, `reports/selection.json` and the model artifact.
   - `model/selection.py`: ship rule (highest of rungs `4`/`3`/`2` beating rung 1 on held-out observed-only MAE at matching coverage, else rung 1; `1h` is report-only). Only observed-only decisions can be written.
-  - `live/poller.py`: polls VehiclePositions into `data/live/`, gates entities by their own timestamps, stores only fixed error categories; pause/resume/status controls.
+  - `live/poller.py`: polls VehiclePositions into `data/live/` (one poll core behind `poll_once`/`apoll_once`), stores only fixed error categories; pause/resume/status controls. `live/freshness.py`: request-time freshness, each entity gated by its own timestamp.
   - `planner/otp_client.py`: GraphQL `planConnection` client for `/otp/gtfs/v1`.
   - `planner/retime.py`: re-times OTP transit legs with the selected rung and fallback chain, waits, joint-scenario transfer risk and windows. Reads `REPO_ROOT/reports/selection.json` and refuses a non-observed-only selection.
   - `comparator/client.py`: cached, field-masked Google Routes client with atomic reservations in the mission-wide ledger. A missing fixed ledger is seeded from the canonical `data/google/call_counter.json`, never restarted from zero; if neither exists, paid cache misses are refused while cache reads keep working.
@@ -27,7 +27,7 @@ Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the 
   - `api/app.py`: FastAPI app (`GET /journeys`, `/health`, `/live/status`, `POST /live/pause`, `POST /live/resume`, `GET /replay/demo`, `/docs`, UI at `/`), exported as `delhi_transit.api:app`. `depart` is optional: it defaults to now in Asia/Kolkata in live mode, or to 2026-10-22T08:30+05:30 when replay is explicit (`mode=replay`, or `mode=auto` with `DELHI_TRANSIT_MODE=replay`).
   - `api/replay_demo.py`: scripted Oct 22 missed-transfer replay for OTP trips `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300; returns `status="unavailable"` if OTP does not return that pair.
   - `api/static/index.html`: single-file Leaflet UI (badge, feed age, abstention panel, presets, replay demo).
-- `backend/tests/`: pytest suites in `data`, `model`, `planner`, `api`, `comparator`.
+- `backend/tests/`: pytest suites in `data`, `model`, `planner`, `live`, `api`, `comparator` (`conftest.py` provides the VehiclePositions protobuf builder).
 - `otp/`: `build.sh`, `serve.sh`, `build-config.json` (copied into the graph directory by `build.sh`).
 - `reports/`: committed results (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`, `otp-plan-*.json`).
 - `docs/`: `technical-note.md`, `eval-protocol.md`, `otp.md`.

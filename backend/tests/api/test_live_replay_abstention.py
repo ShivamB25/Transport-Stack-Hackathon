@@ -8,7 +8,6 @@ from pathlib import Path
 
 import httpx
 from fastapi.testclient import TestClient
-from google.transit import gtfs_realtime_pb2
 
 from delhi_transit.api.app import create_app
 from delhi_transit.live.poller import (
@@ -34,29 +33,6 @@ def _make_stops(data_dir: Path) -> None:
 """,
         encoding="utf-8",
     )
-
-
-def _make_protobuf(
-    header_ts: int,
-    vehicles: list[tuple[str, str, float, float, float, int]],
-) -> bytes:
-    feed = gtfs_realtime_pb2.FeedMessage()
-    feed.header.gtfs_realtime_version = "2.0"
-    feed.header.timestamp = header_ts
-    for idx, (vid, route_id, lat, lng, speed, ts) in enumerate(vehicles):
-        entity = feed.entity.add()
-        entity.id = f"ent-{idx}"
-        entity.vehicle.vehicle.id = vid
-        entity.vehicle.vehicle.label = vid
-        entity.vehicle.trip.route_id = route_id
-        entity.vehicle.trip.trip_id = f"{route_id}_08_00_{idx}"
-        entity.vehicle.trip.start_time = "08:00:00"
-        entity.vehicle.trip.start_date = "20261124"
-        entity.vehicle.position.latitude = lat
-        entity.vehicle.position.longitude = lng
-        entity.vehicle.position.speed = speed
-        entity.vehicle.timestamp = ts
-    return feed.SerializeToString()
 
 
 def _candidate(depart_iso: str) -> dict:
@@ -165,75 +141,7 @@ def _stretch_record(
     )
 
 
-def test_poller_decodes_protobuf_persists_snapshots_and_never_logs_key(tmp_path: Path) -> None:
-    secret_key = "super-secret-delhi-key-do-not-log"
-    now = int(time.time())
-    header_ts = now - 22
-    payload = _make_protobuf(
-        header_ts,
-        [
-            ("DL1PD1001", "100", 28.65, 77.22, 6.0, header_ts - 10),
-            ("DL1PD1002", "100", 28.64, 77.23, 5.0, header_ts - 20),
-            # Stale entity (> 15 min) retained by source
-            ("DL1PD1003", "100", 28.63, 77.24, 4.0, header_ts - 1200),
-            # Out-of-bbox garbage coordinate
-            ("DL51EV2001", "200", 99.0, 200.0, 3.0, header_ts - 5),
-        ],
-    )
-    seen_headers: list[str | None] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen_headers.append(request.headers.get("x-api-key"))
-        return httpx.Response(200, content=payload, headers={"content-type": "application/octet-stream"})
-
-    poller = LivePoller(tmp_path, feed_url="https://example.test/vp.pb", api_key=secret_key)
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        state = poller.poll_once(client=client)
-
-    assert seen_headers == [secret_key]
-    assert state["status"] == "ok"
-    assert state["vehicle_count"] == 4
-    assert state["fresh_vehicle_count"] == 3
-    assert state["in_bbox_count"] == 3
-    assert state["route_count"] == 2
-    assert 0.0 <= state["feed_age_seconds_at_poll"] <= 60.0
-    assert Path(state["snapshot_path"]).exists()
-    assert (tmp_path / "live" / "latest.parquet").exists()
-
-    route_stats = json.loads((tmp_path / "live" / "route_stats.json").read_text())
-    assert route_stats["routes"]["100"]["fresh_vehicle_count"] == 2
-    assert route_stats["routes"]["100"]["median_speed_mps"] == 5.5
-
-    # API key must NEVER appear in persisted state, stats, or logs
-    for file_path in [
-        tmp_path / "live" / "feed_state.json",
-        tmp_path / "live" / "route_stats.json",
-        tmp_path / "live" / "poller.log",
-    ]:
-        assert secret_key not in file_path.read_text(encoding="utf-8")
-
-
-def test_poller_rejects_html_spa_shell_and_preserves_last_good_timestamp(tmp_path: Path) -> None:
-    now = int(time.time())
-    good_ts = now - 15
-    good_pb = _make_protobuf(good_ts, [("DL1PD1001", "100", 28.65, 77.22, 6.0, good_ts - 5)])
-    decoded = decode_vehicle_positions(good_pb, polled_at=now)
-    persist_decoded_feed(tmp_path, decoded)
-
-    def html_handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=b"<!doctype html><html><body>SPA shell</body></html>")
-
-    poller = LivePoller(tmp_path, feed_url="https://example.test/vp.pb", api_key="k")
-    with httpx.Client(transport=httpx.MockTransport(html_handler)) as client:
-        state = poller.poll_once(client=client)
-
-    assert state["status"] == "degraded"
-    assert state["consecutive_failures"] == 1
-    assert state["header_timestamp"] == good_ts
-    assert state["last_error"] == "upstream_non_protobuf_payload"
-
-
-def test_live_mode_reports_fresh_age_and_per_leg_provenance_including_sparse_leg(tmp_path: Path) -> None:
+def test_live_mode_reports_fresh_age_and_per_leg_provenance_including_sparse_leg(tmp_path: Path, make_protobuf) -> None:
     _make_stops(tmp_path)
     now = int(time.time())
     header_ts = now - 24
@@ -242,7 +150,7 @@ def test_live_mode_reports_fresh_age_and_per_leg_provenance_including_sparse_leg
         (f"DL1PD{1000 + i}", "100", 28.65, 77.22, 4.5, header_ts - 10)
         for i in range(12)
     ]
-    decoded = decode_vehicle_positions(_make_protobuf(header_ts, vehicles), polled_at=now)
+    decoded = decode_vehicle_positions(make_protobuf(header_ts, vehicles), polled_at=now)
     persist_decoded_feed(tmp_path, decoded)
 
     # Historical profile exists at hour 8, NOT at hour 3
@@ -368,22 +276,7 @@ def test_replay_mode_uses_october_observations_and_never_contacts_live_feed(tmp_
     assert bad.status_code == 422
 
 
-def test_replay_delay_shifts_fallback_rides_without_relabelling(tmp_path: Path) -> None:
-    model = _build_retime_model(
-        tmp_path,
-        [_stretch_record("2026-10-22", 8, 5, 100, "4109", "50", actual_s=720, scheduled_s=600)],
-    )
-    for hour, timing_source in ((8, "historical_fallback"), (23, "timetable_fallback")):
-        depart = datetime(2026, 10, 22, hour, 30, tzinfo=IST)
-        base = model.predict_ride(200, "50", "2559", 600.0, depart, "replay", as_of=depart)
-        delayed = model.predict_ride(200, "50", "2559", 600.0, depart, "replay", 300.0, as_of=depart)
-        assert base.timing_source == delayed.timing_source == timing_source
-        assert delayed.source == base.source
-        assert delayed.duration_s == base.duration_s + 300.0
-        assert (delayed.p10_s, delayed.p90_s) == (base.p10_s + 300.0, base.p90_s + 300.0)
-
-
-def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_path: Path) -> None:
+def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_path: Path, make_protobuf) -> None:
     _make_stops(tmp_path)
     now = int(time.time())
     fresh_ts = now - 3
@@ -391,13 +284,13 @@ def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_pat
         (f"DL1PD{2000 + i}", "100", 28.65, 77.22, 5.5, fresh_ts - 2)
         for i in range(15)
     ]
-    decoded_fresh = decode_vehicle_positions(_make_protobuf(fresh_ts, fresh_vehicles), polled_at=now)
+    decoded_fresh = decode_vehicle_positions(make_protobuf(fresh_ts, fresh_vehicles), polled_at=now)
     persist_decoded_feed(tmp_path, decoded_fresh)
 
     class MockResumePoller(LivePoller):
         async def apoll_once(self, client=None):
             t = int(time.time())
-            pb = _make_protobuf(
+            pb = make_protobuf(
                 t - 2,
                 [(f"DL1PD{3000 + i}", "100", 28.65, 77.22, 6.0, t - 2) for i in range(15)],
             )
@@ -437,7 +330,7 @@ def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_pat
         (f"DL1PD{2000 + i}", "100", 28.65, 77.22, 5.5, stale_ts - 2)
         for i in range(15)
     ]
-    persist_decoded_feed(tmp_path, decode_vehicle_positions(_make_protobuf(stale_ts, stale_vehicles), polled_at=stale_ts + 2))
+    persist_decoded_feed(tmp_path, decode_vehicle_positions(make_protobuf(stale_ts, stale_vehicles), polled_at=stale_ts + 2))
 
     abstain_resp = client.get("/journeys", params=params)
     assert abstain_resp.status_code == 200
@@ -463,7 +356,7 @@ def test_stale_feed_causes_explicit_abstention_and_recovers_when_resumed(tmp_pat
     assert recovered["abstention"] is None
 
 
-def test_insufficient_fleet_and_route_coverage_abstention(tmp_path: Path) -> None:
+def test_insufficient_fleet_and_route_coverage_abstention(tmp_path: Path, make_protobuf) -> None:
     _make_stops(tmp_path)
     model = _build_retime_model(tmp_path, [])
     app = create_app(
@@ -487,7 +380,7 @@ def test_insufficient_fleet_and_route_coverage_abstention(tmp_path: Path) -> Non
 
     # 2. Fresh feed but only 3 vehicles (< min_live_vehicles=10) -> insufficient_coverage abstention
     now = int(time.time())
-    tiny = _make_protobuf(now - 5, [(f"DL1PD{i}", "100", 28.65, 77.22, 5.0, now - 5) for i in range(3)])
+    tiny = make_protobuf(now - 5, [(f"DL1PD{i}", "100", 28.65, 77.22, 5.0, now - 5) for i in range(3)])
     persist_decoded_feed(tmp_path, decode_vehicle_positions(tiny, polled_at=now))
     low_fleet = client.get("/journeys", params=params).json()
     assert low_fleet["status"] == "insufficient_data"
@@ -495,7 +388,7 @@ def test_insufficient_fleet_and_route_coverage_abstention(tmp_path: Path) -> Non
     assert low_fleet["abstention"]["code"] == "insufficient_coverage"
 
     # 3. Adequate fleet on route 100 (12 vehicles) + sparse route 200 (0 vehicles) => avg coverage 0.5
-    adequate = _make_protobuf(now - 5, [(f"DL1PD{i}", "100", 28.65, 77.22, 5.0, now - 5) for i in range(12)])
+    adequate = make_protobuf(now - 5, [(f"DL1PD{i}", "100", 28.65, 77.22, 5.0, now - 5) for i in range(12)])
     persist_decoded_feed(tmp_path, decode_vehicle_positions(adequate, polled_at=now))
     high_floor = client.get("/journeys", params={**params, "min_coverage": 0.9}).json()
     assert high_floor["status"] == "insufficient_data"
@@ -512,10 +405,10 @@ def test_insufficient_fleet_and_route_coverage_abstention(tmp_path: Path) -> Non
     assert sparse["observed_coverage"] == 0.0
 
 
-def test_fresh_header_cannot_revive_stale_route_positions_at_default_settings(tmp_path: Path) -> None:
+def test_fresh_header_cannot_revive_stale_route_positions_at_default_settings(tmp_path: Path, make_protobuf) -> None:
     _make_stops(tmp_path)
     now = int(time.time())
-    payload = _make_protobuf(
+    payload = make_protobuf(
         now,
         [(f"OLD{i}", "100", 28.65, 77.22, 5.0, now - 660) for i in range(12)]
         + [(f"FRESH{i}", "200", 28.65, 77.22, 5.0, now - 5) for i in range(10)],
@@ -548,7 +441,7 @@ def test_fresh_header_cannot_revive_stale_route_positions_at_default_settings(tm
     assert rides[1]["timing_source"] == "model_live"
 
     # Move the fresh fleet to an unrelated route: stock settings now abstain because neither candidate leg is supported.
-    unsupported = _make_protobuf(
+    unsupported = make_protobuf(
         now,
         [(f"OLD{i}", "100", 28.65, 77.22, 5.0, now - 660) for i in range(12)]
         + [(f"FRESH{i}", "999", 28.65, 77.22, 5.0, now - 5) for i in range(10)],
@@ -561,12 +454,12 @@ def test_fresh_header_cannot_revive_stale_route_positions_at_default_settings(tm
     assert body["options"] == []
 
 
-def test_entities_that_expire_after_the_poll_cannot_drive_live_timing(tmp_path: Path) -> None:
+def test_entities_that_expire_after_the_poll_cannot_drive_live_timing(tmp_path: Path, make_protobuf) -> None:
     _make_stops(tmp_path)
     now = int(time.time())
     polled_at = now - 30
     # Fresh when polled (590 s old) but 620 s old by request time; route 200 stays fresh.
-    payload = _make_protobuf(
+    payload = make_protobuf(
         polled_at,
         [(f"AGING{i}", "100", 28.65, 77.22, 5.0, now - 620) for i in range(12)]
         + [(f"FRESH{i}", "200", 28.65, 77.22, 5.0, now - 35) for i in range(10)],
@@ -594,7 +487,7 @@ def test_entities_that_expire_after_the_poll_cannot_drive_live_timing(tmp_path: 
     assert rides[1]["timing_source"] == "model_live"
 
     # When the whole fleet has aged out since the poll, the request abstains on coverage.
-    aging_only = _make_protobuf(
+    aging_only = make_protobuf(
         polled_at, [(f"AGING{i}", "100", 28.65, 77.22, 5.0, now - 620) for i in range(12)]
     )
     persist_decoded_feed(tmp_path, decode_vehicle_positions(aging_only, polled_at=polled_at + 1))
@@ -605,7 +498,7 @@ def test_entities_that_expire_after_the_poll_cannot_drive_live_timing(tmp_path: 
 
     # An app-level freshness threshold governs route timing as well as the fleet gate.
     now = int(time.time())
-    short_limit = _make_protobuf(
+    short_limit = make_protobuf(
         now - 10,
         [(f"AGING{i}", "100", 28.65, 77.22, 5.0, now - 50) for i in range(12)]
         + [(f"FRESH{i}", "999", 28.65, 77.22, 5.0, now - 12) for i in range(10)],
@@ -669,11 +562,11 @@ def test_replay_without_loaded_observations_abstains_without_fresh_timestamp(tmp
     assert body["feed_summary"]["loaded_passage_files"] == []
 
 
-def test_live_ride_without_usable_speed_uses_fallback_provenance(tmp_path: Path) -> None:
+def test_live_ride_without_usable_speed_uses_fallback_provenance(tmp_path: Path, make_protobuf) -> None:
     _make_stops(tmp_path)
     now = int(time.time())
     vehicles = [(f"DL1PD{i}", "100", 28.65, 77.22, 0.0, now - 5) for i in range(12)]
-    persist_decoded_feed(tmp_path, decode_vehicle_positions(_make_protobuf(now, vehicles), polled_at=now))
+    persist_decoded_feed(tmp_path, decode_vehicle_positions(make_protobuf(now, vehicles), polled_at=now))
     model = _build_retime_model(
         tmp_path,
         [_stretch_record("2026-10-15", 8, 10, 100, "4109", "50", actual_s=720, scheduled_s=600)],
