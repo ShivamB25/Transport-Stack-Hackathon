@@ -256,22 +256,3 @@ def test_latest_ui_action_wins_when_responses_finish_out_of_order() -> None:
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_leg_coordinates_exposed_for_map_rendering(tmp_path: Path) -> None:
-    client = _make_client(tmp_path)
-    resp = client.get(
-        "/journeys",
-        params={
-            "from": "Kashmere Gate ISBT",
-            "to": "Nehru Place",
-            "depart": "2026-10-22T17:35:00+05:30",
-        },
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    ride = next(leg for leg in body["options"][0]["legs"] if leg["type"] == "ride")
-    assert ride["from_lat"] is not None
-    assert ride["from_lng"] is not None
-    assert ride["to_lat"] is not None
-    assert ride["to_lng"] is not None

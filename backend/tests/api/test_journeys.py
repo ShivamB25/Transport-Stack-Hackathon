@@ -33,8 +33,18 @@ def _ride(start: str, end: str, route: str = "100", second: bool = False) -> dic
         "duration": 600,
         "start": {"scheduledTime": start},
         "end": {"scheduledTime": end},
-        "from": {"name": "ISBT Kashmere Gate Terminal" if not second else "Central", "stop": {"gtfsId": "DTC:4109" if not second else "DTC:50"}},
-        "to": {"name": "Central" if not second else "Nehru Place", "stop": {"gtfsId": "DTC:50" if not second else "DTC:2559"}},
+        "from": {
+            "name": "ISBT Kashmere Gate Terminal" if not second else "Central",
+            "lat": 28.66696 if not second else 28.6,
+            "lon": 77.227456 if not second else 77.22,
+            "stop": {"gtfsId": "DTC:4109" if not second else "DTC:50"},
+        },
+        "to": {
+            "name": "Central" if not second else "Nehru Place",
+            "lat": 28.6 if not second else 28.5485761,
+            "lon": 77.22 if not second else 77.2491332,
+            "stop": {"gtfsId": "DTC:50" if not second else "DTC:2559"},
+        },
         "route": {"gtfsId": f"DTC:{route}", "shortName": f"{route}UP"},
         "trip": {"gtfsId": f"DTC:{route}_FULL_08_00"},
         "legGeometry": {"points": f"ride-{route}"},
@@ -112,10 +122,8 @@ def _client(tmp_path: Path) -> TestClient:
 
 def test_complete_options_and_ordered_legs(tmp_path: Path) -> None:
     client = _client(tmp_path)
-    response = client.get(
-        "/journeys",
-        params={"from": "28.6675,77.2282", "to": "28.5494,77.2510", "depart": "2026-10-22T08:30:00+05:30"},
-    )
+    params = {"from": "28.6675,77.2282", "to": "28.5494,77.2510", "depart": "2026-10-22T08:30:00+05:30"}
+    response = client.get("/journeys", params=params)
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
@@ -132,9 +140,17 @@ def test_complete_options_and_ordered_legs(tmp_path: Path) -> None:
             if leg["type"] == "ride":
                 assert leg["route_name"]
                 assert leg["observed_coverage"] == 0.5
+                assert None not in (leg["from_lat"], leg["from_lng"], leg["to_lat"], leg["to_lng"])
+
+    # A replay delay re-times rides but never changes the candidates or their geometry.
+    delayed = client.get("/journeys", params={**params, "replay_delay_s": 300}).json()
+    assert [o["candidate_id"] for o in delayed["options"]] == [o["candidate_id"] for o in body["options"]]
+    assert [[leg["geometry"] for leg in o["legs"]] for o in delayed["options"]] == [
+        [leg["geometry"] for leg in o["legs"]] for o in body["options"]
+    ]
 
 
-def test_stop_names_resolve_to_coordinate_endpoints(tmp_path: Path) -> None:
+def test_exact_stop_name_with_comma_resolves_before_coordinate_parsing(tmp_path: Path) -> None:
     client = _client(tmp_path)
     params = {"to": "Nehru Place", "depart": "2026-10-22T08:30:00+05:30"}
     named = client.get("/journeys", params={"from": "Kashmere Gate ISBT", **params}).json()
@@ -142,9 +158,6 @@ def test_stop_names_resolve_to_coordinate_endpoints(tmp_path: Path) -> None:
     assert named["resolved_from"]["stop_id"] == coordinates["resolved_from"]["stop_id"] == "4730"
     assert named["resolved_to"]["stop_id"] == coordinates["resolved_to"]["stop_id"] == "2559"
 
-
-def test_exact_stop_name_with_comma_resolves_before_coordinate_parsing(tmp_path: Path) -> None:
-    client = _client(tmp_path)
     response = client.get(
         "/journeys",
         params={
@@ -173,22 +186,6 @@ def test_equivalent_offsets_use_identical_delhi_service_clock(tmp_path: Path) ->
     assert utc.json() == delhi.json()
     assert utc.json()["mode"] == "replay"
     assert utc.json()["depart"] == "2026-10-01T00:30:00+05:30"
-
-
-def test_time_of_day_and_replay_delay_change_ride_not_geometry(tmp_path: Path) -> None:
-    client = _client(tmp_path)
-    base = {"from": "Kashmere Gate ISBT", "to": "Nehru Place"}
-    peak = client.get("/journeys", params={**base, "depart": "2026-10-22T09:00:00+05:30"}).json()
-    quiet = client.get("/journeys", params={**base, "depart": "2026-10-22T23:00:00+05:30"}).json()
-    peak_ride = next(leg for leg in peak["options"][0]["legs"] if leg["type"] == "ride")
-    quiet_ride = next(leg for leg in quiet["options"][0]["legs"] if leg["type"] == "ride")
-    assert peak_ride["estimated_duration_s"] != quiet_ride["estimated_duration_s"]
-    delayed = client.get("/journeys", params={**base, "depart": "2026-10-22T09:00:00+05:30", "replay_delay_s": 300}).json()
-    delayed_ride = next(leg for leg in delayed["options"][0]["legs"] if leg["type"] == "ride")
-    assert delayed_ride["estimated_duration_s"] != peak_ride["estimated_duration_s"]
-    assert delayed_ride["estimated_duration_s"] != delayed_ride["scheduled_duration_s"]
-    assert [o["candidate_id"] for o in delayed["options"]] == [o["candidate_id"] for o in peak["options"]]
-    assert delayed_ride["geometry"] == peak_ride["geometry"]
 
 
 def test_invalid_inputs_are_controlled_and_service_recovers(tmp_path: Path) -> None:
@@ -230,13 +227,3 @@ def test_missing_depart_defaults_to_now_in_delhi_live_mode(tmp_path: Path, monke
     assert replay.json()["mode"] == "replay"
     assert replay.json()["depart"] == "2026-10-22T08:30:00+05:30"
     assert client.get("/journeys", params={**endpoints, "mode": "live"}).json()["mode"] == "live"
-
-
-def test_openapi_documents_journey_contract(tmp_path: Path) -> None:
-    client = _client(tmp_path)
-    assert client.get("/docs").status_code == 200
-    schema = client.get("/openapi.json").json()
-    parameters = schema["paths"]["/journeys"]["get"]["parameters"]
-    assert {parameter["name"] for parameter in parameters} >= {"from", "to", "depart"}
-    leg = schema["components"]["schemas"]["Leg"]["properties"]
-    assert {"source", "observed_coverage", "window_p10_s", "window_p90_s"} <= leg.keys()

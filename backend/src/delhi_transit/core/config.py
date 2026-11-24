@@ -48,6 +48,29 @@ LIVE_MIN_VEHICLES = int(os.environ.get("DELHI_TRANSIT_LIVE_MIN_VEHICLES", "10"))
 LIVE_SNAPSHOT_KEEP = int(os.environ.get("DELHI_TRANSIT_LIVE_SNAPSHOT_KEEP", "30"))
 
 
+# The getters below are read per request, not at import, so a running API follows the
+# environment it is started with (the demo uses a 45 s threshold) and tests can patch it.
+def live_stale_threshold_s() -> float:
+    return float(os.environ.get("DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S", str(LIVE_STALE_THRESHOLD_S)))
+
+
+def live_min_vehicles() -> int:
+    return int(os.environ.get("DELHI_TRANSIT_LIVE_MIN_VEHICLES", str(LIVE_MIN_VEHICLES)))
+
+
+def min_route_coverage() -> float:
+    return float(os.environ.get("DELHI_TRANSIT_MIN_ROUTE_COVERAGE", "0.0"))
+
+
+def runtime_mode() -> str:
+    """`DELHI_TRANSIT_MODE` as given (`auto`, `live` or `replay`), lower-cased."""
+    return os.environ.get("DELHI_TRANSIT_MODE", "auto").strip().lower()
+
+
+def live_poller_enabled() -> bool:
+    return os.environ.get("DELHI_TRANSIT_ENABLE_LIVE_POLLER", "1").strip().lower() not in {"0", "false", "no"}
+
+
 def load_env_key(name: str, env_path: Path | None = None) -> str | None:
     """Read a secret from the environment, else from the repo .env. Never log the value."""
     value = os.environ.get(name, "").strip()
