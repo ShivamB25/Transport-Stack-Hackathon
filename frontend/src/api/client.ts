@@ -22,9 +22,11 @@ function errorDetail(body: unknown, fallback: string): string {
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal, headers: { Accept: 'application/json' } })
-  const body: unknown = await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(response.status, errorDetail(body, response.statusText))
-  return body as T
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null)
+    throw new ApiError(response.status, errorDetail(body, response.statusText))
+  }
+  return (await response.json()) as T
 }
 
 export function getJourneys(params: JourneyParams, signal?: AbortSignal): Promise<JourneyResponse> {

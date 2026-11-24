@@ -68,3 +68,15 @@ test('resubmitting identical inputs is a new action with its own request', () =>
   const again = nextAction(first, { kind: 'journey', params: params('A') })
   expect(actionQueryOptions(again).queryKey).not.toEqual(actionQueryOptions(first).queryKey)
 })
+
+test('an unreadable 200 body fails the action instead of resolving to null', async () => {
+  globalThis.fetch = (async () => new Response('{"status": "ok", "sta', { status: 200 })) as unknown as typeof fetch
+  const client = new QueryClient()
+  for (const request of [{ kind: 'journey', params: params('A') }, { kind: 'demo' }] as const) {
+    const result = await client
+      .fetchQuery(actionQueryOptions(nextAction(IDLE_ACTION, request)))
+      .then(() => 'resolved', (error: unknown) => error)
+    expect(result).toBeInstanceOf(SyntaxError)
+  }
+  client.clear()
+})
