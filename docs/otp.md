@@ -15,7 +15,9 @@ separately; OTP itself remains schedule-based.
 
 The wrappers default to `/home/factory-user/ps1-scratch/otp` and download the jar
 or OSM file only when missing. `PS1_OTP_DIR`, `PS1_DATA_DIR`, and `PS1_JAVA` can
-override the runtime paths.
+override the runtime paths. The build copies the GTFS zip into `graph/` and links
+the OSM file with a relative path, so the directory also works when mounted at
+`/otp` by the Compose `otp` and `otp-build` services.
 
 ## Build and serve
 

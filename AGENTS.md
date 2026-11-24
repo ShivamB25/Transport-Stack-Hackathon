@@ -1,96 +1,97 @@
-# AGENTS.md — Delhi PS1 Bus Travel-Time Model & Journey Planner
+# AGENTS.md
 
-Living guide for anyone (human or agent) working in this repository. Keep it concise and accurate: update this file in the same commit whenever you change commands, module responsibilities, rules, or published headline numbers. Never put secret values here.
+Guide for anyone (human or agent) working in this repository. Keep it short and accurate. Update it in the same commit as any change to commands, module responsibilities, rules or headline numbers. Never write secret values here.
 
-## Project Purpose
+## Purpose
 
-Real-time bus travel-time modeling and journey planning for Delhi DTC buses using October 2026 historical GTFS-RT GPS archives (31 days), static GTFS feed v32, live GTFS-RT VehiclePositions, and OpenTripPlanner 2.8.1 for candidate itinerary generation. OTP generates candidate routes only; this service owns all transit leg timing, transfer connection risk, uncertainty windows, and abstention.
+Bus travel-time modelling and journey planning for Delhi DTC buses. Inputs: the October 2026 GTFS-RT GPS archive (31 days), static GTFS feed v32, the live GTFS-RT VehiclePositions feed, and OpenTripPlanner 2.8.1. OTP only proposes candidate itineraries; this code owns transit leg timing, transfer risk, `[p10, p90]` windows and abstention.
 
-## Repository Layout
+## Layout
 
 - `src/ps1/`
-  - `config.py`: Env-driven paths, OTP URL, shared `IST` (`+05:30`) timezone, Delhi bbox (`27.5–29.0 N`, `76.7–77.6 E`), archive URL/UA, live feed settings, Google 300-call cap.
-  - `range_reader.py`: Bounded seekable HTTP range reader (`HTTPRangeFile`) for remote 7z archives; rejects non-206 and oversized responses before buffering the body.
-  - `extract_day.py`: Range-extracts one archive day's SQLite member, deterministically deduplicates on `(vehicle_id, ts, lat, lng)` by SQLite `rowid` (keep first), filters bbox/ts, casts `route_id` to `INTEGER`, stages and verifies (`verify_day`) before atomic Parquet publication, and removes temporary SQLite files.
-  - `acquire.py`: Resumable 31-day orchestrator (priority days first, 2 workers); verifies existing Parquets in place via `verify_day`, never deletes canonical Parquets on refresh failure, and writes `download.log` + `STATUS.md`.
-  - `stop_passages.py`: Geometric GPS-to-stop-pattern matching (60 m radius, min-distance per stop, max-cardinality nondecreasing anchor chain, schedule-proportional interpolation, adjacent IST service-date resolution for midnight-crossing runs, per-passage `available_at` as-of epoch checked against raw-GPS prefix reconstructions) and coverage reporting (`reports/coverage-717a.md`, protected from scoped runs).
-  - `features.py`: Stretch error tables and strictly causal replay features.
-  - `model.py`: Model ladder rungs `0` (timetable), `1` (persistence), `1h` (historical median), `2` (+ day-type), `3` (+ vehicle last observed delay), `4` (LightGBM quantile p10/p50/p90 + split-conformal calibration), artifact persistence, and as-of eligibility metadata/checks.
-  - `evaluate.py`: Frozen whole-day evaluation runner emitting `reports/eval-baselines.{csv,md}` and `reports/eval-full.{csv,md}`.
-  - `selection.py`: Ship-decision rule (`reports/selection.json`) picking the highest shippable rung `4`/`3`/`2` beating rung 1 on held-out observed-only MAE at matching coverage, otherwise rung 1; rung `1h` is report-only. Only observed-only decisions can be written (`--write` with another `--stratum` is rejected; other strata are print-only).
-  - `live_poller.py`: Polls live Delhi GTFS-RT `VehiclePositions.pb`, writes snapshots/route stats under `data/live/` (with per-entity fresh timestamps), gates entities by their own timestamps, and persists only sanitized error categories. Route and fleet aggregates are recomputed at request time so entities that expire between polls cannot drive timing or fleet coverage.
-  - `otp_client.py`: GraphQL `planConnection` client for OTP 2.8.1 (`/otp/gtfs/v1`).
-  - `retime.py`: Re-times OTP candidate transit legs using the selected model artifact and fallback chain (refuses a `selection.json` whose `stratum` is not `observed-only`), computes waits, joint-scenario transfer risk, and door-to-door `[p10, p90]` windows.
-  - `replay_demo.py`: Scripted October 22 marginal-transfer replay scenario for the UI demo. The outcome is computed only for the OTP trip pair `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300, using the archived runs verified against it; if OTP does not return that pair the endpoint reports `status="unavailable"` with a message.
-  - `api.py`: FastAPI service (`GET /journeys`, `GET /health`, `GET /live/status`, `POST /live/pause`, `POST /live/resume`, `/docs`, static UI).
-  - `google_client.py`: Cached, field-masked Google Routes API (`TRANSIT` / `BUS`) client with atomic pre-request reservations in the fixed mission-wide ledger `/home/factory-user/ps1-scratch/google-mission-call-ledger.json`.
-  - `static/index.html`: Single-file Leaflet (CDN) UI with live/replay badge, feed age, abstention state, and replay demo controls.
+  - `config.py`: env-driven paths (`PS1_DATA_DIR`, `PS1_WORK_DIR`), `PS1_OTP_URL`, the shared `IST` timezone, Delhi bbox, archive URL and user agent, live feed settings, Google 300-call cap and ledger path.
+  - `range_reader.py`: bounded HTTP range reader for the remote 7z archive.
+  - `extract_day.py`: extracts one archive day, dedupes on `(vehicle_id, ts, lat, lng)` keeping the first SQLite `rowid`, filters bbox/timestamps, casts `route_id` to integer, verifies (`verify_day`) and publishes Parquet atomically, deletes the SQLite file.
+  - `acquire.py`: resumable 31-day orchestrator (2 workers); writes `download.log` and `STATUS.md`, never deletes a canonical Parquet on failure.
+  - `stop_passages.py`: geometric GPS-to-stop matching for 717A (60 m, max-cardinality time-ordered anchor chain, schedule-proportional interpolation, adjacent-service-date resolution, per-passage `available_at`) and `reports/coverage-717a.md` (written only by full canonical runs).
+  - `features.py`: stretch error tables and strictly causal replay features.
+  - `model.py`: rungs `0`, `1`, `1h`, `2`, `3`, `4` (LightGBM quantile + split-conformal), artifact save/load and as-of eligibility.
+  - `evaluate.py`: whole-day evaluation; writes `reports/eval-baselines.*`, `reports/eval-full.*`, `reports/selection.json` and the model artifact.
+  - `selection.py`: ship rule (highest of rungs `4`/`3`/`2` beating rung 1 on held-out observed-only MAE at matching coverage, else rung 1; `1h` is report-only). Only observed-only decisions can be written.
+  - `live_poller.py`: polls VehiclePositions into `data/live/`, gates entities by their own timestamps, stores only fixed error categories; pause/resume/status controls.
+  - `otp_client.py`: GraphQL `planConnection` client for `/otp/gtfs/v1`.
+  - `retime.py`: re-times OTP transit legs with the selected rung and fallback chain, waits, joint-scenario transfer risk and windows. Reads `reports/selection.json` relative to the package and refuses a non-observed-only selection.
+  - `replay_demo.py`: scripted Oct 22 missed-transfer replay for OTP trips `DTC:2171_FULL_17_09` -> `DTC:1416_FULL_15_08` at stop 2300; returns `status="unavailable"` if OTP does not return that pair.
+  - `api.py`: FastAPI app (`GET /journeys`, `/health`, `/live/status`, `POST /live/pause`, `POST /live/resume`, `GET /replay/demo`, `/docs`, UI at `/`). `depart` is optional and defaults to now in Asia/Kolkata.
+  - `google_client.py`: cached, field-masked Google Routes client with atomic reservations in the mission-wide ledger.
+  - `static/index.html`: single-file Leaflet UI (badge, feed age, abstention panel, presets, replay demo).
 - `scripts/`: `otp_build.sh`, `otp_serve.sh`, `live_poller.sh`, `compare_google.py`.
-- `tests/`: Pytest suite split across `tests/data/`, `tests/model/`, `tests/api/`, `tests/comparator/`.
-- `reports/`: Committed CSV/Markdown/JSON outputs (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`).
-- `docs/`: `eval-protocol.md`, `otp.md`, `technical-note.md`.
-- `demo/`: `record_demo.sh` and recorded walkthrough `demo.webm`.
+- `tests/`: pytest suites in `tests/data`, `tests/model`, `tests/api`, `tests/comparator`.
+- `reports/`: committed results (`data-quality.md`, `coverage-717a.md`, `eval-baselines.*`, `eval-full.*`, `selection.json`, `google-comparator.*`, `google-comparator-inputs.json`, `google-manifest.json`, `otp-smoke.md`, `otp-plan-*.json`).
+- `docs/`: `technical-note.md`, `eval-protocol.md`, `otp.md`.
+- `demo/`: `record_demo.sh` and `demo.webm`.
+- `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`: container packaging.
 
 ## Setup
 
-- **Python venv:** `/home/factory-user/ps1-scratch/venv` (Python 3.12; install/verify via `pip install -r requirements.txt`).
-- **Java & OTP:** Temurin 21 at `/home/factory-user/ps1-scratch/jdk`; OTP 2.8.1 shaded jar and graph at `/home/factory-user/ps1-scratch/otp/` (`-Xmx2500m` hard cap).
-- **Secrets (`.env`, gitignored):** Required variable names are `DELHI_TS_API_KEY` (Delhi live VehiclePositions feed) and `GOOGLE_MAPS_API_KEY` (Google Routes comparator). Read in-process only; never print, log, or commit values.
+- Python 3.12 venv: `/home/factory-user/ps1-scratch/venv` (`pip install -r requirements.txt`).
+- Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk`. OTP jar, OSM extract and graph: `/home/factory-user/ps1-scratch/otp/` (`PS1_OTP_DIR`). OTP heap is capped at `-Xmx2500m`.
+- `.env` (gitignored, see `.env.example`): `DELHI_TS_API_KEY` (live feed and static GTFS), `GOOGLE_MAPS_API_KEY` (comparator). Read in-process only; never print, log or commit values.
+- Docker and Podman are not installed on the development machine. Validate `docker-compose.yml` against the compose-spec schema and by running the same commands natively.
 
-## Ports & Data Locations
+## Ports and data
 
-- **Ports:** `3100` (FastAPI + Leaflet UI), `3102` (OTP 2.8.1 GraphQL). Do not bind outside `3100–3199`.
-- **Data directory (`PS1_DATA_DIR`, default `/home/factory-user/ps1-scratch/data`, outside repo):**
-  - `gps/day=YYYY-MM-DD.parquet`: 31 October 2026 deduplicated GPS Parquet files (9.96 GB total; every day uses deterministic `rowid`-ordered first-row dedupe).
-  - `gtfs/`: Static GTFS feed v32 (`routes.txt`, `trips.txt`, `stops.txt`, `stop_times.txt`, etc.).
-  - `passages/day=YYYY-MM-DD.parquet`: Reconstructed 717A stop passages for train/held-out days (`available_at` included).
-  - `model/`: Persisted selected model artifact(s).
-  - `live/`: Live VehiclePositions snapshots, route stats, and poller state.
-  - `google/`: Cached field-masked Google Routes API responses and call manifest.
-  - `download.log`, `STATUS.md`: Acquisition ledger and status.
-- **Scratch work dir (`PS1_WORK_DIR`, default `/home/factory-user/ps1-scratch/work`):** Temporary unpacked SQLite files (max 2 concurrent; always deleted after Parquet conversion) and `duckdb-tmp/`.
+- Ports: `3100` (API and UI), `3102` (OTP). Stay within `3100–3199`.
+- `PS1_DATA_DIR` (default `/home/factory-user/ps1-scratch/data`, outside the repo):
+  - `gps/day=YYYY-MM-DD.parquet`: 31 deduplicated days.
+  - `gtfs/`: static feed v32 (unzipped files plus `delhi_buses_static_gtfs_v1.zip`).
+  - `passages/day=YYYY-MM-DD.parquet`: 717A passages for the 10 train and held-out days.
+  - `model/`: selected model artifact. `live/`: poller snapshots and state. `google/`: cached Google responses.
+  - `download.log`, `STATUS.md`: acquisition ledger.
+- `PS1_WORK_DIR` (default `/home/factory-user/ps1-scratch/work`): temporary SQLite files (at most 2 at once) and DuckDB temp space.
 
 ## Commands
 
-Run from repo root `/home/factory-user/repos/Transport-Stack-Hackathon`:
+Run from `/home/factory-user/repos/Transport-Stack-Hackathon`. These match the mission `services.yaml`.
 
-- **Tests:** `/home/factory-user/ps1-scratch/venv/bin/python -m pytest tests -q` (scoped: `tests/data`, `tests/model`, `tests/api`, `tests/comparator`)
-- **Type/bytecode check:** `/home/factory-user/ps1-scratch/venv/bin/python -m compileall -q src`
-- **Lint:** `/home/factory-user/ps1-scratch/venv/bin/ruff check src tests`
-- **One-day GPS extraction (end-to-end):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.extract_day --day 2026-10-15 --output /tmp/repro15.parquet`
-- **717A stop passages (canonical 10 days + `reports/coverage-717a.md`):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.stop_passages --overwrite`
-- **717A stop passages (scoped day; never overwrites canonical report):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.stop_passages --day 2026-10-22 --output-dir /tmp/passages-check --overwrite`
-- **Model evaluation & selection:** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate`
-- **OTP graph build (one-time):** `scripts/otp_build.sh`
-- **OTP serve (port 3102):** `scripts/otp_serve.sh`
-- **API serve (port 3100):** `PS1_DATA_DIR=/home/factory-user/ps1-scratch/data PS1_OTP_URL=http://localhost:3102/otp/gtfs/v1 /home/factory-user/ps1-scratch/venv/bin/python -m uvicorn ps1.api:app --app-dir src --host 127.0.0.1 --port 3100`
-- **Live poller (single poll):** `scripts/live_poller.sh --once`
-- **Google comparator (deterministic render, no planner/Google calls):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --render-only`
-- **Google comparator (fresh planner collection, cache-only Google):** `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --date 2026-11-24 --cache-only`
-- **Demo recording:** `demo/record_demo.sh`
+- Tests: `/home/factory-user/ps1-scratch/venv/bin/python -m pytest tests -q`
+- Bytecode check: `/home/factory-user/ps1-scratch/venv/bin/python -m compileall -q src`
+- Lint: `/home/factory-user/ps1-scratch/venv/bin/ruff check src tests`
+- Acquire all GPS days: `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.acquire`
+- One GPS day: `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.extract_day --day 2026-10-15 --output /tmp/repro15.parquet`
+- 717A passages (canonical 10 days and coverage report): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.stop_passages --overwrite`
+- 717A passages for one day (never touches the canonical report): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.stop_passages --day 2026-10-22 --output-dir /tmp/passages-check --overwrite`
+- Evaluation and selection: `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python -m ps1.evaluate`
+- OTP graph build: `scripts/otp_build.sh`. OTP serve (3102): `scripts/otp_serve.sh`
+- API serve (3100): `PS1_DATA_DIR=/home/factory-user/ps1-scratch/data PS1_OTP_URL=http://localhost:3102/otp/gtfs/v1 /home/factory-user/ps1-scratch/venv/bin/python -m uvicorn ps1.api:app --app-dir src --host 127.0.0.1 --port 3100`
+- Live poller, single poll: `scripts/live_poller.sh --once`
+- Google comparator render (no network): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --render-only`
+- Google comparator collection (planner calls, cached Google only): `PYTHONPATH=src /home/factory-user/ps1-scratch/venv/bin/python scripts/compare_google.py --date 2026-11-24 --cache-only`
+- Demo recording (API started with `PS1_LIVE_STALE_THRESHOLD_S=45`): `demo/record_demo.sh`
+- Docker Compose: `docker compose --profile build run --rm otp-build` (graph build), `docker compose up -d --build`
 
-## Key Rules
+## Rules
 
-- **Causality & `available_at`:** Every stop passage carries `available_at` = the latest of (a) its own rule (observed = own ping `ts`; interior interpolated = later anchor `ts`; extrapolated endpoints = anchor used), (b) the run's second surviving anchor `ts` (a run only qualifies once it has two anchors), and (c) the ping after which every raw-GPS prefix reconstruction reproduces the passage (later anchors can revise the chain). Features, replay, and evaluation must only consume passages with `available_at` strictly before the query/request time.
-- **Request-wide replay cutoff:** Replay uses one request-wide observation cutoff equal to the requested departure (including quiet-hour comparisons). Model artifacts must only be used when eligible as of that cutoff.
-- **Clock & service dates:** Normalize request times to `Asia/Kolkata` (`+05:30`) before service-date, profile-hour, and quiet-hour logic. GTFS service dates for midnight-crossing runs are resolved across adjacent service dates (`day-1`, `day`, `day+1`), never assumed equal to the archive partition date.
-- **Evaluation & splits:** Whole-day splits only (train: Oct 5–8, 13–15; held-out: Oct 22, 27, 28; holidays Oct 2/20/26 excluded from normal-day training; Oct 7 never an eval day). Gate and model selection run on the `observed-only` stratum; never sum per-leg p90s into end-to-end p90s.
-- **No GPS↔GTFS trip_id join:** Stop matching is strictly geometric; never join GPS `trip_id` to GTFS `trip_id`, and never fuzzy-match stop names city-wide.
-- **Google comparator:** Hard cap of 300 calls mission-wide in the fixed ledger above, atomically reserved before each request and unaffected by `--data-dir`; interrupted reservations remain counted. Cache every response under `data/google/`; never query past/October departure times (Google returns zero transit routes); always `languageCode="en"` and post-filter strictly bus-only itineraries. Validate Tuesday and all slots before any request, retain unavailable rows, and render only from frozen committed inputs. Google is a comparator, not ground truth.
-- **Latest UI action wins:** Journey and replay-demo requests carry an action sequence; superseded responses, errors, and cleanup must not change newer UI state. Abstention badge text follows the API reason code.
-- **Honesty, provenance & abstention:** Always label `mode` (`live` vs `replay`) separately from per-leg ride/wait provenance (`model_live`, `model_replay`, `historical_fallback`, `timetable_fallback`) and observed coverage. Live entities older than the effective freshness threshold cannot drive timing. Abstain visibly (`status="insufficient_data"`) for stale/insufficient GPS, no supported candidate route, or no reconstructed replay observations as of the cutoff; never synthesize a fresh replay timestamp. Poller errors use fixed categories only. Never print or log API keys.
-- **Commit cadence:** Commit and push to `origin/main` after each passing coherent sub-step; keep repo `AGENTS.md` updated in the same commit.
+- **Causality.** Every passage carries `available_at`, the latest of its own rule (observed = own ping; interior interpolated = later anchor; extrapolated = anchor used), the run's second surviving anchor, and the ping after which every raw-GPS prefix reconstruction reproduces it. Features, replay and evaluation use only passages with `available_at` strictly before the query time.
+- **Replay cutoff.** A replay request uses one observation cutoff, the requested departure, for every leg and the quiet-hour comparison. A model artifact is used only when eligible as of that cutoff.
+- **Clock.** Normalise request times to Asia/Kolkata (`+05:30`) before service-date, hour and quiet-hour logic. Resolve GTFS service dates for midnight-crossing runs across `day-1`, `day`, `day+1`.
+- **Evaluation.** Whole-day splits only: train Oct 5–8 and 13–15, held out Oct 22, 27, 28. Holidays Oct 2, 20, 26 are excluded from normal-day training; Oct 7 is never an evaluation day. The gate and selection use the observed-only stratum. Never sum per-leg p90s into an end-to-end p90.
+- **Matching.** Stop matching is geometric. Never join GPS `trip_id` to GTFS `trip_id`, and never fuzzy-match stop names city-wide.
+- **Google.** At most 300 calls mission-wide, reserved atomically in the fixed ledger before each request. Cache every response under `data/google/`. Never query past or October dates. Always send `languageCode="en"` and keep only bus-only itineraries. Google is a comparator, not ground truth.
+- **Provenance and abstention.** Label `mode` (`live`/`replay`) separately from per-leg provenance (`model_live`, `model_replay`, `historical_fallback`, `timetable_fallback`) and observed coverage. Live entities older than the freshness threshold cannot drive timing. Abstain (`status="insufficient_data"`) for a stale or missing feed, too few fresh vehicles, no supported candidate route, or no replay observations before the cutoff. Never synthesise a fresh replay timestamp. Never log API keys.
+- **UI.** The latest user action wins: superseded responses must not change newer UI state. The abstention badge follows the API reason code.
+- **Commits.** Commit and push to `origin/main` after each passing coherent step. Plain commit messages, no co-author or tool trailers.
 
-## Known Data Gaps & Archive Conventions
+## Known data gaps
 
-- **Archive-day windows:** Nominal day `d` spans roughly `23:30 IST` of `d-1` through `23:59:5x IST` of `d` (preserving ~30 min previous-evening overlap; `>=99.99%` of rows lie inside nominal IST day `d`).
-- **2026-10-07:** Truncated by source at `19:53:23 IST` (15,770,083 clean rows); allowed for training, never an evaluation day.
-- **2026-10-08:** Source gap from `00:00` to `02:02:10 IST`.
-- **Static GTFS v32:** 6,862 stops (newer than the snapshot behind historical reference numbers).
+- Archive day `d` runs from about 23:30 IST on `d-1` to 23:59 IST on `d`.
+- 2026-10-07 ends at 19:53:23 IST (training only). 2026-10-08 starts at 02:02:10 IST.
+- Static GTFS v32 has 6,862 stops and is newer than the snapshot behind the older reference numbers.
 
-## Current Headline Results
+## Headline results
 
-- **31-day GPS acquisition (`reports/data-quality.md`):** 912,877,061 raw rows -> 560,357,771 clean rows (38.62% removed, 9.96 GB Parquet, 0 duplicate groups, 0 bbox violations, 0 fractional `route_id`; all 31 files pass hardened `verify_day`). Every day was re-acquired on 2026-11-23 with deterministic `rowid` first-row dedupe, staged verification, and atomic publication.
-- **717A stop passages (`reports/coverage-717a.md`, rebuilt from the 10 deterministic GPS Parquets with adjacent service-date fix & `available_at`):** 2,546 runs, 124,700 passages across 10 days; observed coverage 48.55% UP (2171) / 50.75% DOWN (2170); max `|schedule_error_s|` = 14,065 s (Oct 22 `2171_23_57_4191` stop 2 fixed from `-80,064 s` to `+6,336 s`; Oct 28 `2171_22_16_8617` stop 50 fixed from `-85,253 s` to `+1,155 s`); 0 monotonicity or availability violations. The as-of availability rebuild left all passage values unchanged and moved 27,246 `available_at` values later (median +132 s); a brute-force raw-GPS-prefix audit at every distinct ping time finds 0 early-visible or mismatched passages on all 10 days.
-- **Model evaluation & selection (`reports/eval-baselines.md`, `reports/eval-full.md`, `reports/selection.json`):** Causal re-evaluation on rebuilt passages requires both event time and `available_at` strictly before each query. `available_at` includes run qualification and raw-GPS prefix stability. Oct 22 observed-only persistence gates PASS: UP 79.936 s vs timetable 95.608 s (2,397 queries) and DOWN 87.112 s vs 101.801 s (2,193). Overall observed-only MAE across 13,299 queries: rung 0 = 87.273 s, rung 1 = 72.766 s, rung 4 = 60.178 s; rung `"4"` selected (79.156% p10–p90 coverage, 81.518 s pooled median width). Artifact training/calibration cutoffs are Oct 14/15, eligible from Oct 16.
-- **Google comparator (`reports/google-comparator.md`, `reports/google-manifest.json`):** 90 planned slots retained on `2026-11-24` (41 compared, 49 explicit supported-route abstentions), 92/300 mission-wide Google calls used (90/90 cache hits on regeneration, zero new calls), compared-subset mean diff (ours - Google) `+428 s` (+7.1 min), 97.6% of Google durations inside our `[p10, p90]`. Reports render deterministically from committed `reports/google-comparator-inputs.json`.
+- GPS ([`reports/data-quality.md`](reports/data-quality.md)): 31/31 days, 912,877,061 raw rows to 560,357,771 clean (38.62% removed), 9.955 GB Parquet, 0 duplicate groups, 0 bbox violations, all files deterministic (`rowid` first-row dedupe) and verified.
+- 717A passages ([`reports/coverage-717a.md`](reports/coverage-717a.md)): 2,546 runs over 10 days; observed coverage 48.55% UP (2171), 50.75% DOWN (2170).
+- Gate ([`reports/eval-baselines.md`](reports/eval-baselines.md)): Oct 22 observed-only persistence beats timetable, UP 79.936 s vs 95.608 s (2,397 queries), DOWN 87.112 s vs 101.801 s (2,193).
+- Selection ([`reports/eval-full.md`](reports/eval-full.md), [`reports/selection.json`](reports/selection.json)): 13,299 held-out observed-only queries; MAE rung 0 87.273 s, rung 1 72.766 s, rung 4 60.178 s. Rung 4 ships with 79.156% `[p10, p90]` coverage and 81.518 s pooled median width.
+- Google ([`reports/google-comparator.md`](reports/google-comparator.md)): 90 slots on 2026-11-24, 41 compared, 49 abstentions; mean difference (ours minus Google) +428 s; 97.6% of Google durations inside our window; 92/300 calls used.

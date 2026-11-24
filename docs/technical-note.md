@@ -1,6 +1,6 @@
-# Technical Note — Delhi Real-Time Bus Travel-Time Model and Journey Planner (PS1)
+# Technical note: Delhi bus travel-time model and journey planner
 
-This note documents the modelling, data reconstruction, live/historical blending, evaluation ladder, and abstention contract implemented in `src/ps1/`. Every number below is generated from the committed reports under `reports/` on the October 2026 DTC GPS archive and static GTFS feed v32 (`delhi_buses_static_gtfs_v1.zip`).
+This note describes how `src/ps1/` reconstructs stop passages, estimates travel times, blends live and historical data, selects a model and decides when to abstain. Every number comes from a committed report under `reports/`, computed from the October 2026 DTC GPS archive and static GTFS feed v32 (`delhi_buses_static_gtfs_v1.zip`).
 
 ---
 
@@ -37,7 +37,7 @@ For each `(vehicle_id, run_id)` ping sequence sorted by timestamp:
 1. **Minimum-distance matching (`DEFAULT_RADIUS_M = 60.0` m):** compute great-circle Haversine distances from all pings in the run to every pattern stop. For each stop that has at least one ping within 60 m, select the ping with the minimum distance (earliest ping breaks exact ties).
 2. **Monotonic time-ordered anchor chain:** run dynamic programming (`drop_time_order_breaking_anchors`) to keep the maximum-cardinality subsequence of anchors that is strictly increasing in `stop_index` and nondecreasing in timestamp `ts`, breaking length ties by minimum total match distance. This removes GPS loops, layover spillovers, and stray reverse matches.
 3. **Run quality filter:** discard candidate runs with fewer than 2 surviving anchors or an observed anchor span exceeding 6 hours (`MAX_OBSERVED_SPAN_S = 21600`).
-4. **Gap interpolation and endpoint extrapolation:** for stops between consecutive anchors `(left, right)`, interpolate timestamps proportionally to scheduled travel time (`gap_pace = (right.ts - left.ts) / (right.schedule_s - left.schedule_s)`). Stops before the first anchor or after the last anchor are extrapolated at the scheduled rate (`1.0 s/s`). Every emitted stop row carries an explicit `source` (`observed` or `interpolated`), boolean `observed`, reconstructed `ts`, source-availability epoch `available_at`, `scheduled_ts`, `schedule_error_s = ts - scheduled_ts`, and `distance_m` (`NULL` for interpolated rows). Each row's `available_at` is the latest of three times: its own anchor rule (observed = own ping, interior interpolated = later anchor, extrapolated endpoint = anchor used); the run's second surviving anchor, because a run cannot qualify before it has two anchors; and the ping after which every reconstruction from the raw GPS prefix reproduces that row, because a later anchor can revise the anchor chain. A brute-force audit that rebuilds every run from its raw GPS prefix at every distinct ping time finds, on all 10 days, no published row visible before the prefix reconstruction produces it.
+4. **Gap interpolation and endpoint extrapolation:** for stops between consecutive anchors `(left, right)`, interpolate timestamps proportionally to scheduled travel time (`gap_pace = (right.ts - left.ts) / (right.schedule_s - left.schedule_s)`). Stops before the first anchor or after the last anchor are extrapolated at the scheduled rate (`1.0 s/s`). Every emitted stop row carries an explicit `source` (`observed` or `interpolated`), boolean `observed`, reconstructed `ts`, source-availability epoch `available_at`, `scheduled_ts`, `schedule_error_s = ts - scheduled_ts`, and `distance_m` (`NULL` for interpolated rows). Each row's `available_at` is the latest of three times: its own anchor rule (observed = own ping, interior interpolated = later anchor, extrapolated endpoint = anchor used); the run's second surviving anchor, because a run cannot qualify before it has two anchors; and the ping after which every reconstruction from the raw GPS prefix reproduces that row, because a later anchor can revise the anchor chain. `tests/data/test_stop_passages.py` covers the October 22 case where a run's leading passages would otherwise have been visible before its second anchor.
 
 Recomputed coverage on GTFS feed v32 (`reports/coverage-717a.md`, across the 10 scoped training + held-out days: 1,264 UP trips, 1,282 DOWN trips):
 
@@ -49,7 +49,7 @@ Recomputed coverage on GTFS feed v32 (`reports/coverage-717a.md`, across the 10 
 | Held-out `2026-10-27` | `DOWN` / `UP` | 125 / 125 | 5,750 / 6,500 | 2,932 / 3,012 | 2,818 / 3,488 | **50.99%** / **46.34%** |
 | Held-out `2026-10-28` | `DOWN` / `UP` | 134 / 144 | 6,164 / 7,488 | 2,542 / 2,546 | 3,622 / 4,942 | **41.24%** / **34.00%** |
 
-These recomputed figures are broadly consistent with the historical older-feed reference (~46% UP, 42–48% DOWN) while reflecting day-to-day variation on feed v32. Zero monotonicity violations and exact `observed + interpolated == stops` reconciliation hold across all reconstructed trips.
+These figures are close to the older-feed reference (about 46% UP, 42–48% DOWN) and vary from day to day. In every row of the report, observed plus interpolated equals the pattern stop count.
 
 ---
 
@@ -86,7 +86,7 @@ All rungs share one fit/predict interface (`src/ps1/model.py`) and are scored on
 - **Rung 2 (+ Day-type):** hierarchical observed-target median table (`HistoricalMedianTable`) backing off cleanly across `(stretch, day_of_week, hour) -> (stretch, coarse_day_type, hour) -> (stretch, hour) -> stretch -> (route, hour) -> 0` (requiring `min_day_type_samples = 3`).
 - **Rung 3 (+ This bus's last delay):** Rung 2 baseline plus a `HuberRegressor` adjustment fitted on leave-one-day-out (LODO) residuals using this vehicle's own causal prior stretch error, last stop delay, and recent pace delta.
 - **Rung 4 (Quantile LightGBM + split-conformal CQR):** three gradient-boosted quantile models (`alpha = 0.10, 0.50, 0.90`, `n_estimators = 220`, `num_leaves = 31`, `learning_rate = 0.05`) trained on 28 strictly causal features: 24 base numeric features (remaining stops/distance, stretch distance, scheduled duration, ping age, upstream observed flag, recent vehicle progress ratio and speed, last stop delay, last stretch error, previous run error/age/observed flag, recent 30-minute same-direction speed and pace ratio, headway, hour/minute/cyclical time-of-day, day of week, weekend indicator, route ID, stop sequence) plus 4 LODO hierarchical historical median features (`hist_dow_hour_median_s`, `hist_hour_median_s`, `hist_stretch_median_s`, `prev_minus_hist_s`).
-  - Raw quantile outputs are sorted to guarantee `p10 <= p50 <= p90`, then expanded symmetrically by the split-conformal CQR offset `q_conf = 2.359 s` computed on `2026-10-15` for nominal 80% coverage (`alpha = 0.20`). On the calibration day, conformalization raises coverage from **76.092% raw** to **80.055% calibrated** (mean width 144.406 s, median width 80.249 s). Across all 38,282 all-stop held-out predictions saved at `$PS1_DATA_DIR/model/eval-predictions-rung4.parquet`, there are **0 quantile-ordering violations**.
+  - Raw quantile outputs are sorted to guarantee `p10 <= p50 <= p90`, then expanded symmetrically by the split-conformal CQR offset `q_conf = 2.359 s` computed on `2026-10-15` for nominal 80% coverage (`alpha = 0.20`). On the calibration day, conformalization raises coverage from **76.092% raw** to **80.055% calibrated** (mean width 144.406 s, median width 80.249 s).
 
 ### Door-to-door journey re-timing and joint scenarios
 
@@ -101,7 +101,7 @@ OpenTripPlanner 2.8.1 (unmodified core, GraphQL `planConnection` on port 3102) g
 
 ## 3. Blending Live and Historical Observations
 
-`RetimeModel` (`src/ps1/retime.py`) loads `reports/selection.json` (`selected_rung = "4"`) and the native LightGBM + JSON artifact from `$PS1_DATA_DIR/model/` and applies a tiered causal blending strategy that never hides coverage gaps:
+`RetimeModel` (`src/ps1/retime.py`) loads `reports/selection.json` (`selected_rung = "4"`) and the native LightGBM + JSON artifact from `$PS1_DATA_DIR/model/` and applies the following causal fallback chain. Each leg reports which step it used.
 
 ### Live mode (`mode = "live"`)
 
@@ -130,7 +130,7 @@ Replay ride timing follows one of two branches:
 
 **Response mode and per-leg provenance are independent.** `mode = "replay"` identifies the request context; it does not imply that every ride is backed by same-day GPS. The `replay_delay_s` test hook shifts the first ride's time but keeps its provenance label. Boarding-wait provenance is likewise reported separately from ride provenance.
 
-The scripted marginal-transfer demo uses two observed passages at Hamdard Nagar / Sangam Vihar on October 22. The 717AUP run `2171_17_09_490` (vehicle `DL1PD7867`) had scheduled arrival 17:28:47 IST and observed arrival **18:03:17 IST**. The matched OMS(+)BURARI-DHAULAKUAN vehicle `DL51EV4293` (GPS run label `1416_15_08`) had scheduled departure 17:32:42 IST and a minimum-distance, 17.6 m observed stop passage at **17:35:34 IST**. The actual outcome is therefore a missed connection by **1,663 s (27m 43s)**. The demo never substitutes the connecting timetable departure for an observed outcome; its scheduled 235 s transfer gap is displayed separately. The outcome is computed only for the OTP itinerary that rides trips `DTC:2171_FULL_17_09` and `DTC:1416_FULL_15_08` through stop 2300, whatever order OTP returns candidates in. If OTP does not return that pair, `GET /replay/demo` responds with `status = "unavailable"` and a message instead of attaching the observation to another itinerary.
+The scripted marginal-transfer demo uses two observed passages at Hamdard Nagar / Sangam Vihar on October 22. The 717AUP run `2171_17_09_490` (vehicle `DL1PD7867`) had scheduled arrival 17:28:47 IST and observed arrival **18:03:17 IST**. The matched OMS(+)BURARI-DHAULAKUAN vehicle `DL51EV4293` (GPS run label `1416_15_08`) had scheduled departure 17:32:42 IST and an observed stop passage at **17:35:34 IST**. The actual outcome is therefore a missed connection by **1,663 s (27m 43s)**. The demo never substitutes the connecting timetable departure for an observed outcome; its scheduled 235 s transfer gap is displayed separately. The outcome is computed only for the OTP itinerary that rides trips `DTC:2171_FULL_17_09` and `DTC:1416_FULL_15_08` through stop 2300, whatever order OTP returns candidates in. If OTP does not return that pair, `GET /replay/demo` responds with `status = "unavailable"` and a message instead of attaching the observation to another itinerary.
 
 ---
 
@@ -144,7 +144,7 @@ Amendment 1.1 of `docs/eval-protocol.md` therefore reports both strata for trans
 
 ### Why previous-run persistence (Rung 1) is the operational bar
 
-Previous-run persistence (Rung 1) requires zero offline training, adapts immediately to live incidents and congestion waves, and already beats the static timetable on every single held-out day and direction on real observed ground truth:
+Previous-run persistence (rung 1) needs no training, reacts to the current day's conditions, and beats the timetable on every held-out day and direction on observed stop pairs:
 
 - **October 22 strict persistence gate (`observed-only`, paired queries, `reports/eval-baselines.md`):**
   - `717A UP` (`2171`, 2,397 queries): Rung 1 MAE **79.936 s** vs Rung 0 **95.608 s** (**PASS**, `-15.672 s`, `-16.4%`).
@@ -153,7 +153,7 @@ Previous-run persistence (Rung 1) requires zero offline training, adapts immedia
 
 *(Note on feed v32 vs historical reference: the older-feed historical reference numbers of 41 s vs 59 s MAE were measured on an earlier GTFS snapshot; per our protocol, absolute differences on feed v32 are reported transparently rather than tuned away, and the strict direction-by-direction MAE comparison on observed-only ground truth is the binding gate.)*
 
-Any higher-complexity model only earns its operational maintenance cost if it beats Rung 1 on held-out days at **identical per-group observed-vs-interpolated coverage**.
+A more complex model ships only if it beats rung 1 on held-out days at **identical per-group observed-vs-interpolated coverage**.
 
 ### Full held-out model-selection comparison (`reports/selection.json`, `reports/eval-full.md`)
 
@@ -185,7 +185,7 @@ Per-day, per-direction `observed-only` MAE (seconds) and Rung 4 interval perform
 
 ## 5. Coverage Provenance and Abstention Behavior (Consistent with the API)
 
-Every `GET /journeys` response (`src/ps1/api.py`) exposes both response-level mode/freshness metadata and per-leg provenance so downstream clients and the Leaflet UI can never mistake a fallback or stale feed for fresh live data.
+Every `GET /journeys` response (`src/ps1/api.py`) carries response-level mode and freshness metadata and per-leg provenance, so clients can tell fallbacks and stale data apart from fresh live estimates. When `depart` is omitted the request plans from the current Asia/Kolkata time in live mode.
 
 ### Response-level provenance
 
@@ -207,7 +207,7 @@ Every leg exposes:
 
 ### Explicit abstention contract (`status = "insufficient_data"`)
 
-When fresh data is required and unavailable, the API **suppresses all options (`options: []`)** and returns an explicit `abstention` object with `label: "not enough data"`. The UI (`src/ps1/static/index.html`) clears `#options-list` and map polylines and renders the prominent **Not enough data** panel with the exact reason, feed age, and freshness threshold.
+When fresh data is required and unavailable, the API **suppresses all options (`options: []`)** and returns an explicit `abstention` object with `label: "not enough data"`. The UI (`src/ps1/static/index.html`) clears `#options-list` and map polylines and shows the **Not enough data** panel with the reason, feed age and freshness threshold.
 
 | Abstention `code` | Trigger Condition | Default Threshold / Config |
 |---|---|---|
@@ -221,4 +221,4 @@ Control endpoints `GET /live/status`, `POST /live/pause`, and `POST /live/resume
 
 ### Role of the Google Routes API comparator
 
-`reports/google-comparator.md` compares our model against Google Routes API (`TRANSIT` bus-only, English) across 30 Delhi OD pairs × 3 weekday time slots on upcoming Tuesday `2026-11-24`. All 90 planned slots are retained: 41 have numeric comparisons and 49 are explicit `insufficient_data` abstentions under the fixed supported-route rule. The report used only cached Google responses (`92 / 300` mission-wide calls, zero new calls). Google is treated strictly as a **live/future comparator, never as ground truth**: it does not support historical October 2026 backtesting. On the compared subset, mean Google durations are 54.8 / 56.0 / 57.0 min across morning peak, midday, and evening peak versus our 56.1 / 61.9 / 71.1 min; the overall mean difference is +428 s / +7.1 min, with **97.6%** of Google bus durations inside our joint `[p10, p90]` arrival window. Reports render deterministically from `reports/google-comparator-inputs.json`, not from changing live planner state.
+`reports/google-comparator.md` compares our model against Google Routes API (`TRANSIT` bus-only, English) across 30 Delhi OD pairs × 3 weekday time slots on upcoming Tuesday `2026-11-24`. All 90 planned slots are retained: 41 have numeric comparisons and 49 are explicit `insufficient_data` abstentions under the fixed supported-route rule. The report used only cached Google responses (`92 / 300` mission-wide calls, zero new calls). Google is a comparator for future departures, not ground truth, and it cannot be queried for October 2026. On the compared subset, mean Google durations are 54.8 / 56.0 / 57.0 min across morning peak, midday, and evening peak versus our 56.1 / 61.9 / 71.1 min; the overall mean difference is +428 s / +7.1 min, with **97.6%** of Google bus durations inside our joint `[p10, p90]` arrival window. Reports render deterministically from `reports/google-comparator-inputs.json`, not from changing live planner state.

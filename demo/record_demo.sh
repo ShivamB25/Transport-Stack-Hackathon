@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Record demo/demo.webm with agent-browser showing:
 #   1. Live journey query (Kashmere Gate ISBT -> Nehru Place, Tue 08:30 IST)
-#   2. Complete 4-stage marginal-transfer replay journey (Oct 22 run 2171_17_09_490:
+#   2. Oct 22 replay on 717A (Badarpur Border (T) -> Kapashera Border) with model_replay legs
+#   3. Oct 22 replay off 717A (Kashmere Gate ISBT -> Nehru Place), which abstains
+#   4. Complete 4-stage marginal-transfer replay journey (Oct 22 run 2171_17_09_490:
 #      initial timetable recommendation -> growing delay -> advice flip -> observed missed outcome)
-#   3. Explicit stale-feed abstention ("Not enough data") and live recovery
+#   5. Explicit stale-feed abstention ("Not enough data") and live recovery
 #
 # Prerequisites:
 #   - OTP 2.8.1 running on http://localhost:3102/otp/gtfs/v1 (scripts/otp_serve.sh)
@@ -58,6 +60,16 @@ ab() {
   agent-browser --session "$SESSION" "$@"
 }
 
+# The recorder only emits frames when the page changes, so a static pause is
+# dropped from the video. Scrolling the sidebar in steps keeps the view on screen.
+scroll_sidebar() {
+  local steps="$1" px="$2"
+  for _ in $(seq "$steps"); do
+    ab eval "document.querySelector('aside.sidebar').scrollBy({top: $px, behavior: 'smooth'})" >/dev/null
+    ab wait 700
+  done
+}
+
 cleanup() {
   curl -sf -X POST "${API_URL}/live/resume?poll_now=false" >/dev/null 2>&1 || true
   agent-browser --session "$SESSION" record stop >/dev/null 2>&1 || true
@@ -98,12 +110,29 @@ ab click "#plan-btn"
 ab wait --text "Option 1"
 ab wait 3500
 
+printf '[demo] Segment 2: Oct 22 replay on 717A\n'
+ab click "#preset-example-replay"
+ab click "#plan-btn"
+ab wait --text "717AUP"
+ab eval "Array.from(document.querySelectorAll('#options-list .option-card')).find((card) => card.textContent.includes('717AUP')).click()"
+ab wait --text "model_replay"
+ab wait 1000
+scroll_sidebar 6 110
+ab wait 1500
+ab eval "document.querySelector('aside.sidebar').scrollTo({top: 0})" >/dev/null
+
+printf '[demo] Segment 3: Oct 22 replay off 717A abstains\n'
+ab click "#preset-replay-abstain"
+ab click "#plan-btn"
+ab wait --text "Not enough data"
+ab wait 3500
+
 # Pause live poller now so the >45s stale clock advances while the viewer watches the replay demo
 printf '[demo] Pausing live poller via POST /live/pause (threshold=%ss)\n' "$actual_threshold"
 curl -sf -X POST "${API_URL}/live/pause?reason=demo_stale_abstention" >/dev/null
 
-# Segment 2: Complete 4-stage marginal-transfer replay journey
-printf '[demo] Segment 2: Marginal-transfer replay demo (4 stages)\n'
+# Segment 4: Complete 4-stage marginal-transfer replay journey
+printf '[demo] Segment 4: Marginal-transfer replay demo (4 stages)\n'
 ab click "#replay-demo-btn"
 ab wait --text "Marginal-Transfer Replay Demo"
 ab wait --text "Hamdard Nagar / Sangam Vihar"
@@ -138,15 +167,15 @@ while true; do
   sleep 3
 done
 
-# Segment 3: Explicit stale-feed abstention in UI ("Not enough data")
-printf '[demo] Segment 3: Triggering stale-feed abstention in UI\n'
+# Segment 5: Explicit stale-feed abstention in UI ("Not enough data")
+printf '[demo] Segment 5: Triggering stale-feed abstention in UI\n'
 ab click "#preset-example-live"
 ab click "#plan-btn"
 ab wait --text "Not enough data"
 ab wait 4500
 
-# Segment 4: Resume live poller and show UI recovery
-printf '[demo] Segment 4: Resuming live poller via POST /live/resume and recovering UI\n'
+# Segment 6: Resume live poller and show UI recovery
+printf '[demo] Segment 6: Resuming live poller via POST /live/resume and recovering UI\n'
 curl -sf -X POST "${API_URL}/live/resume?poll_now=true" >/dev/null
 ab click "#abstention-retry-btn"
 ab wait --text "Option 1"
