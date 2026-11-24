@@ -207,6 +207,9 @@ test("a late demo response cannot override a newer journey", async () => {
   elements.get("replay-demo-btn").listeners.click[0]();
   elements.get("journey-form").listeners.submit[0]({ preventDefault() {} });
   assert.equal(requests.length, 2);
+  assert.equal(elements.get("replay-demo-btn").disabled, false);
+  assert.equal(elements.get("replay-demo-btn").textContent, "Replay demo");
+  assert.equal(elements.get("plan-btn").disabled, true);
 
   requests[1].resolve(response(journey("Newer journey")));
   await flush();
@@ -217,4 +220,32 @@ test("a late demo response cannot override a newer journey", async () => {
   assert.equal(elements.get("replay-demo-panel").classList.contains("hidden"), true);
   assert.equal(elements.get("options-list").children.length, 1);
   assert.match(elements.get("results-summary").innerHTML, /Newer journey/);
+  assert.equal(elements.get("plan-btn").disabled, false);
+});
+
+test("a newer demo releases the superseded journey's loading button", async () => {
+  const requests = [];
+  const { elements } = loadUi(async (url) => {
+    if (url.startsWith("/journeys") || url.startsWith("/replay/demo")) {
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    }
+    return response({ is_fresh: true, current_feed_age_seconds: 4, state: {} });
+  });
+  elements.get("journey-form").listeners.submit[0]({ preventDefault() {} });
+  elements.get("replay-demo-btn").listeners.click[0]();
+  assert.equal(elements.get("plan-btn").disabled, false);
+  assert.equal(elements.get("plan-btn").textContent, "Plan journey");
+  assert.equal(elements.get("replay-demo-btn").disabled, true);
+
+  requests[0].resolve(response(journey("Older journey")));
+  await flush();
+  assert.equal(elements.get("replay-demo-btn").disabled, true);
+  assert.equal(elements.get("options-list").children.length, 0);
+
+  requests[1].resolve(response(demo()));
+  await flush();
+  assert.equal(elements.get("replay-demo-btn").disabled, false);
+  assert.equal(elements.get("replay-demo-panel").classList.contains("hidden"), false);
 });

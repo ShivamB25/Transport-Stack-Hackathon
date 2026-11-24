@@ -1340,8 +1340,16 @@
         }
       }
 
+      function releaseActionButtons() {
+        planBtn.disabled = false;
+        planBtn.textContent = "Plan journey";
+        replayDemoBtn.disabled = false;
+        replayDemoBtn.textContent = "Replay demo";
+      }
+
       async function submitJourneyQuery() {
         const actionId = ++latestUiAction;
+        releaseActionButtons();
         hideError();
         hideReplayDemo();
         const fromVal = originInput.value.trim();
@@ -1379,10 +1387,7 @@
           clearJourneyOutput();
           showError("Network error while requesting /journeys: " + (err && err.message ? err.message : String(err)));
         } finally {
-          if (actionId === latestUiAction) {
-            planBtn.disabled = false;
-            planBtn.textContent = "Plan journey";
-          }
+          if (actionId === latestUiAction) releaseActionButtons();
         }
       }
 
@@ -1545,6 +1550,7 @@
 
       async function launchReplayDemo() {
         const actionId = ++latestUiAction;
+        releaseActionButtons();
         hideError();
         abstentionPanel.classList.add("hidden");
         clearJourneyOutput();
@@ -1567,10 +1573,7 @@
           if (actionId !== latestUiAction) return;
           showError("Network error loading replay demo: " + (err && err.message ? err.message : String(err)));
         } finally {
-          if (actionId === latestUiAction) {
-            replayDemoBtn.disabled = false;
-            replayDemoBtn.textContent = "Replay demo";
-          }
+          if (actionId === latestUiAction) releaseActionButtons();
         }
       }
 
