@@ -185,7 +185,7 @@ Per-day, per-direction `observed-only` MAE (seconds) and Rung 4 interval perform
 
 ## 5. Coverage Provenance and Abstention Behavior (Consistent with the API)
 
-Every `GET /journeys` response (`src/ps1/api.py`) carries response-level mode and freshness metadata and per-leg provenance, so clients can tell fallbacks and stale data apart from fresh live estimates. When `depart` is omitted the request plans from the current Asia/Kolkata time in live mode.
+Every `GET /journeys` response (`src/ps1/api.py`) carries response-level mode and freshness metadata and per-leg provenance, so clients can tell fallbacks and stale data apart from fresh live estimates. When `depart` is omitted, the request plans from the current Asia/Kolkata time in live mode. If replay is explicit (`mode=replay`, or `mode=auto` with `PS1_MODE=replay`), it plans from the scripted replay departure, 2026-10-22T08:30+05:30, in replay mode instead.
 
 ### Response-level provenance
 
