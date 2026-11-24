@@ -197,7 +197,6 @@ def test_selection_rule_ladder_and_coverage_match() -> None:
     rows = [
         _metric_row("2026-10-22", "UP", "0", 95.0),
         _metric_row("2026-10-22", "UP", "1", 85.0),
-        _metric_row("2026-10-22", "UP", "1h", 80.0),
         _metric_row("2026-10-22", "UP", "2", 78.0),
         _metric_row("2026-10-22", "UP", "4", 68.0),
     ]
@@ -217,7 +216,6 @@ def test_selection_rule_ladder_and_coverage_match() -> None:
     worse_rows = [
         _metric_row("2026-10-22", "UP", "0", 95.0),
         _metric_row("2026-10-22", "UP", "1", 85.0),
-        _metric_row("2026-10-22", "UP", "1h", 86.0),
         _metric_row("2026-10-22", "UP", "2", 87.0),
         _metric_row("2026-10-22", "UP", "4", 85.0),  # tie does not beat strictly
     ]
@@ -232,21 +230,6 @@ def test_only_observed_only_decisions_are_written(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         selection_main(["--stratum", "all-stop", "--write", str(target), str(tmp_path / "x.csv")])
     assert not target.exists()
-
-
-def test_1h_only_winner_is_reported_but_persistence_ships() -> None:
-    rows = [
-        _metric_row("2026-10-22", "UP", "0", 95.0),
-        _metric_row("2026-10-22", "UP", "1", 85.0),
-        _metric_row("2026-10-22", "UP", "1h", 70.0),
-        _metric_row("2026-10-22", "UP", "2", 86.0),
-        _metric_row("2026-10-22", "UP", "4", 88.0),
-    ]
-    decision = select_shipped_rung(rows)
-    assert decision["selected_rung"] == "1"
-    assert decision["shippable_rungs"] == ["1", "2", "4"]
-    assert decision["candidates"]["1h"]["beats_rung1_overall"]
-    assert not decision["candidates"]["1h"]["shippable"]
 
 
 def test_committed_selection_matches_fresh_rule_application() -> None:

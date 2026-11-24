@@ -42,7 +42,7 @@ STRATA = ("all-stop", "observed-only")
 # Days whose data each selected rung's artifact was fitted or calibrated on.
 ARTIFACT_DATA_DAYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "4": (FIT_DAYS, CALIBRATION_DAYS),
-    **{rung: (TRAIN_DAYS, ()) for rung in ("1h", "2")},
+    **{rung: (TRAIN_DAYS, ()) for rung in ("2",)},
 }
 
 PREDICTION_SCHEMA = pa.schema(
@@ -254,7 +254,7 @@ def run_evaluation(
     holdout_days: Sequence[str] | None = None,
     baselines_only: bool = False,
 ) -> dict[str, bool]:
-    """Run held-out evaluation (rungs 0-1h baselines and full rungs 0-4 + selection)."""
+    """Run held-out evaluation (rungs 0-1 baselines and full rungs 0-4 + selection)."""
     active_routes = sorted(route_ids) if route_ids is not None else sorted(ROUTES)
     active_holdout = tuple(holdout_days) if holdout_days is not None else HOLDOUT_DAYS
     validate_three_way_partitions(FIT_DAYS, CALIBRATION_DAYS, active_holdout)

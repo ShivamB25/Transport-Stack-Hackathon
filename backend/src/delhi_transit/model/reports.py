@@ -75,7 +75,7 @@ def _fmt_opt(value: object) -> str:
 
 
 def write_baseline_reports(rows: Sequence[dict[str, object]], output_dir: Path) -> None:
-    """Write the frozen baseline CSV and markdown reports (rungs 0, 1, 1h)."""
+    """Write the frozen baseline CSV and markdown reports (rungs 0, 1)."""
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_metrics_csv(rows, output_dir / "eval-baselines.csv")
 
@@ -153,14 +153,14 @@ def write_full_reports(
         "",
         (
             "Protocol: [docs/eval-protocol.md](../docs/eval-protocol.md). "
-            "All rungs (0, 1, 1h, 2, 4) are scored on identical causal persistence-eligible "
+            "All rungs (0, 1, 2, 4) are scored on identical causal persistence-eligible "
             "queries within each stratum, day, and direction. Every source passage has event "
             "time and available_at strictly before the query."
         ),
         "",
         "## Whole-day partitions",
         "",
-        f"- **Training days (rungs 1h, 2):** {', '.join(partitions['train'])}",
+        f"- **Training days (rung 2):** {', '.join(partitions['train'])}",
         f"- **Rung 4 LightGBM fit days:** {', '.join(partitions['fit'])}",
         f"- **Rung 4 split-conformal calibration day:** {', '.join(partitions['calibration'])} (strictly later training day; never touches held-out days)",
         f"- **Held-out evaluation days:** {', '.join(partitions['holdout'])}",
