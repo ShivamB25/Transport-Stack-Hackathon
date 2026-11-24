@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import random
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -23,7 +24,11 @@ from ps1.features import (
     day_type_for_timestamp,
     load_passages,
 )
-from ps1.live_poller import read_live_route_stats
+from ps1.live_poller import (
+    effective_entity_max_age_s,
+    read_live_route_stats,
+    refresh_route_stat,
+)
 from ps1.model import LoadedModelArtifact, Prediction, load_model_artifact
 from ps1.selection import SHIP_STRATUM
 
@@ -166,7 +171,10 @@ class RetimeModel:
         if getattr(self, "_live_stats_mtime", None) != mtime:
             self._live_stats_cache = read_live_route_stats(self.data_dir)
             self._live_stats_mtime = mtime
-        return getattr(self, "_live_stats_cache", {}).get(route_id)
+        stat = getattr(self, "_live_stats_cache", {}).get(route_id)
+        if stat is None:
+            return None
+        return refresh_route_stat(stat, now=time.time(), max_age_s=effective_entity_max_age_s())
 
     def replay_reference_info(self, depart: datetime) -> dict[str, Any]:
         """Summarize only reconstructed observations actually loaded before the cutoff."""

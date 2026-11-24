@@ -31,6 +31,8 @@ from ps1.config import (
 )
 from ps1.live_poller import (
     LivePoller,
+    effective_entity_max_age_s,
+    fresh_fleet_count,
     is_feed_paused,
     live_feed_age_seconds,
     pause_feed,
@@ -267,7 +269,10 @@ def _evaluate_live_feed(
                 "last_feed_timestamp": state.get("header_timestamp_iso"),
             },
         )
-    fresh_count = int(state.get("fresh_vehicle_count", state.get("vehicle_count", 0)))
+    fresh_count = fresh_fleet_count(
+        data_dir, now=time.time(), max_age_s=effective_entity_max_age_s(stale_threshold_s)
+    )
+    state = {**state, "fresh_vehicle_count": fresh_count}
     if fresh_count < min_vehicles:
         return (
             state,

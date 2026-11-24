@@ -579,6 +579,49 @@ def test_fresh_header_cannot_revive_stale_route_positions_at_default_settings(tm
     assert body["options"] == []
 
 
+def test_entities_that_expire_after_the_poll_cannot_drive_live_timing(tmp_path: Path) -> None:
+    _make_stops(tmp_path)
+    now = int(time.time())
+    polled_at = now - 30
+    # Fresh when polled (590 s old) but 620 s old by request time; route 200 stays fresh.
+    payload = _make_protobuf(
+        polled_at,
+        [(f"AGING{i}", "100", 28.65, 77.22, 5.0, now - 620) for i in range(12)]
+        + [(f"FRESH{i}", "200", 28.65, 77.22, 5.0, now - 35) for i in range(10)],
+    )
+    state = persist_decoded_feed(tmp_path, decode_vehicle_positions(payload, polled_at=polled_at))
+    assert state["fresh_vehicle_count"] == 22
+
+    app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=FakeOTP(),
+        model=_build_retime_model(tmp_path, []),
+        enable_poller=False,
+        min_live_vehicles=10,
+    )
+    client = TestClient(app)
+    params = {"from": "Kashmere Gate ISBT", "to": "Nehru Place", "depart": "2026-11-24T08:30:00+05:30"}
+    body = client.get("/journeys", params=params).json()
+    assert body["status"] == "ok"
+    assert body["feed_summary"]["fresh_vehicle_count"] == 10
+    rides = [leg for leg in body["options"][0]["legs"] if leg["type"] == "ride"]
+    assert rides[0]["route_id"] == 100
+    assert rides[0]["timing_source"] == "timetable_fallback"
+    assert rides[1]["route_id"] == 200
+    assert rides[1]["timing_source"] == "model_live"
+
+    # When the whole fleet has aged out since the poll, the request abstains on coverage.
+    aging_only = _make_protobuf(
+        polled_at, [(f"AGING{i}", "100", 28.65, 77.22, 5.0, now - 620) for i in range(12)]
+    )
+    persist_decoded_feed(tmp_path, decode_vehicle_positions(aging_only, polled_at=polled_at + 1))
+    body = client.get("/journeys", params=params).json()
+    assert body["status"] == "insufficient_data"
+    assert body["abstention"]["code"] == "insufficient_coverage"
+    assert body["abstention"]["fresh_vehicle_count"] == 0
+
+
 def test_replay_without_loaded_observations_abstains_without_fresh_timestamp(tmp_path: Path) -> None:
     _make_stops(tmp_path)
     raw_gps = tmp_path / "gps" / "day=2026-10-01.parquet"

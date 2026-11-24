@@ -183,6 +183,48 @@ def resume_feed(data_dir: Path) -> dict[str, Any]:
     return {"paused": False, "resumed_at": now, "resumed_at_iso": _iso_ist(now)}
 
 
+def effective_entity_max_age_s(stale_threshold_s: float | None = None) -> float:
+    threshold = LIVE_STALE_THRESHOLD_S if stale_threshold_s is None else stale_threshold_s
+    return min(float(LIVE_ENTITY_MAX_AGE_S), float(threshold))
+
+
+def _is_fresh(ts: float, now: float, max_age_s: float) -> bool:
+    return ts > 0 and 0.0 <= now - ts <= max_age_s
+
+
+def _route_summary(
+    route_id: int,
+    vehicle_count: int,
+    in_bbox_count: int,
+    fresh_entities: list[list[float]],
+) -> dict[str, Any]:
+    """Aggregate fresh in-bbox entities, each stored as [timestamp, speed]."""
+    speeds = [speed for _, speed in fresh_entities if speed > 0.2]
+    all_speeds = [speed for _, speed in fresh_entities]
+    return {
+        "route_id": route_id,
+        "vehicle_count": vehicle_count,
+        "fresh_vehicle_count": len(fresh_entities),
+        "in_bbox_count": in_bbox_count,
+        "moving_vehicle_count": len(speeds),
+        "median_speed_mps": round(float(median(speeds or all_speeds)), 3) if all_speeds else 0.0,
+        "latest_ts": int(max((ts for ts, _ in fresh_entities), default=0)),
+        "observed_coverage": round(len(fresh_entities) / vehicle_count, 4) if vehicle_count else 0.0,
+        "fresh_entities": fresh_entities,
+    }
+
+
+def refresh_route_stat(stat: dict[str, Any], *, now: float, max_age_s: float) -> dict[str, Any]:
+    """Recompute a stored route aggregate from only the entities still fresh at `now`."""
+    fresh = [entity for entity in stat.get("fresh_entities", []) if _is_fresh(entity[0], now, max_age_s)]
+    return _route_summary(
+        int(stat.get("route_id", 0)),
+        int(stat.get("vehicle_count", len(fresh))),
+        int(stat.get("in_bbox_count", len(fresh))),
+        fresh,
+    )
+
+
 def decode_vehicle_positions(
     payload: bytes,
     *,
@@ -204,9 +246,7 @@ def decode_vehicle_positions(
 
     now = time.time() if polled_at is None else float(polled_at)
     max_entity_age = (
-        min(float(LIVE_ENTITY_MAX_AGE_S), float(LIVE_STALE_THRESHOLD_S))
-        if entity_max_age_s is None
-        else float(entity_max_age_s)
+        effective_entity_max_age_s() if entity_max_age_s is None else float(entity_max_age_s)
     )
     header_ts = int(feed.header.timestamp) if feed.HasField("header") and feed.header.timestamp else 0
 
@@ -274,9 +314,7 @@ def decode_vehicle_positions(
     fresh_count = 0
     in_bbox_count = 0
     for row in records:
-        ts = row["ts"]
-        entity_age = now - ts
-        is_fresh = ts > 0 and 0.0 <= entity_age <= max_entity_age
+        is_fresh = _is_fresh(row["ts"], now, max_entity_age)
         row["fresh"] = is_fresh
         if is_fresh:
             fresh_count += 1
@@ -285,23 +323,15 @@ def decode_vehicle_positions(
         if row["route_id"] is not None:
             by_route[row["route_id"]].append(row)
 
-    route_stats: dict[str, dict[str, Any]] = {}
-    for route_id, rows in by_route.items():
-        fresh_rows = [r for r in rows if r["fresh"] and r["in_bbox"]]
-        speeds = [r["speed"] for r in fresh_rows if r["speed"] > 0.2]
-        all_speeds = [r["speed"] for r in fresh_rows]
-        route_stats[str(route_id)] = {
-            "route_id": route_id,
-            "vehicle_count": len(rows),
-            "fresh_vehicle_count": len(fresh_rows),
-            "in_bbox_count": sum(1 for r in rows if r["in_bbox"]),
-            "moving_vehicle_count": len(speeds),
-            "median_speed_mps": round(float(median(speeds)), 3)
-            if speeds
-            else (round(float(median(all_speeds)), 3) if all_speeds else 0.0),
-            "latest_ts": max((r["ts"] for r in fresh_rows), default=0),
-            "observed_coverage": round(len(fresh_rows) / len(rows), 4) if rows else 0.0,
-        }
+    route_stats = {
+        str(route_id): _route_summary(
+            route_id,
+            len(rows),
+            sum(1 for r in rows if r["in_bbox"]),
+            [[r["ts"], r["speed"]] for r in rows if r["fresh"] and r["in_bbox"]],
+        )
+        for route_id, rows in by_route.items()
+    }
 
     return DecodedFeed(
         header_timestamp=header_ts,
@@ -356,6 +386,7 @@ def persist_decoded_feed(
             "header_timestamp_iso": _iso_ist(decoded.header_timestamp),
             "polled_at": decoded.polled_at,
             "polled_at_iso": _iso_ist(decoded.polled_at),
+            "fresh_vehicle_ts": sorted(row["ts"] for row in decoded.records if row["fresh"]),
             "routes": decoded.route_stats,
         },
     )
@@ -464,6 +495,16 @@ def read_live_route_stats(data_dir: Path) -> dict[int, dict[str, Any]]:
         return {int(k): v for k, v in routes.items() if str(k).isdigit()}
     except (OSError, ValueError, TypeError):
         return {}
+
+
+def fresh_fleet_count(data_dir: Path, *, now: float, max_age_s: float) -> int:
+    """Count vehicles whose own timestamps are still fresh at `now`."""
+    path = _live_dir(data_dir) / "route_stats.json"
+    try:
+        timestamps = json.loads(path.read_text(encoding="utf-8")).get("fresh_vehicle_ts", [])
+    except (OSError, ValueError, AttributeError):
+        return 0
+    return sum(1 for ts in timestamps if _is_fresh(ts, now, max_age_s))
 
 
 def live_feed_age_seconds(state: dict[str, Any] | None, *, now: float | None = None) -> float | None:

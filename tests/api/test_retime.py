@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -184,12 +185,13 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
     # Also write live route stats for route 2171 and uncovered route 1920
     live_dir = tmp_path / "live"
     live_dir.mkdir(parents=True)
+    seen_at = int(time.time()) - 10
     (live_dir / "route_stats.json").write_text(
         json.dumps(
             {
                 "routes": {
-                    "2171": {"fresh_vehicle_count": 5, "median_speed_mps": 4.2, "observed_coverage": 0.9},
-                    "1920": {"fresh_vehicle_count": 4, "median_speed_mps": 5.0, "observed_coverage": 0.85},
+                    "2171": {"route_id": 2171, "vehicle_count": 5, "fresh_entities": [[seen_at, 4.2]] * 5},
+                    "1920": {"route_id": 1920, "vehicle_count": 4, "fresh_entities": [[seen_at, 5.0]] * 4},
                 }
             }
         ),
