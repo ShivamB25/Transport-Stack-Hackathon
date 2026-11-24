@@ -14,8 +14,9 @@ separately; OTP itself remains schedule-based.
   `https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf`.
 
 The wrappers use `$DELHI_TRANSIT_OTP_DIR` (default `$DELHI_TRANSIT_SCRATCH_DIR/otp`, see the README path table) and download the jar
-or OSM file only when missing. `DELHI_TRANSIT_OTP_DIR`, `DELHI_TRANSIT_DATA_DIR`, and `DELHI_TRANSIT_JAVA` can
-override the runtime paths. The build copies `otp/build-config.json` and the GTFS zip into `graph/` and links
+or OSM file only when missing. `DELHI_TRANSIT_OTP_DIR`, `DELHI_TRANSIT_DATA_DIR` (default `$DELHI_TRANSIT_SCRATCH_DIR/data`) and `DELHI_TRANSIT_JAVA`
+(default `$DELHI_TRANSIT_SCRATCH_DIR/jdk/bin/java`) override the runtime paths; `DELHI_TRANSIT_SCRATCH_DIR` defaults to the
+development machine's `/home/factory-user/ps1-scratch`, as in `core/config.py`. The build copies `otp/build-config.json` and the GTFS zip into `graph/` and links
 the OSM file with a relative path, so the directory also works when mounted at
 `/otp` by the Compose `otp` and `otp-build` services.
 
@@ -23,7 +24,9 @@ the OSM file with a relative path, so the directory also works when mounted at
 
 ```bash
 cd Transport-Stack-Hackathon
-otp/build.sh > $DELHI_TRANSIT_OTP_DIR/build.log 2>&1
+OTP_DIR="${DELHI_TRANSIT_OTP_DIR:-${DELHI_TRANSIT_SCRATCH_DIR:-/home/factory-user/ps1-scratch}/otp}"
+mkdir -p "$OTP_DIR"
+otp/build.sh > "$OTP_DIR/build.log" 2>&1
 otp/serve.sh
 ```
 

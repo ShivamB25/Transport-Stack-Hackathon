@@ -2,9 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OTP_DIR="${DELHI_TRANSIT_OTP_DIR:-/home/factory-user/ps1-scratch/otp}"
-DATA_DIR="${DELHI_TRANSIT_DATA_DIR:-/home/factory-user/ps1-scratch/data}"
-JAVA="${DELHI_TRANSIT_JAVA:-/home/factory-user/ps1-scratch/jdk/bin/java}"
+# Development-machine default; set DELHI_TRANSIT_SCRATCH_DIR (or the specific variables) elsewhere.
+SCRATCH_DIR="${DELHI_TRANSIT_SCRATCH_DIR:-/home/factory-user/ps1-scratch}"
+OTP_DIR="${DELHI_TRANSIT_OTP_DIR:-$SCRATCH_DIR/otp}"
+DATA_DIR="${DELHI_TRANSIT_DATA_DIR:-$SCRATCH_DIR/data}"
+JAVA="${DELHI_TRANSIT_JAVA:-$SCRATCH_DIR/jdk/bin/java}"
 JAR="$OTP_DIR/otp-shaded-2.8.1.jar"
 OSM="$OTP_DIR/NewDelhi.osm.pbf"
 GTFS="$DATA_DIR/gtfs/delhi_buses_static_gtfs_v1.zip"

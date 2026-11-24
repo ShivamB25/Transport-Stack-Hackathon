@@ -18,6 +18,7 @@ SCRATCH_DIR = Path(os.environ.get("DELHI_TRANSIT_SCRATCH_DIR", "/home/factory-us
 DEFAULT_DATA_DIR = SCRATCH_DIR / "data"
 DATA_DIR = Path(os.environ.get("DELHI_TRANSIT_DATA_DIR", str(DEFAULT_DATA_DIR)))
 WORK_DIR = Path(os.environ.get("DELHI_TRANSIT_WORK_DIR", str(SCRATCH_DIR / "work")))
+OTP_DIR = Path(os.environ.get("DELHI_TRANSIT_OTP_DIR", str(SCRATCH_DIR / "otp")))
 OTP_URL = os.environ.get("DELHI_TRANSIT_OTP_URL", "http://localhost:3102/otp/gtfs/v1")
 FRONTEND_DIR = Path(os.environ.get("DELHI_TRANSIT_FRONTEND_DIR", str(REPO_ROOT / "frontend" / "dist")))
 
@@ -87,3 +88,34 @@ def load_env_key(name: str, env_path: Path | None = None) -> str | None:
             return value
     return None
 
+
+def portable_path(path: str | os.PathLike[str] | None) -> str | None:
+    """Spell a path for committed reports: repo-relative, or relative to its documented variable.
+
+    The longest matching root wins, so a worktree under the scratch directory stays repo-relative.
+    Paths already written with a variable, and paths under no known root, are returned unchanged.
+    """
+    if path is None:
+        return None
+    text = os.fspath(path)
+    if text.startswith("$"):
+        return text
+    resolved = Path(text).expanduser().resolve()
+    roots: list[tuple[Path, str | None]] = [
+        (REPO_ROOT, None),
+        (DATA_DIR, "$DELHI_TRANSIT_DATA_DIR"),
+        (WORK_DIR, "$DELHI_TRANSIT_WORK_DIR"),
+        (OTP_DIR, "$DELHI_TRANSIT_OTP_DIR"),
+        (SCRATCH_DIR, "$DELHI_TRANSIT_SCRATCH_DIR"),
+    ]
+    best: tuple[Path, str | None] | None = None
+    for root, variable in roots:
+        root = Path(root).expanduser().resolve()
+        if (resolved == root or root in resolved.parents) and (best is None or len(root.parts) > len(best[0].parts)):
+            best = (root, variable)
+    if best is None:
+        return text
+    relative = resolved.relative_to(best[0]).as_posix()
+    if best[1] is None:
+        return relative
+    return best[1] if relative == "." else f"{best[1]}/{relative}"

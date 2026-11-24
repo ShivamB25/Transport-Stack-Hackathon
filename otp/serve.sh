@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OTP_DIR="${DELHI_TRANSIT_OTP_DIR:-/home/factory-user/ps1-scratch/otp}"
-JAVA="${DELHI_TRANSIT_JAVA:-/home/factory-user/ps1-scratch/jdk/bin/java}"
+# Development-machine default; set DELHI_TRANSIT_SCRATCH_DIR (or the specific variables) elsewhere.
+SCRATCH_DIR="${DELHI_TRANSIT_SCRATCH_DIR:-/home/factory-user/ps1-scratch}"
+OTP_DIR="${DELHI_TRANSIT_OTP_DIR:-$SCRATCH_DIR/otp}"
+JAVA="${DELHI_TRANSIT_JAVA:-$SCRATCH_DIR/jdk/bin/java}"
 JAR="$OTP_DIR/otp-shaded-2.8.1.jar"
 GRAPH="$OTP_DIR/graph"
 
