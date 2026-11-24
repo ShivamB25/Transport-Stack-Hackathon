@@ -1260,12 +1260,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=GOOGLE_HARD_CALL_CAP,
         help="Mission-wide Google Routes API call hard cap (max 300).",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--cache-only",
         action="store_true",
         help="During collection, use only cached Google responses and retain cache misses as unavailable rows.",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--render-only",
         action="store_true",
         help="Render exclusively from frozen inputs; do not contact the planner or Google.",
@@ -1282,8 +1283,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.render_only:
-        if args.cache_only:
-            raise ValueError("--cache-only is a collection option and cannot be combined with --render-only")
         _rows, manifest = render_comparison(
             inputs_path=Path(args.inputs),
             report_dir=Path(args.report_dir),

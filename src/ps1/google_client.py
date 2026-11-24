@@ -282,6 +282,25 @@ def extract_bus_only_itineraries(response_body: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _parse_bus_routes(
+    response_body: dict[str, Any], http_status: int | None, error: str | None
+) -> dict[str, Any]:
+    if http_status == 200 and not error and "error" not in response_body:
+        return extract_bus_only_itineraries(response_body)
+    return {
+        "raw_route_count": 0,
+        "bus_only_count": 0,
+        "excluded_non_bus_count": 0,
+        "excluded_vehicle_types": [],
+        "bus_only_routes": [],
+        "best_bus_route": None,
+    }
+
+
+def _utc_now_z() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(path.suffix + ".tmp")
@@ -358,12 +377,6 @@ class GoogleRoutesClient:
 
     def _read_call_counter_unlocked(self) -> dict[str, Any]:
         if not self.counter_path.exists():
-            legacy_path = DATA_DIR / GOOGLE_DIR / "call_counter.json"
-            if self.counter_path == GOOGLE_MISSION_LEDGER_PATH and legacy_path.exists():
-                legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
-                counter = self._normalise_counter(legacy)
-                _atomic_write_json(self.counter_path, counter)
-                return counter
             return self._default_counter()
         data = json.loads(self.counter_path.read_text(encoding="utf-8"))
         return self._normalise_counter(data)
@@ -379,7 +392,7 @@ class GoogleRoutesClient:
         od_id: str,
         slot_label: str,
         departure_time_utc: str,
-    ) -> tuple[dict[str, Any], int]:
+    ) -> int:
         with self._ledger_lock():
             counter = self._read_call_counter_unlocked()
             if int(counter["total_mission_calls"]) + 1 > int(counter["hard_cap"]):
@@ -391,7 +404,7 @@ class GoogleRoutesClient:
             counter["api_calls_made"] = int(counter["api_calls_made"]) + 1
             counter["total_mission_calls"] = total
             counter["remaining_budget"] = max(0, int(counter["hard_cap"]) - total)
-            reserved_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            reserved_at = _utc_now_z()
             counter["calls"].append(
                 {
                     "call_number": total,
@@ -407,7 +420,7 @@ class GoogleRoutesClient:
                 }
             )
             _atomic_write_json(self.counter_path, counter)
-            return counter, total
+            return total
 
     def _complete_network_call(
         self,
@@ -420,7 +433,7 @@ class GoogleRoutesClient:
             counter = self._read_call_counter_unlocked()
             call = next(c for c in counter["calls"] if int(c["call_number"]) == call_number)
             call["status"] = "completed"
-            call["completed_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            call["completed_at"] = _utc_now_z()
             call["http_status"] = http_status
             call["error"] = error
             _atomic_write_json(self.counter_path, counter)
@@ -449,24 +462,12 @@ class GoogleRoutesClient:
         cache_key = make_cache_key(payload, self.field_mask)
         cache_file = self.responses_dir / f"{cache_key}.json"
 
-        # Always check the disk cache BEFORE issuing any network request.
         if cache_file.exists():
             cached = json.loads(cache_file.read_text(encoding="utf-8"))
             response_body = cached.get("response") or {}
             http_status = cached.get("http_status")
             error = cached.get("error")
-            parsed = (
-                extract_bus_only_itineraries(response_body)
-                if http_status == 200 and not error and "error" not in response_body
-                else {
-                    "raw_route_count": 0,
-                    "bus_only_count": 0,
-                    "excluded_non_bus_count": 0,
-                    "excluded_vehicle_types": [],
-                    "bus_only_routes": [],
-                    "best_bus_route": None,
-                }
-            )
+            parsed = _parse_bus_routes(response_body, http_status, error)
             return {
                 "cache_key": cache_key,
                 "cache_path": str(cache_file),
@@ -483,7 +484,6 @@ class GoogleRoutesClient:
         if cache_only:
             raise GoogleClientError(f"Cache miss for {od_id or cache_key} ({slot_label}) in cache_only mode")
 
-        # Live network requests strictly require an upcoming departure time.
         validate_departure_time(depart, now=now, allow_past_for_cache=False)
 
         api_key = self._api_key or load_google_api_key()
@@ -495,13 +495,13 @@ class GoogleRoutesClient:
             "X-Goog-FieldMask": self.field_mask,
             "Content-Type": "application/json",
         }
-        _reservation, call_number = self._reserve_network_call(
+        call_number = self._reserve_network_call(
             cache_key=cache_key,
             od_id=od_id,
             slot_label=slot_label,
             departure_time_utc=payload["departureTime"],
         )
-        fetched_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fetched_at = _utc_now_z()
         http_status: int | None = None
         error_msg: str | None = None
         response_body: dict[str, Any] = {}
@@ -530,7 +530,7 @@ class GoogleRoutesClient:
             error=error_msg,
         )
 
-        # Persist sanitized response (never include API key).
+        # The cache record must never include the API key header.
         cache_record = {
             "cache_key": cache_key,
             "od_id": od_id,
@@ -545,18 +545,7 @@ class GoogleRoutesClient:
         }
         _atomic_write_json(cache_file, cache_record)
 
-        parsed = (
-            extract_bus_only_itineraries(response_body)
-            if http_status == 200 and not error_msg and "error" not in response_body
-            else {
-                "raw_route_count": 0,
-                "bus_only_count": 0,
-                "excluded_non_bus_count": 0,
-                "excluded_vehicle_types": [],
-                "bus_only_routes": [],
-                "best_bus_route": None,
-            }
-        )
+        parsed = _parse_bus_routes(response_body, http_status, error_msg)
         return {
             "cache_key": cache_key,
             "cache_path": str(cache_file),
