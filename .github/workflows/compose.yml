@@ -1,0 +1,42 @@
+name: Compose build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  compose-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The api service reads .env at runtime; CI has no keys, so an empty file stands in.
+      - run: touch .env
+      - run: docker compose config --quiet
+      - name: docker compose build
+        run: |
+          set -o pipefail
+          mkdir -p logs
+          docker compose build --progress plain 2>&1 | tee logs/compose-build.log
+      - name: Smoke-test the API container with a stub data directory
+        run: |
+          set -o pipefail
+          mkdir -p stub-data/gtfs
+          echo "stop_id,stop_name,stop_lat,stop_lon" > stub-data/gtfs/stops.txt
+          image=$(docker compose config --images api)
+          docker run -d --name api-smoke -p 127.0.0.1:3100:3100 \
+            -e DELHI_TRANSIT_DATA_DIR=/data -e DELHI_TRANSIT_ENABLE_LIVE_POLLER=0 \
+            -v "$PWD/stub-data:/data" "$image"
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:3100/ && break
+            sleep 2
+          done
+          curl -sS -w '\nHTTP %{http_code}\n' http://127.0.0.1:3100/ | tail -c 400 | tee logs/ui.txt
+          curl -sS -w '\nHTTP %{http_code}\n' http://127.0.0.1:3100/health | tee logs/health.txt || true
+          grep -q 'HTTP 200' logs/ui.txt
+      - if: always()
+        run: docker logs api-smoke > logs/api-container.log 2>&1 || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-logs
+          path: logs/
