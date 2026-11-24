@@ -179,7 +179,7 @@ Per-day, per-direction `observed-only` MAE (seconds) and Rung 4 interval perform
 | `2026-10-28` | `DOWN` (`2170`) | 2,047 | 70.603 | 59.895 | 59.278 | 53.989 | 54.036 | **46.648** | 79.238% | 135.248 / 82.424 |
 | `2026-10-28` | `UP` (`2171`) | 1,922 | 108.954 | 91.263 | 94.787 | 89.418 | 89.531 | **78.193** | 77.575% | 165.060 / 87.092 |
 
-**Ship decision (`reports/selection.json`):** **`selected_rung = "4"`**. Rung 4 beats persistence by **12.588 s** overall (**-17.3%** relative to Rung 1, and **-31.0%** relative to the Rung 0 timetable), wins on **6/6** held-out day × direction groups at identical coverage, and achieves **79.156%** held-out empirical coverage on its nominal 80% conformal `[p10, p90]` intervals.
+**Ship decision (`reports/selection.json`):** **`selected_rung = "4"`**. On the held-out `observed-only` stratum (13,299 queries, 100% observed, 0% interpolated; 34.740% of the 38,282 all-stop held-out queries), Rung 4 beats persistence by **12.588 s** overall (**-17.3%** relative to Rung 1, and **-31.0%** relative to the Rung 0 timetable), wins on **6/6** held-out day × direction groups at identical coverage, and achieves **79.156%** held-out empirical coverage on its nominal 80% conformal `[p10, p90]` intervals.
 
 ---
 
