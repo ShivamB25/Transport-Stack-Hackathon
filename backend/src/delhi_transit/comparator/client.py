@@ -35,9 +35,9 @@ DEFAULT_FIELD_MASK = (
     "routes.legs.localizedValues"
 )
 DEFAULT_LANGUAGE_CODE = "en"
-PRIOR_MISSION_CALLS = 2  # 2 probe calls recorded in ps1-scratch/probe-report.md
+PRIOR_MISSION_CALLS = 2  # 2 probe calls recorded in $DELHI_TRANSIT_SCRATCH_DIR/probe-report.md
 PRIOR_MISSION_NOTE = (
-    "2 initial feasibility probe calls recorded in /home/factory-user/ps1-scratch/probe-report.md"
+    "2 initial feasibility probe calls recorded in $DELHI_TRANSIT_SCRATCH_DIR/probe-report.md"
 )
 _DURATION_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)s\s*$")
 

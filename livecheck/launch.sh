@@ -14,7 +14,9 @@ OUT="$1"
 UNTIL="$2"
 shift 2
 API_PORT="${LIVECHECK_API_PORT:-3120}"
-DATA_DIR="${DELHI_TRANSIT_DATA_DIR:-/home/factory-user/ps1-scratch/data}"
+# Development-machine default; set DELHI_TRANSIT_SCRATCH_DIR (or the specific variables) elsewhere.
+SCRATCH_DIR="${DELHI_TRANSIT_SCRATCH_DIR:-/home/factory-user/ps1-scratch}"
+DATA_DIR="${DELHI_TRANSIT_DATA_DIR:-$SCRATCH_DIR/data}"
 OTP_URL="http://localhost:3102/otp/gtfs/v1"
 export PATH="$HOME/.local/bin:$PATH"
 mkdir -p "$OUT"

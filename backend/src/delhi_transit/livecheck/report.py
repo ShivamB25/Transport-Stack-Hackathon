@@ -7,7 +7,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from delhi_transit.core.config import portable_path
 from delhi_transit.core.io import atomic_write_json, atomic_write_text
+
+PATH_KEYS = frozenset({"file", "path", "passages_path"})
+
+
+def _portable_paths(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: portable_path(item) if key in PATH_KEYS and isinstance(item, str) else _portable_paths(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_portable_paths(item) for item in value]
+    return value
+
 
 LEG_COLUMNS = (
     "slot", "query_id", "requested_at_iso", "option_index", "route_id", "from_stop_id", "from_stop",
@@ -182,6 +197,7 @@ def legs_csv(legs: list[dict[str, Any]]) -> str:
 
 
 def write_reports(result: dict[str, Any], report_dir: Path) -> dict[str, Path]:
+    result = _portable_paths(result)
     stem = Path(report_dir) / f"live-check-{result['day']}"
     paths = {"md": stem.with_suffix(".md"), "csv": stem.with_suffix(".csv"), "json": stem.with_suffix(".json")}
     atomic_write_text(paths["md"], render_markdown(result))

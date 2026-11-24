@@ -6,29 +6,32 @@ separately; OTP itself remains schedule-based.
 
 ## Inputs and pins
 
-- Java: Temurin 21 at `/home/factory-user/ps1-scratch/jdk/bin/java`.
+- Java: Temurin 21 at `$DELHI_TRANSIT_JAVA`.
 - OTP: `otp-shaded-2.8.1.jar` from
   `https://repo1.maven.org/maven2/org/opentripplanner/otp-shaded/2.8.1/otp-shaded-2.8.1.jar`.
 - GTFS: `$DELHI_TRANSIT_DATA_DIR/gtfs/delhi_buses_static_gtfs_v1.zip` (feed ID `DTC`).
 - OSM: BBBike `NewDelhi.osm.pbf` from
   `https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf`.
 
-The wrappers default to `/home/factory-user/ps1-scratch/otp` and download the jar
-or OSM file only when missing. `DELHI_TRANSIT_OTP_DIR`, `DELHI_TRANSIT_DATA_DIR`, and `DELHI_TRANSIT_JAVA` can
-override the runtime paths. The build copies `otp/build-config.json` and the GTFS zip into `graph/` and links
+The wrappers use `$DELHI_TRANSIT_OTP_DIR` (default `$DELHI_TRANSIT_SCRATCH_DIR/otp`, see the README path table) and download the jar
+or OSM file only when missing. `DELHI_TRANSIT_OTP_DIR`, `DELHI_TRANSIT_DATA_DIR` (default `$DELHI_TRANSIT_SCRATCH_DIR/data`) and `DELHI_TRANSIT_JAVA`
+(default `$DELHI_TRANSIT_SCRATCH_DIR/jdk/bin/java`) override the runtime paths; `DELHI_TRANSIT_SCRATCH_DIR` defaults to the
+development machine's `/home/factory-user/ps1-scratch`, as in `core/config.py`. The build copies `otp/build-config.json` and the GTFS zip into `graph/` and links
 the OSM file with a relative path, so the directory also works when mounted at
 `/otp` by the Compose `otp` and `otp-build` services.
 
 ## Build and serve
 
 ```bash
-cd /home/factory-user/repos/Transport-Stack-Hackathon
-otp/build.sh > /home/factory-user/ps1-scratch/otp/build.log 2>&1
+cd Transport-Stack-Hackathon
+OTP_DIR="${DELHI_TRANSIT_OTP_DIR:-${DELHI_TRANSIT_SCRATCH_DIR:-/home/factory-user/ps1-scratch}/otp}"
+mkdir -p "$OTP_DIR"
+otp/build.sh > "$OTP_DIR/build.log" 2>&1
 otp/serve.sh
 ```
 
 Both commands enforce `-Xmx2500m`. The build uses `--build --save` and writes
-`/home/factory-user/ps1-scratch/otp/graph/graph.obj`. The server uses `--load
+`$DELHI_TRANSIT_OTP_DIR/graph/graph.obj`. The server uses `--load
 --serve --port 3102`. The build config limits transit service to
 2026-10-01 through 2026-12-31 and walking transfers to 10 minutes. The complete
 37.5 MB BBBike extract fit within the heap cap, so no OSM clipping was needed.
@@ -62,4 +65,4 @@ Focused introspection against the running 2.8.1 schema confirmed the
 `Place.stop`, and `PlanPageInfo.searchWindowUsed`. The 2.10 research sample's
 optional `stopCalls` selection is not needed for this smoke test. Raw focused
 introspection output is at
-`/home/factory-user/ps1-scratch/otp/schema-introspection.json`.
+`$DELHI_TRANSIT_OTP_DIR/schema-introspection.json`.

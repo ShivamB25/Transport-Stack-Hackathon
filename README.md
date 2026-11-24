@@ -18,7 +18,7 @@ Both paths need the data directory (GPS Parquet, passages, GTFS, model artifact)
 
 ### Native
 
-Requirements: [uv](https://docs.astral.sh/uv/) (Python 3.12; `backend/pyproject.toml` and `backend/uv.lock` pin every version), [Bun](https://bun.sh/) for the UI (`frontend/bun.lock` pins every version), Temurin 21 at `/home/factory-user/ps1-scratch/jdk`, data in `/home/factory-user/ps1-scratch/data` (`DELHI_TRANSIT_DATA_DIR`) and OTP files in `/home/factory-user/ps1-scratch/otp` (`DELHI_TRANSIT_OTP_DIR`).
+Requirements: [uv](https://docs.astral.sh/uv/) (Python 3.12; `backend/pyproject.toml` and `backend/uv.lock` pin every version), [Bun](https://bun.sh/) for the UI (`frontend/bun.lock` pins every version), Temurin 21 (`DELHI_TRANSIT_JAVA`), the data directory (`DELHI_TRANSIT_DATA_DIR`) and the OTP directory (`DELHI_TRANSIT_OTP_DIR`); see [Paths and environment variables](#paths-and-environment-variables).
 
 ```bash
 otp/build.sh                  # one-time: downloads the OTP jar and OSM extract if missing, builds the graph (about 1.5 min)
@@ -26,7 +26,7 @@ otp/serve.sh                  # OTP on port 3102; leave it running and start the
 (cd frontend && bun install --frozen-lockfile && bun run build)   # builds frontend/dist, which the API serves at /
 cd backend
 uv sync --frozen
-DELHI_TRANSIT_DATA_DIR=/home/factory-user/ps1-scratch/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
+DELHI_TRANSIT_DATA_DIR=/path/to/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
   uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100
 ```
 
@@ -37,6 +37,21 @@ curl -sf -X POST http://localhost:3102/otp/gtfs/v1 -H 'Content-Type: application
   -d '{"query":"{ __schema { queryType { name } } }"}'
 curl -sf http://localhost:3100/health
 ```
+
+### Paths and environment variables
+
+Paths in this README, `docs/` and `reports/` are written relative to the variables below, so they map onto any layout. The defaults in `backend/src/delhi_transit/core/config.py` and the shell scripts point at the original development machine (`/home/factory-user/ps1-scratch`); set the variables on any other machine.
+
+| Variable | Expected contents | Default |
+|---|---|---|
+| `DELHI_TRANSIT_SCRATCH_DIR` | Parent of the data, work, OTP and JDK directories; also holds the Google call ledger (`google-mission-call-ledger.json`), the probe report and live-check recordings (`live-check/<day>/`) | `/home/factory-user/ps1-scratch` |
+| `DELHI_TRANSIT_DATA_DIR` | GPS Parquet (`gps/`), 717A passages (`passages/`), static GTFS (`gtfs/`), model artifact (`model/`), live snapshots (`live/`), Google cache (`google/`) | `$DELHI_TRANSIT_SCRATCH_DIR/data` |
+| `DELHI_TRANSIT_WORK_DIR` | Temporary SQLite files and DuckDB temp space | `$DELHI_TRANSIT_SCRATCH_DIR/work` |
+| `DELHI_TRANSIT_OTP_DIR` | OTP jar, OSM extract, `graph/`, build and serve logs | `$DELHI_TRANSIT_SCRATCH_DIR/otp` |
+| `DELHI_TRANSIT_JAVA` | Temurin 21 `java` binary | `$DELHI_TRANSIT_SCRATCH_DIR/jdk/bin/java` |
+| `DELHI_TRANSIT_OTP_URL` | OTP GraphQL endpoint | `http://localhost:3102/otp/gtfs/v1` |
+| `DELHI_TRANSIT_FRONTEND_DIR` | Built UI served at `/` | `frontend/dist` |
+| `DELHI_TRANSIT_HOST_DATA_DIR`, `DELHI_TRANSIT_HOST_OTP_DIR` | Docker Compose host bind-mount sources | the native data and OTP directories |
 
 ### Docker Compose
 

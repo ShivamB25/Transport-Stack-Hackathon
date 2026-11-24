@@ -1,6 +1,6 @@
 # GPS data quality — October 2026 DTC bus feed
 
-Updated 2026-11-23 from `data/gps/day=*.parquet` (DELHI_TRANSIT_DATA_DIR=`/home/factory-user/ps1-scratch/data`, 9.955 GB total across 31 days) after re-acquiring all 31 days with the hardened deterministic extractor and verifying every file in place.
+Updated 2026-11-23 from `data/gps/day=*.parquet` (DELHI_TRANSIT_DATA_DIR=`$DELHI_TRANSIT_DATA_DIR`, 9.955 GB total across 31 days) after re-acquiring all 31 days with the hardened deterministic extractor and verifying every file in place.
 
 ## Pipeline cleaning rules
 

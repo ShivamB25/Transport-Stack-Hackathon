@@ -19,7 +19,7 @@
         "ok": 36
       },
       "feed_age_at_slot_start_s": 77.12,
-      "file": "/home/factory-user/ps1-scratch/live-check/2026-11-24/journeys/slot_000.jsonl"
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24/journeys/slot_000.jsonl"
     },
     {
       "slot": 1,
@@ -30,7 +30,7 @@
         "ok": 36
       },
       "feed_age_at_slot_start_s": 47.48,
-      "file": "/home/factory-user/ps1-scratch/live-check/2026-11-24/journeys/slot_001.jsonl"
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24/journeys/slot_001.jsonl"
     },
     {
       "slot": 2,
@@ -129,9 +129,9 @@
       "snapshots": 87,
       "raw_rows": 367345,
       "clean_rows": 281853,
-      "path": "/home/factory-user/ps1-scratch/live-check/2026-11-24/archive-gps/day=2026-11-24.parquet"
+      "path": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24/archive-gps/day=2026-11-24.parquet"
     },
-    "passages_path": "/home/factory-user/ps1-scratch/live-check/2026-11-24/passages/day=2026-11-24.parquet",
+    "passages_path": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24/passages/day=2026-11-24.parquet",
     "radius_m": 60.0,
     "runs": 20,
     "excluded_runs": 11,

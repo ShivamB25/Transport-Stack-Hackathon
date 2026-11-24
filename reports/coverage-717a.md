@@ -33,16 +33,16 @@ Historical coverage on the older feed was approximately 46% UP and 42–48% DOWN
 
 ## Outputs and excluded candidate runs
 
-- 2026-10-05: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-05.parquet`; excluded 56 runs with too few anchors or an implausible observed span.
-- 2026-10-06: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-06.parquet`; excluded 69 runs with too few anchors or an implausible observed span.
-- 2026-10-07: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-07.parquet`; excluded 69 runs with too few anchors or an implausible observed span.
-- 2026-10-08: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-08.parquet`; excluded 66 runs with too few anchors or an implausible observed span.
-- 2026-10-13: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-13.parquet`; excluded 82 runs with too few anchors or an implausible observed span.
-- 2026-10-14: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-14.parquet`; excluded 58 runs with too few anchors or an implausible observed span.
-- 2026-10-15: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-15.parquet`; excluded 92 runs with too few anchors or an implausible observed span.
-- 2026-10-22: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-22.parquet`; excluded 173 runs with too few anchors or an implausible observed span.
-- 2026-10-27: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-27.parquet`; excluded 218 runs with too few anchors or an implausible observed span.
-- 2026-10-28: `/home/factory-user/ps1-scratch/data/passages/day=2026-10-28.parquet`; excluded 235 runs with too few anchors or an implausible observed span.
+- 2026-10-05: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-05.parquet`; excluded 56 runs with too few anchors or an implausible observed span.
+- 2026-10-06: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-06.parquet`; excluded 69 runs with too few anchors or an implausible observed span.
+- 2026-10-07: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-07.parquet`; excluded 69 runs with too few anchors or an implausible observed span.
+- 2026-10-08: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-08.parquet`; excluded 66 runs with too few anchors or an implausible observed span.
+- 2026-10-13: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-13.parquet`; excluded 82 runs with too few anchors or an implausible observed span.
+- 2026-10-14: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-14.parquet`; excluded 58 runs with too few anchors or an implausible observed span.
+- 2026-10-15: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-15.parquet`; excluded 92 runs with too few anchors or an implausible observed span.
+- 2026-10-22: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-22.parquet`; excluded 173 runs with too few anchors or an implausible observed span.
+- 2026-10-27: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-27.parquet`; excluded 218 runs with too few anchors or an implausible observed span.
+- 2026-10-28: `$DELHI_TRANSIT_DATA_DIR/passages/day=2026-10-28.parquet`; excluded 235 runs with too few anchors or an implausible observed span.
 
 For every reconstructed trip, `stops = observed + interpolated`. Timestamps and stop order are nondecreasing within each trip.
 

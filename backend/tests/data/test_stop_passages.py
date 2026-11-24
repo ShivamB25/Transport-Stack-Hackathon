@@ -9,7 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from delhi_transit.core.config import IST
+from delhi_transit.core.config import DATA_DIR, IST
 from delhi_transit.data.coverage_report import (
     CANONICAL_COVERAGE_REPORT,
     SCOPED_DAYS,
@@ -265,11 +265,11 @@ def test_scoped_run_does_not_overwrite_canonical_coverage_report(tmp_path: Path)
 
 
 @pytest.mark.skipif(
-    not Path("/home/factory-user/ps1-scratch/data/gps/day=2026-10-22.parquet").exists(),
+    not (DATA_DIR / "gps" / "day=2026-10-22.parquet").exists(),
     reason="real October Parquet is not available",
 )
 def test_small_real_data_smoke(tmp_path: Path):
-    data_dir = Path("/home/factory-user/ps1-scratch/data")
+    data_dir = DATA_DIR
     patterns = load_route_patterns(data_dir / "gtfs", [2170, 2171])
     assert patterns[2170].direction == "DOWN"
     assert patterns[2171].direction == "UP"

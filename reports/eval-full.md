@@ -114,4 +114,4 @@ Protocol: [docs/eval-protocol.md](../docs/eval-protocol.md). All rungs (0, 1, 1h
 - **Calibration day (4693 observed queries):** 2026-10-15
 - **Conformal offset q_conf:** 2.359 s
 - **Calibration-day coverage:** 76.092% raw -> 80.055% calibrated (mean width 144.406 s, median width 80.249 s)
-- **Saved held-out predictions:** `/home/factory-user/ps1-scratch/data/model/eval-predictions-rung4.parquet`
+- **Saved held-out predictions:** `$DELHI_TRANSIT_DATA_DIR/model/eval-predictions-rung4.parquet`

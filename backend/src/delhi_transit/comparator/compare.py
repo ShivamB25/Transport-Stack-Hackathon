@@ -24,7 +24,7 @@ from delhi_transit.comparator.slots import (
     TimeSlot,
     validate_comparison_schedule,
 )
-from delhi_transit.core.config import IST
+from delhi_transit.core.config import IST, portable_path
 from delhi_transit.core.time import utc_z
 from delhi_transit.planner.provenance import option_has_supported_route
 
@@ -272,7 +272,7 @@ def evaluate_slot_comparison(
             .get("allowedTravelModes", ["BUS"])
         ),
         "cache_key": google_res.get("cache_key"),
-        "cache_path": google_res.get("cache_path"),
+        "cache_path": portable_path(google_res.get("cache_path")),
         "fetched_at": google_res.get("fetched_at"),
         "from_cache": bool(google_res.get("from_cache")),
         "http_status": google_http,
@@ -310,6 +310,8 @@ def _freeze_google_response(google_res: dict[str, Any]) -> dict[str, Any]:
         )
         if key in google_res
     }
+    if "cache_path" in frozen:
+        frozen["cache_path"] = portable_path(frozen["cache_path"])
     frozen["parsed"] = {
         key: parsed.get(key)
         for key in (
@@ -405,9 +407,9 @@ def collect_comparison_inputs(
         "travel_mode": "TRANSIT",
         "allowed_travel_modes": ["BUS"],
         "bus_only_filter_applied": True,
-        "cache_dir": str(google_client.responses_dir.resolve()),
-        "call_counter_path": str(google_client.counter_path.resolve()),
-        "scratch_manifest_path": str(google_client.manifest_path.resolve()),
+        "cache_dir": portable_path(google_client.responses_dir),
+        "call_counter_path": portable_path(google_client.counter_path),
+        "scratch_manifest_path": portable_path(google_client.manifest_path),
         "call_accounting": {
             "hard_cap": counter["hard_cap"],
             "prior_mission_calls": counter["prior_mission_calls"],
@@ -473,7 +475,7 @@ def _render_frozen_inputs(
         {
             "generated_at": inputs["collected_at"],
             "rendered_from_frozen_inputs": True,
-            "frozen_inputs_path": str(inputs_path),
+            "frozen_inputs_path": portable_path(inputs_path),
             "corpus_summary": {
                 "od_pair_count": od_pair_count,
                 "time_slots_per_pair": slot_count,

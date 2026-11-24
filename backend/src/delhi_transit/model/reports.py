@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from delhi_transit.core.config import portable_path
 from delhi_transit.model.selection import write_selection
 
 GATE_DAY = "2026-10-22"
@@ -239,7 +240,7 @@ def write_full_reports(
             f"(mean width {cal['calibration_mean_width_s']:.3f} s, median width {cal['calibration_median_width_s']:.3f} s)"
         )
         if predictions_path is not None:
-            lines.append(f"- **Saved held-out predictions:** `{predictions_path}`")
+            lines.append(f"- **Saved held-out predictions:** `{portable_path(predictions_path)}`")
 
     lines.append("")
     (output_dir / "eval-full.md").write_text("\n".join(lines), encoding="utf-8")

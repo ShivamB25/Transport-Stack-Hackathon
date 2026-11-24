@@ -5,7 +5,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 
-from delhi_transit.core.config import REPO_ROOT
+from delhi_transit.core.config import REPO_ROOT, portable_path
 
 SCOPED_DAYS = tuple(
     f"2026-10-{day:02d}" for day in (5, 6, 7, 8, 13, 14, 15, 22, 27, 28)
@@ -65,7 +65,7 @@ def write_coverage_report(
     lines.extend(["", "## Outputs and excluded candidate runs", ""])
     for day in sorted(outputs):
         lines.append(
-            f"- {day}: `{outputs[day]}`; excluded {skipped_by_day[day]} runs "
+            f"- {day}: `{portable_path(outputs[day])}`; excluded {skipped_by_day[day]} runs "
             "with too few anchors or an implausible observed span."
         )
     lines.extend(
