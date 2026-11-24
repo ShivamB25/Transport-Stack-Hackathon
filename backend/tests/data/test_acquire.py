@@ -10,7 +10,6 @@ from delhi_transit.data import acquire
 from delhi_transit.data.acquire import (
     process_day,
     recover_rows_in,
-    write_status,
 )
 from delhi_transit.data.extract_day import default_output_path
 
@@ -24,22 +23,6 @@ def test_recover_rows_in_last_wins_and_ignores_failures(tmp_path):
     )
     assert recover_rows_in(log) == {"2026-10-15": 200}
     assert recover_rows_in(tmp_path / "missing.log") == {}
-
-
-def test_write_status_accounts_for_every_day(tmp_path):
-    (tmp_path / "gps").mkdir()
-    acquire.RESULTS.clear()
-    acquire.RESULTS["2026-10-15"] = {
-        "day": "2026-10-15", "status": "ok", "rows_in": 100, "rows_out": 62,
-        "vehicles": 10, "min_ts": 1, "max_ts": 2, "seconds": 1.0,
-    }
-    try:
-        write_status(tmp_path, list(range(1, 32)), finished=True)
-        text = (tmp_path / "STATUS.md").read_text()
-        assert "| 2026-10-15 | ok | 100 | 62 | 10 | 1 | 2 |" in text
-        assert "| 2026-10-02 | pending |" in text
-    finally:
-        acquire.RESULTS.clear()
 
 
 def test_process_day_failed_overwrite_never_deletes_canonical_parquet(

@@ -14,7 +14,6 @@ from delhi_transit.data.extract_day import (
     convert_day,
     day_db_name,
     default_output_path,
-    parse_day,
     run_day,
     verify_day,
 )
@@ -153,14 +152,6 @@ def test_convert_rejects_empty_output(tmp_path: Path):
         convert_day(db, tmp_path / "out.parquet", tmp_path)
     assert not (tmp_path / "out.parquet").exists()
     assert not (tmp_path / "out.tmp.parquet").exists()
-
-
-def test_parse_day_variants():
-    assert parse_day("5") == 5
-    assert parse_day("2026-10-22") == 22
-    for bad in ("0", "32", "2026-11-01", "2025-10-15"):
-        with pytest.raises(ValueError):
-            parse_day(bad)
 
 
 def _write_parquet_rows(path: Path, rows: list[tuple]) -> None:

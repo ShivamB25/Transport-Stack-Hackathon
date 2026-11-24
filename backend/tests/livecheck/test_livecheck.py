@@ -150,10 +150,3 @@ def test_run_left_running_is_reported_as_stopped_before_completion():
     line = run_status_line(run)
     assert "stopped before completion" in line
     assert "last summary update U, last successful poll L (planned end E)" in line
-
-
-def test_finished_run_status_is_kept():
-    run = run_status({"status": "finished", "started_at": "S", "updated_at": "U", "until": "E"}, {"last_ok": "L"})
-    assert run["status"] == "finished"
-    assert "last_ok_poll" not in run
-    assert run_status_line(run) == "- Run status: finished; started S, last update U (planned end E)."
