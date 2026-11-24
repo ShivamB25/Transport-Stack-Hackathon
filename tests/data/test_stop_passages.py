@@ -5,8 +5,11 @@ from datetime import datetime
 from pathlib import Path
 
 import duckdb
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
+from ps1.features import build_replay_queries, build_stretch_errors, load_passages
 from ps1.stop_passages import (
     CANONICAL_COVERAGE_REPORT,
     IST,
@@ -20,6 +23,7 @@ from ps1.stop_passages import (
     haversine_m,
     load_route_patterns,
     reconstruct_day,
+    reconstruct_run,
     resolve_report_path,
     schedule_start_for_run,
     select_minimum_distance_anchors,
@@ -127,10 +131,15 @@ def test_available_at_semantics_observed_interpolated_and_extrapolated():
         "interpolated",  # 5: trailing extrapolated from anchor 4
     ]
     assert [p.ts for p in passages] == [940, 1_000, 1_150, 1_300, 1_450, 1_510]
+    # The run only qualifies once its second anchor (stop 4 at 1_450) exists.
+    assert [p.available_at for p in passages] == [1_450] * 6
+
+    anchors = [Anchor(1, 1_000, 5.0), Anchor(2, 1_100, 5.0), Anchor(4, 1_450, 5.0)]
+    passages = build_passages(stops, anchors, schedule_start_ts=940)
     assert [p.available_at for p in passages] == [
-        1_000,  # leading extrapolated endpoint -> anchor 1 used
-        1_000,  # observed -> own ping ts
-        1_450,  # interpolated -> later anchor (4) ts
+        1_100,  # leading extrapolated from anchor 1, held until the second anchor
+        1_100,  # observed at 1_000, held until the second anchor
+        1_100,  # observed -> own ping ts
         1_450,  # interpolated -> later anchor (4) ts
         1_450,  # observed -> own ping ts
         1_450,  # trailing extrapolated endpoint -> anchor 4 used
@@ -178,6 +187,54 @@ def test_midnight_crossing_resolves_adjacent_service_date_oct22_regression():
         pattern, "2171_22_10_9999", [Ping(stop4_ts - 5200, 28.6, 77.2)], "2026-10-28", anchors=hinted_anchors
     )
     assert hinted_start == int(datetime(2026, 10, 27, 22, 10, 0, tzinfo=IST).timestamp())
+
+
+def test_run_without_second_anchor_before_query_is_invisible_oct22_regression(tmp_path: Path):
+    """Regression: Oct 22 DOWN 2170_06_09_7096 at q=1792636652 must not persist 2170_08_04.
+
+    2170_08_04 had one anchor (1792636203) before q and its second (1792636760) after q, yet
+    its leading-extrapolated stretch (error 0 s) was published as available at the first anchor.
+    """
+    query_ts = 1_792_636_652
+    stops = tuple(stop(i, 60 * i) for i in range(4))
+    pattern = RoutePattern(
+        route_id=2170,
+        direction="DOWN",
+        shape_id="shp",
+        stops=stops,
+        timetable={6 * 3600 + 9 * 60: "a", 7 * 3600 + 50 * 60: "b", 8 * 3600 + 4 * 60: "c"},
+    )
+    older_start = query_ts - 1_000
+    runs = {
+        ("DL1PD0001", "2170_07_50"): [(0, older_start), (1, older_start + 145), (2, older_start + 205), (3, older_start + 265)],
+        ("DL1PD8438", "2170_08_04"): [(2, 1_792_636_203), (3, 1_792_636_760)],
+        ("DL1PD0002", "2170_06_09_7096"): [(0, query_ts), (1, query_ts + 150), (2, query_ts + 210), (3, query_ts + 270)],
+    }
+    gps_rows = [
+        {"route_id": 2170, "vehicle_id": vehicle, "trip_id": run_id, "ts": ts,
+         "lat": stops[index].lat, "lng": stops[index].lng}
+        for (vehicle, run_id), observations in runs.items()
+        for index, ts in observations
+    ]
+    gps_path = tmp_path / "gps.parquet"
+    pq.write_table(pa.Table.from_pylist(gps_rows), gps_path)
+
+    late_pings = [Ping(ts, stops[i].lat, stops[i].lng) for i, ts in runs[("DL1PD8438", "2170_08_04")]]
+    prefix = [ping for ping in late_pings if ping.ts < query_ts]
+    assert reconstruct_run(pattern, "2170_08_04", prefix, "2026-10-22") is None
+    full = reconstruct_run(pattern, "2170_08_04", late_pings, "2026-10-22")
+    assert full is not None and min(p.available_at for p in full) == 1_792_636_760
+
+    passages_path = tmp_path / "passages.parquet"
+    reconstruct_day("2026-10-22", gps_path, {2170: pattern}, passages_path)
+    passages = load_passages(passages_path)
+    queries = build_replay_queries(build_stretch_errors(passages), passages)
+    target = next(
+        q for q in queries
+        if q.stretch.run_id == "2170_06_09_7096" and q.stretch.from_sequence == 0
+    )
+    assert target.stretch.query_ts == query_ts
+    assert (target.previous_run_id, target.previous_error_s) == ("2170_07_50", 85)
 
 
 def test_scoped_run_does_not_overwrite_canonical_coverage_report(tmp_path: Path):
@@ -244,7 +301,7 @@ def test_small_real_data_smoke(tmp_path: Path):
             """
             select
                 count(*) filter (where available_at is null),
-                count(*) filter (where observed and available_at <> ts)
+                count(*) filter (where observed and available_at < ts)
             from read_parquet(?)
             """,
             [str(out_parquet)],

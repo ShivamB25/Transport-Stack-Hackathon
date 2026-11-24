@@ -5,8 +5,8 @@ import argparse
 import math
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from itertools import pairwise
 from pathlib import Path
@@ -109,12 +109,8 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * EARTH_RADIUS_M * math.asin(min(1.0, math.sqrt(a)))
 
 
-def select_minimum_distance_anchors(
-    pings: Sequence[Ping], stops: Sequence[PatternStop], radius_m: float = DEFAULT_RADIUS_M
-) -> list[Anchor]:
-    """Select each stop's closest ping within the radius, before time filtering."""
-    if not pings or not stops:
-        return []
+def _stop_ping_distances(pings: Sequence[Ping], stops: Sequence[PatternStop]) -> np.ndarray:
+    """Return a (stops x pings) great-circle distance matrix in metres."""
     ping_lats = np.radians(np.array([p.lat for p in pings], dtype=np.float64))
     ping_lngs = np.radians(np.array([p.lng for p in pings], dtype=np.float64))
     stop_lats = np.radians(np.array([s.lat for s in stops], dtype=np.float64))
@@ -127,7 +123,16 @@ def select_minimum_distance_anchors(
         * np.cos(ping_lats[None, :])
         * np.sin(dl / 2) ** 2
     )
-    distances = 2 * EARTH_RADIUS_M * np.arcsin(np.sqrt(np.minimum(1.0, a)))
+    return 2 * EARTH_RADIUS_M * np.arcsin(np.sqrt(np.minimum(1.0, a)))
+
+
+def select_minimum_distance_anchors(
+    pings: Sequence[Ping], stops: Sequence[PatternStop], radius_m: float = DEFAULT_RADIUS_M
+) -> list[Anchor]:
+    """Select each stop's closest ping within the radius, before time filtering."""
+    if not pings or not stops:
+        return []
+    distances = _stop_ping_distances(pings, stops)
     anchors = []
     for stop_index, stop_distances in enumerate(distances):
         within = np.flatnonzero(stop_distances <= radius_m)
@@ -139,6 +144,37 @@ def select_minimum_distance_anchors(
             Anchor(stop_index, pings[ping_index].ts, float(stop_distances[ping_index]))
         )
     return anchors
+
+
+def iter_prefix_anchor_sets(
+    pings: Sequence[Ping], stops: Sequence[PatternStop], radius_m: float = DEFAULT_RADIUS_M
+) -> Iterator[tuple[int, list[Anchor]]]:
+    """Yield (last_ping_index, anchors) for each raw-GPS prefix whose closest-ping set changes.
+
+    Pings must be sorted by ts. A prefix ends on the last ping sharing a timestamp, so it is
+    exactly the GPS visible to a query strictly after that timestamp. The anchors match
+    `select_minimum_distance_anchors` applied to that prefix (earliest ping on exact ties).
+    """
+    if not pings or not stops:
+        return
+    distances = _stop_ping_distances(pings, stops)
+    distances = np.where(distances <= radius_m, distances, np.inf)
+    best = np.minimum.accumulate(distances, axis=1)
+    before = np.concatenate([np.full((len(stops), 1), np.inf), best[:, :-1]], axis=1)
+    improved = distances < before
+    columns = np.arange(len(pings))
+    best_index = np.maximum.accumulate(np.where(improved, columns[None, :], -1), axis=1)
+    ts = np.array([p.ts for p in pings], dtype=np.int64)
+    changed = np.flatnonzero(improved.any(axis=0))
+    cutoffs = sorted({int(np.searchsorted(ts, ts[j], side="right")) - 1 for j in changed})
+    for cutoff in cutoffs:
+        anchors = []
+        for stop_index, ping_index in enumerate(best_index[:, cutoff]):
+            if ping_index >= 0:
+                anchors.append(
+                    Anchor(stop_index, int(ts[ping_index]), float(distances[stop_index, ping_index]))
+                )
+        yield cutoff, anchors
 
 
 def drop_time_order_breaking_anchors(anchors: Sequence[Anchor]) -> list[Anchor]:
@@ -179,15 +215,18 @@ def interpolate_stop_times_and_availability(
 ) -> tuple[list[int], list[int]]:
     """Interpolate stop times and compute each passage's GPS availability epoch.
 
-    Availability semantics:
+    Availability semantics (the later of the per-passage rule and the run release):
     - observed stop: its own anchor ping ts
     - interpolated stop between anchors: ts of the later anchor that enabled interpolation
     - extrapolated leading/trailing endpoints: ts of the anchor used for extrapolation
+    - run release: a run qualifies only once its second anchor exists, so no passage
+      is available before the second surviving anchor's ts
     """
     if len(anchors) < 2:
         raise ValueError("at least two monotonic anchors are required")
     by_stop = {anchor.stop_index: anchor for anchor in anchors}
     anchor_indices = sorted(by_stop)
+    release_ts = by_stop[anchor_indices[1]].ts
     result = [0] * len(stops)
     available_at = [0] * len(stops)
 
@@ -220,7 +259,7 @@ def interpolate_stop_times_and_availability(
         scheduled_delta = stops[index].schedule_s - stops[last.stop_index].schedule_s
         result[index] = last.ts + scheduled_delta
         available_at[index] = last.ts
-    return result, available_at
+    return result, [max(value, release_ts) for value in available_at]
 
 
 def interpolate_stop_times(
@@ -402,6 +441,70 @@ def schedule_start_for_run(
     return min(candidates, key=lambda candidate: (abs(candidate - ref_start), candidate))
 
 
+def _passage_key(passage: Passage) -> tuple[int, int, str]:
+    return passage.ts, passage.scheduled_ts, passage.source
+
+
+def _reconstruct_from_anchors(
+    pattern: RoutePattern,
+    run_id: str,
+    pings: Sequence[Ping],
+    day: str,
+    candidates: Sequence[Anchor],
+) -> list[Passage] | None:
+    """Apply the anchor-chain, qualification and interpolation rules; None if excluded."""
+    anchors = drop_time_order_breaking_anchors(candidates)
+    if len(anchors) < 2 or anchors[-1].ts - anchors[0].ts > MAX_OBSERVED_SPAN_S:
+        return None
+    schedule_start = schedule_start_for_run(pattern, run_id, pings, day, anchors=anchors)
+    return build_passages(pattern.stops, anchors, schedule_start)
+
+
+def prefix_stable_availability(
+    pattern: RoutePattern,
+    run_id: str,
+    pings: Sequence[Ping],
+    day: str,
+    passages: Sequence[Passage],
+    radius_m: float = DEFAULT_RADIUS_M,
+) -> list[int]:
+    """Return, per passage, the earliest ping ts after which every raw-GPS prefix reproduces it.
+
+    A later anchor can revise an earlier reconstruction (for example the maximum-cardinality
+    chain dropping a previously observed stop). Until the prefix reconstruction agrees with the
+    published passage and keeps agreeing, the published value depends on future GPS.
+    """
+    prefixes = list(iter_prefix_anchor_sets(pings, pattern.stops, radius_m))
+    last_mismatch = [-1] * len(passages)
+    for position, (cutoff, candidates) in enumerate(prefixes):
+        prefix = _reconstruct_from_anchors(pattern, run_id, pings[: cutoff + 1], day, candidates)
+        for index, passage in enumerate(passages):
+            if prefix is None or _passage_key(prefix[index]) != _passage_key(passage):
+                last_mismatch[index] = position
+    if not prefixes or max(last_mismatch) == len(prefixes) - 1:
+        raise RuntimeError(f"full GPS prefix does not reproduce run {run_id}")
+    return [pings[prefixes[position + 1][0]].ts for position in last_mismatch]
+
+
+def reconstruct_run(
+    pattern: RoutePattern,
+    run_id: str,
+    pings: Sequence[Ping],
+    day: str,
+    radius_m: float = DEFAULT_RADIUS_M,
+) -> list[Passage] | None:
+    """Reconstruct one GPS run (pings sorted by ts) with as-of availability; None if excluded."""
+    candidates = select_minimum_distance_anchors(pings, pattern.stops, radius_m)
+    passages = _reconstruct_from_anchors(pattern, run_id, pings, day, candidates)
+    if passages is None:
+        return None
+    stable = prefix_stable_availability(pattern, run_id, pings, day, passages, radius_m)
+    return [
+        replace(passage, available_at=max(passage.available_at, stable_at))
+        for passage, stable_at in zip(passages, stable, strict=True)
+    ]
+
+
 def reconstruct_day(
     day: str,
     gps_path: Path,
@@ -419,13 +522,10 @@ def reconstruct_day(
     skipped = 0
     for (route_id, vehicle_id, run_id), pings in sorted(runs.items()):
         pattern = patterns[route_id]
-        candidates = select_minimum_distance_anchors(pings, pattern.stops, radius_m)
-        anchors = drop_time_order_breaking_anchors(candidates)
-        if len(anchors) < 2 or anchors[-1].ts - anchors[0].ts > MAX_OBSERVED_SPAN_S:
+        passages = reconstruct_run(pattern, run_id, pings, day, radius_m)
+        if passages is None:
             skipped += 1
             continue
-        schedule_start = schedule_start_for_run(pattern, run_id, pings, day, anchors=anchors)
-        passages = build_passages(pattern.stops, anchors, schedule_start)
         observed_count = sum(passage.observed for passage in passages)
         coverage.append(
             {
@@ -506,7 +606,10 @@ def write_coverage_report(
             f"{radius_m:g} m, with minimum distance per stop and a maximum-cardinality "
             "time-ordered anchor chain. Runs with fewer than two surviving anchors or an "
             "observed span over six hours are excluded. Gaps are schedule-proportionally "
-            "interpolated; endpoints use schedule-rate extrapolation."
+            "interpolated; endpoints use schedule-rate extrapolation. Each passage's "
+            "`available_at` is the latest of its own anchor rule, the run's second surviving "
+            "anchor (when the run first qualifies), and the time after which every raw-GPS "
+            "prefix reconstruction reproduces the published passage."
         ),
         "",
         (
