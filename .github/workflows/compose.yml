@@ -31,9 +31,13 @@ jobs:
             curl -sf -o /dev/null http://127.0.0.1:3100/ && break
             sleep 2
           done
-          curl -sS -w '\nHTTP %{http_code}\n' http://127.0.0.1:3100/ | tail -c 400 | tee logs/ui.txt
+          curl -sS -D logs/ui-headers.txt -o logs/ui.html -w 'HTTP %{http_code}\n' http://127.0.0.1:3100/ | tee logs/ui.txt
           curl -sS -w '\nHTTP %{http_code}\n' http://127.0.0.1:3100/health | tee logs/health.txt || true
           grep -q 'HTTP 200' logs/ui.txt
+          # The not-built fallback is also HTTP 200 (text/plain), so require the built index.html.
+          grep -qi '^content-type: text/html' logs/ui-headers.txt
+          grep -q '<div id="root">' logs/ui.html
+          grep -q 'src="/assets/' logs/ui.html
       - if: always()
         run: docker logs api-smoke > logs/api-container.log 2>&1 || true
       - if: always()
