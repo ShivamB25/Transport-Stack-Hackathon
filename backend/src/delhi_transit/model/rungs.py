@@ -1,4 +1,4 @@
-"""Model ladder rungs 0, 1, 1h and 2 with their historical median tables."""
+"""Model ladder rungs 0, 1 and 2 with their historical median tables."""
 from __future__ import annotations
 
 import math
@@ -11,8 +11,8 @@ from typing import Any
 from delhi_transit.model.causal_core import CausalFeatures
 from delhi_transit.model.features import ReplayQuery, StretchError
 
-ALL_RUNGS: tuple[str, ...] = ("0", "1", "1h", "2", "4")
-BASELINE_RUNGS: tuple[str, ...] = ("0", "1", "1h")
+ALL_RUNGS: tuple[str, ...] = ("0", "1", "2", "4")
+BASELINE_RUNGS: tuple[str, ...] = ("0", "1")
 
 StretchKey = tuple[int, str, str, str]
 
@@ -51,62 +51,34 @@ def _parse_key(row: Sequence[Any], types: Sequence[Callable[[Any], Any]]) -> tup
 
 
 class BaselineModel(RungModel):
-    """Timetable (0), previous-run persistence (1), or hourly median (1h)."""
+    """Timetable (0) or previous-run persistence (1)."""
 
     def __init__(self, rung: str) -> None:
         if rung not in BASELINE_RUNGS:
             raise ValueError(f"unknown baseline rung: {rung}")
         self.rung = rung
-        self._medians: dict[tuple[int, str, str, str, int], float] = {}
 
     def fit(self, training_stretches: Iterable[StretchError]) -> BaselineModel:
-        """Fit historical medians using only the supplied whole training days."""
-        if self.rung != "1h":
-            return self
-        errors: dict[tuple[int, str, str, str, int], list[int]] = defaultdict(list)
-        for stretch in training_stretches:
-            errors[(*stretch.stretch_key, stretch.query_hour)].append(stretch.error_s)
-        self._medians = {key: float(median(values)) for key, values in errors.items()}
         return self
-
-    def _hourly_median(self, stretch_key: StretchKey, hour: int) -> Prediction:
-        key = (*stretch_key, hour)
-        if key not in self._medians:
-            return Prediction(0.0, used_fallback=True)
-        return Prediction(self._medians[key])
 
     def predict(self, query: ReplayQuery) -> Prediction:
         if self.rung == "0":
             return Prediction(0.0)
-        if self.rung == "1":
-            return Prediction(float(query.previous_error_s))
-        return self._hourly_median(query.stretch.stretch_key, query.stretch.query_hour)
+        return Prediction(float(query.previous_error_s))
 
     def predict_from_features(self, stretch_key: StretchKey, features: CausalFeatures) -> Prediction:
         if self.rung == "0":
             return Prediction(0.0)
-        if self.rung == "1":
-            if math.isfinite(features.previous_error_s):
-                return Prediction(float(features.previous_error_s))
-            return Prediction(0.0, used_fallback=True)
-        return self._hourly_median(stretch_key, features.hour)
+        if math.isfinite(features.previous_error_s):
+            return Prediction(float(features.previous_error_s))
+        return Prediction(0.0, used_fallback=True)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "rung": self.rung,
-            "medians": [
-                {"key": list(k), "value": v} for k, v in sorted(self._medians.items())
-            ],
-        }
+        return {"rung": self.rung}
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BaselineModel:
-        model = cls(str(payload["rung"]))
-        model._medians = {
-            _parse_key(item["key"], (int, str, str, str, int)): float(item["value"])
-            for item in payload.get("medians", [])
-        }
-        return model
+        return cls(str(payload["rung"]))
 
 
 # Serialised level name -> key column types, in fallback order.

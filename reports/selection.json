@@ -1,11 +1,10 @@
 {
   "selected_rung": "4",
   "stratum": "observed-only",
-  "rule": "Ship the highest shippable rung in (4, 2) whose held-out observed-only query-weighted MAE is strictly lower than rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship rung 1. Rung 1h is a non-shippable historical baseline and never appears as selected_rung.",
+  "rule": "Ship the highest shippable rung in (4, 2) whose held-out observed-only query-weighted MAE is strictly lower than rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship rung 1.",
   "ladder_order": [
     "0",
     "1",
-    "1h",
     "2",
     "4"
   ],
@@ -55,21 +54,6 @@
       "mean_interval_width_s": null,
       "weighted_mean_group_median_width_s": null
     },
-    "1h": {
-      "rung": "1h",
-      "shippable": false,
-      "queries": 13299,
-      "overall_mae_s": 74.525303,
-      "delta_vs_rung1_s": 1.75893,
-      "coverage_matches_rung1": true,
-      "beats_rung1_overall": false,
-      "groups_beating_rung1": 2,
-      "total_groups": 6,
-      "beats_rung1_all_groups": false,
-      "interval_coverage_pct": null,
-      "mean_interval_width_s": null,
-      "weighted_mean_group_median_width_s": null
-    },
     "2": {
       "rung": "2",
       "shippable": true,
@@ -111,7 +95,6 @@
       "mae_by_rung_s": {
         "0": 101.801186,
         "1": 87.111719,
-        "1h": 92.108071,
         "2": 83.199042,
         "4": 75.880979
       },
@@ -132,7 +115,6 @@
       "mae_by_rung_s": {
         "0": 95.60826,
         "1": 79.93617,
-        "1h": 80.702753,
         "2": 79.477055,
         "4": 65.930052
       },
@@ -153,7 +135,6 @@
       "mae_by_rung_s": {
         "0": 75.619309,
         "1": 60.185919,
-        "1h": 63.576518,
         "2": 57.603499,
         "4": 49.17236
       },
@@ -174,7 +155,6 @@
       "mae_by_rung_s": {
         "0": 73.865287,
         "1": 60.938345,
-        "1h": 59.69109,
         "2": 55.85853,
         "4": 47.91369
       },
@@ -195,7 +175,6 @@
       "mae_by_rung_s": {
         "0": 70.603322,
         "1": 59.895457,
-        "1h": 59.278212,
         "2": 53.989253,
         "4": 46.648039
       },
@@ -216,7 +195,6 @@
       "mae_by_rung_s": {
         "0": 108.953694,
         "1": 91.263267,
-        "1h": 94.786681,
         "2": 89.418054,
         "4": 78.193223
       },

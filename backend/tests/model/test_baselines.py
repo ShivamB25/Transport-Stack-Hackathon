@@ -110,27 +110,16 @@ def test_replay_rejects_equal_timestamp_and_cross_day_leakage() -> None:
     assert build_replay_queries(rows) == []
 
 
-def test_all_three_rungs_and_empty_history_fallback() -> None:
+def test_baseline_rungs() -> None:
     hour_eight = int(datetime(2026, 10, 5, 8, tzinfo=IST).timestamp())
-    training = [
-        stretch("a", hour_eight, hour_eight + 100, 10),
-        stretch("b", hour_eight + 10, hour_eight + 110, 20),
-        stretch("c", hour_eight + 20, hour_eight + 120, 30),
-    ]
+    training = [stretch("a", hour_eight, hour_eight + 100, 10)]
     item = stretch("target", hour_eight + 200, hour_eight + 300, 40)
     replay = query(item, previous_error_s=17)
     assert BaselineModel("0").fit(training).predict(replay).error_s == 0
     assert BaselineModel("1").fit(training).predict(replay).error_s == 17
-    historical = BaselineModel("1h").fit(training)
-    assert historical.predict(replay).error_s == 20
-
-    hour_nine = int(datetime(2026, 10, 22, 9, tzinfo=IST).timestamp())
-    missing = query(stretch("missing", hour_nine, hour_nine + 100, 0))
-    prediction = historical.predict(missing)
-    assert prediction.error_s == 0
-    assert prediction.used_fallback
-    with pytest.raises(ValueError, match="unknown baseline rung"):
-        BaselineModel("4")
+    for removed in ("1h", "4"):
+        with pytest.raises(ValueError, match="unknown baseline rung"):
+            BaselineModel(removed)
 
 
 def test_metric_values_and_coverage_columns() -> None:

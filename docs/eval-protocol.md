@@ -5,6 +5,7 @@ Version: 1.1, amended on 2026-11-23 after the all-stop gate failure and before s
 Version: 1.2, amended on 2026-11-23 before causal re-evaluation on rebuilt passages (enforcing source-GPS `available_at` causality, shippable rung output domain `{"1", "2", "3", "4"}`, artifact as-of cutoff metadata, and explicit interval-width aggregation labels).
 Version: 1.3, amended on 2026-11-23 before regenerating results: `available_at` also waits for run qualification and raw-GPS prefix stability, and only `observed-only` decisions may be written to `selection.json`.
 Version: 1.4, amended on 2026-11-24 after a training-days-only diagnosis: rung 3 is removed from the ladder, so the shippable domain becomes `{"1", "2", "4"}`.
+Version: 1.5, amended on 2026-11-24 after training-day bin counts: rung 1h is removed from the ladder, which is now `0`, `1`, `2`, `4`.
 
 ## Scope and directions
 
@@ -121,3 +122,13 @@ Issue #4 asked whether rung 3 (rung 2 plus a `HuberRegressor` adjustment from th
 - **Leave-one-training-day-out accuracy (observed-only, 14 day × direction groups, rung 2 and rung 3 fitted on the other six days):** rung 3 is worse than rung 2 in 14/14 groups; pooled MAE 64.985 s vs 64.914 s.
 
 Rung 3 is therefore removed. The ladder is `0`, `1`, `1h`, `2`, `4`; the shippable domain is `{"1", "2", "4"}` and the selection rule ships the highest rung in `(4, 2)` that beats rung 1 under the unchanged conditions. No other model, hyperparameter, fallback, split or stratum changed. The single held-out re-evaluation after the decision leaves every rung 0, 1, 1h, 2 and 4 number unchanged and the selected rung `4` unchanged; the rung 4 artifact and saved predictions are byte-identical.
+
+## Amendment 1.5 — rung 1h removed from the ladder
+
+Issue #10 asked why rung 1h (median training stretch error per `(route, direction, from_stop, to_stop, IST hour)` bin) is worse than rung 1 when pooled but better in 2 of 6 held-out groups, and whether sparse bins explain it. Bin counts were taken from the training days only (2026-10-05, 06, 07, 08, 13, 14, 15); held-out queries contributed only their bin keys.
+
+- **Training bins:** 1,976 bins. DOWN has a median of 45 samples per bin (p10 5, 10.2% under 6); UP has a median of 42 (p10 20, 3.6% under 6).
+- **Held-out observed-only queries:** every group has a median of 50 to 55 training samples behind its bins, no empty bins, and at most 0.042% of queries in bins under 6. The two groups where 1h wins (2026-10-27 UP, median 50; 2026-10-28 DOWN, median 55) are not the best-populated: 2026-10-22 DOWN (52) and 2026-10-28 UP (53) lose.
+- **Leave-one-training-day-out (observed-only, rung 1h fitted on the other six training days):** rung 1h beats rung 1 in 5/14 groups. By training samples in the bin, rung 1h vs rung 1 MAE is 36.3 vs 32.3 s (1–5, 31 queries), 31.8 vs 42.0 s (6–10, 127), 43.0 vs 48.2 s (11–20, 1,335), 67.1 vs 67.1 s (21–40, 13,199) and 68.7 vs 66.3 s (over 40, 22,419). The pooled loss comes from well-populated bins.
+
+Sparse bins do not explain the pooled regression. Rung 1h ignores the current day, so it wins only on days that look like the training median, and it is never reliably better than persistence. As directed for this case, rung 1h is removed rather than re-binned. The ladder is `0`, `1`, `2`, `4`. Rung 2 keeps its own stretch-hour median level inside its hierarchy, so the day-type step is still measured against persistence. The baseline reports score rungs `0` and `1` only. No other model, hyperparameter, fallback, split or stratum changed. One held-out re-evaluation after the decision leaves every rung 0, 1, 2 and 4 number and the selected rung `4` unchanged, and the rung 4 artifact and saved predictions are byte-identical.
