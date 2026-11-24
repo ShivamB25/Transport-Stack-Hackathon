@@ -11,6 +11,12 @@ import duckdb
 from delhi_transit.core.time import hhmmss_ist, iso_ist
 from delhi_transit.planner.itinerary import place_stop_id
 from delhi_transit.planner.otp_client import OTPClientError
+from delhi_transit.planner.provenance import TimingEstimate
+from delhi_transit.planner.risk import (
+    ratio_interval,
+    scenario_windows,
+    simulate_joint_scenarios,
+)
 
 DEMO_DAY = "2026-10-22"
 DEMO_RUN_ID = "2171_17_09_490"
@@ -43,6 +49,9 @@ DEMO_DIRECT_ROUTE = "774UP"
 DEMO_FIRST_TRIP_ID = "DTC:2171_FULL_17_09"
 DEMO_CONNECTING_TRIP_ID = "DTC:1416_FULL_15_08"
 DEMO_CONNECTING_RUN_ID = "1416_15_08"
+# Allowance added to the direct bus's timetabled ride, and the assumed wait for the next connecting bus after a miss.
+DIRECT_RIDE_ALLOWANCE_S = 120
+NEXT_BUS_HEADWAY_S = 900
 
 # Real Oct 22 passages of run 2171_17_09_490, used when the passages Parquet is not available.
 _FALLBACK_PASSAGES: list[dict[str, Any]] = [
@@ -270,12 +279,14 @@ def _extract_geometries(
 
     direct_scheduled_s = 3930
     direct_route_summary = DEMO_DIRECT_ROUTE
+    direct_ride_s: float | None = None
     if direct_cand:
         d_legs = _transit_legs(direct_cand)
         if direct_cand.get("duration"):
             direct_scheduled_s = round(float(direct_cand["duration"]))
         if d_legs:
             direct_route_summary = (d_legs[0].get("route") or {}).get("shortName") or DEMO_DIRECT_ROUTE
+            direct_ride_s = sum(float(leg.get("duration") or 0) for leg in d_legs)
 
     return {
         "transfer_legs": _legs_payload(transfer_cand),
@@ -285,8 +296,22 @@ def _extract_geometries(
         "connecting_scheduled_depart": connect_sched_iso,
         "transfer_route_summary": transfer_route_summary,
         "direct_scheduled_s": direct_scheduled_s,
+        "direct_ride_s": direct_scheduled_s if direct_ride_s is None else direct_ride_s,
         "direct_route_summary": direct_route_summary,
     }
+
+
+def _direct_window(scheduled_s: float, ride_s: float) -> tuple[int, int]:
+    """Door-to-door window of the single-ride direct option, from the planner's ride window and joint scenarios."""
+    ride_estimate_s = ride_s + DIRECT_RIDE_ALLOWANCE_S
+    p10, p90 = ratio_interval([], ride_estimate_s)
+    events = [
+        {"kind": "fixed", "duration": max(0.0, scheduled_s - ride_s)},
+        {"kind": "ride", "estimate": TimingEstimate(ride_estimate_s, p10, p90, "timetable", 0.0), "delay": 0.0},
+    ]
+    scenarios, _ = simulate_joint_scenarios(events)
+    windows = scenario_windows(scenarios)
+    return round(windows["total_window_p10_s"]), round(windows["total_window_p90_s"])
 
 
 def _simulate_transfer_stage(
@@ -295,7 +320,7 @@ def _simulate_transfer_stage(
     remaining_stops: int,
     transfer_scheduled_s: int,
     transfer_gap_s: int,
-    next_bus_headway_s: int = 900,
+    next_bus_headway_s: int = NEXT_BUS_HEADWAY_S,
     seed: int = 717,
 ) -> dict[str, Any]:
     """Monte Carlo joint-scenario connection risk given current observed delay."""
@@ -402,9 +427,11 @@ async def build_marginal_transfer_demo(
     actual_outcome = "caught" if margin_vs_connection_s >= 0 else "missed"
     missed_by_s = max(0, -margin_vs_connection_s)
 
-    direct_est_s = direct_sched_s + 120
-    direct_p10_s = direct_est_s - 300
-    direct_p90_s = direct_est_s + 420
+    direct_est_s = direct_sched_s + DIRECT_RIDE_ALLOWANCE_S
+    direct_p10_s, direct_p90_s = _direct_window(direct_sched_s, geom["direct_ride_s"])
+    # The outcome is one time, not a window: the timetabled trip plus the observed delay at the transfer stop,
+    # plus the next-bus wait after a miss.
+    actual_total_s = transfer_sched_s + actual_delay_s + (NEXT_BUS_HEADWAY_S if actual_outcome == "missed" else 0)
 
     stage_specs = [
         ("initial", "1. Timetable recommends transfer", p_start, 15, False, False),
@@ -420,9 +447,9 @@ async def build_marginal_transfer_demo(
         if is_outcome:
             sim = {
                 "miss_probability": 1.0 if actual_outcome == "missed" else 0.0,
-                "estimated_total_s": transfer_sched_s + actual_delay_s + (900 if actual_outcome == "missed" else 0),
-                "window_p10_s": transfer_sched_s + actual_delay_s + (600 if actual_outcome == "missed" else 0),
-                "window_p90_s": transfer_sched_s + actual_delay_s + (1200 if actual_outcome == "missed" else 0),
+                "estimated_total_s": actual_total_s,
+                "window_p10_s": actual_total_s,
+                "window_p90_s": actual_total_s,
             }
         else:
             sim = _simulate_transfer_stage(

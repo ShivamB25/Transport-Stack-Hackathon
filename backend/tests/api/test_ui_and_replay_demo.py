@@ -6,9 +6,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from delhi_transit.api import replay_demo
 from delhi_transit.api.app import create_app
 from delhi_transit.core import config
 from delhi_transit.planner.provenance import TimingEstimate, WaitEstimate
+from delhi_transit.planner.risk import (
+    percentile,
+    ratio_interval,
+    simulate_joint_scenarios,
+)
 
 
 def _candidate_with_coords() -> dict:
@@ -186,7 +192,15 @@ def test_root_serves_built_frontend_and_assets_stay_inside_dist(tmp_path: Path, 
     assert client.get("/assets/%2e%2e/%2e%2e/outside.txt").status_code == 404
     assert client.get("/favicon.ico").status_code == 204
 
-def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Path) -> None:
+def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Path, monkeypatch) -> None:
+    joint_runs: list[tuple[list[dict], list[list[float]]]] = []
+
+    def recording_simulation(events):
+        scenarios, missed = simulate_joint_scenarios(events)
+        joint_runs.append((events, scenarios))
+        return scenarios, missed
+
+    monkeypatch.setattr(replay_demo, "simulate_joint_scenarios", recording_simulation)
     client = _make_client(tmp_path)
     resp = client.get("/replay/demo")
     assert resp.status_code == 200
@@ -209,6 +223,31 @@ def test_replay_demo_shows_initial_recommendation_flip_and_outcome(tmp_path: Pat
     # The first three stages grow monotonically; the observed final stop can recover slightly.
     assert delays[0] < delays[1] < delays[2]
     assert delays[3] > delays[0]
+
+    # The direct window is the p10/p90 of joint scenario totals over the direct itinerary
+    # (walks fixed, the 774UP ride drawn from the planner's ride window), not fixed offsets.
+    [(events, scenarios)] = joint_runs
+    ride_estimate_s = 2612 + replay_demo.DIRECT_RIDE_ALLOWANCE_S
+    assert [event["kind"] for event in events] == ["fixed", "ride"]
+    assert events[0]["duration"] == 3930 - 2612
+    ride = events[1]["estimate"]
+    assert (ride.duration_s, ride.p10_s, ride.p90_s) == (ride_estimate_s, *ratio_interval([], ride_estimate_s))
+    totals = [sum(scenario) for scenario in scenarios]
+    for stage in stages:
+        direct = stage["direct_option"]
+        assert (direct["window_p10_s"], direct["window_p90_s"]) == (
+            round(percentile(totals, 0.1)),
+            round(percentile(totals, 0.9)),
+        )
+        assert (direct["window_p10_s"], direct["window_p90_s"]) != (
+            direct["estimated_duration_s"] - 300,
+            direct["estimated_duration_s"] + 420,
+        )
+        assert direct["window_p10_s"] < direct["estimated_duration_s"] < direct["window_p90_s"]
+
+    # The revealed outcome is a single time, not an invented window.
+    actual = stages[3]["transfer_option"]
+    assert actual["window_p10_s"] == actual["window_p90_s"] == actual["estimated_duration_s"]
 
 
 def test_replay_demo_selects_scripted_pair_regardless_of_candidate_order(tmp_path: Path) -> None:

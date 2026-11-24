@@ -55,7 +55,15 @@ function Pill({ tone, children }: { tone: 'yes' | 'no' | 'alt'; children: string
   return <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase', tones[tone])}>{children}</span>
 }
 
-function DemoOptionCard({ option, pill, missRisk }: { option: DemoOption; pill: ReactNode; missRisk: string }) {
+interface DemoOptionCardProps {
+  option: DemoOption
+  pill: ReactNode
+  missRisk: string
+  /** The revealed outcome is one observed time, not a predicted window. */
+  actual?: boolean
+}
+
+function DemoOptionCard({ option, pill, missRisk, actual = false }: DemoOptionCardProps) {
   return (
     <div
       className={cn(
@@ -69,11 +77,18 @@ function DemoOptionCard({ option, pill, missRisk }: { option: DemoOption; pill: 
         <span>{option.label}</span>
         {pill}
       </div>
-      <div className="mt-1 text-xs text-slate-700">
-        Est. <strong>{fmtDuration(option.estimated_duration_s)}</strong> (window {fmtDuration(option.window_p10_s)}–
-        {fmtDuration(option.window_p90_s)}) · Timetable: {fmtDuration(option.scheduled_duration_s)} · Miss risk:{' '}
-        <strong>{missRisk}</strong>
-      </div>
+      {actual ? (
+        <div className="mt-1 text-xs text-slate-700">
+          Actual: <strong>{fmtDuration(option.estimated_duration_s)}</strong> · Timetable:{' '}
+          {fmtDuration(option.scheduled_duration_s)}
+        </div>
+      ) : (
+        <div className="mt-1 text-xs text-slate-700">
+          Est. <strong>{fmtDuration(option.estimated_duration_s)}</strong> (window {fmtDuration(option.window_p10_s)}–
+          {fmtDuration(option.window_p90_s)}) · Timetable: {fmtDuration(option.scheduled_duration_s)} · Miss risk:{' '}
+          <strong>{missRisk}</strong>
+        </div>
+      )}
     </div>
   )
 }
@@ -95,7 +110,12 @@ function StageOptions({ stage }: { stage: DemoStage }) {
   )
   return (
     <div id="demo-options" className="flex flex-col gap-2">
-      <DemoOptionCard option={transfer} pill={transferPill} missRisk={`${Math.round(transfer.miss_probability * 100)}%`} />
+      <DemoOptionCard
+        option={transfer}
+        pill={transferPill}
+        missRisk={`${Math.round(transfer.miss_probability * 100)}%`}
+        actual={stage.outcome_revealed}
+      />
       <DemoOptionCard option={direct} pill={directPill} missRisk="0% (direct)" />
     </div>
   )
