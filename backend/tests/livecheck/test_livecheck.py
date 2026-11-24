@@ -6,8 +6,14 @@ from pathlib import Path
 import httpx
 
 from delhi_transit.core.config import IST
-from delhi_transit.livecheck.analyze import ActualRun, StopPassage, match_leg
+from delhi_transit.livecheck.analyze import (
+    ActualRun,
+    StopPassage,
+    match_leg,
+    run_status,
+)
 from delhi_transit.livecheck.record import Recorder, RunSettings
+from delhi_transit.livecheck.report import run_status_line
 
 BOARD_TS = 1_800_000_000
 
@@ -134,3 +140,20 @@ def test_google_stops_at_ledger_limit_and_zero_budget_makes_no_call(tmp_path):
     with _api() as api:
         _recorder(tmp_path / "b", idle, google_max=0, ledger_limit=122).run_google(api, slot=0)
     assert idle.calls == 0
+
+def test_run_left_running_is_reported_as_stopped_before_completion():
+    summary = {"status": "running", "started_at": "S", "updated_at": "U", "until": "E"}
+    run = run_status(summary, {"last_ok": "L"})
+    assert run["status"] == "stopped_before_completion"
+    assert run["summary_status"] == "running"
+    assert run["last_ok_poll"] == "L"
+    line = run_status_line(run)
+    assert "stopped before completion" in line
+    assert "last summary update U, last successful poll L (planned end E)" in line
+
+
+def test_finished_run_status_is_kept():
+    run = run_status({"status": "finished", "started_at": "S", "updated_at": "U", "until": "E"}, {"last_ok": "L"})
+    assert run["status"] == "finished"
+    assert "last_ok_poll" not in run
+    assert run_status_line(run) == "- Run status: finished; started S, last update U (planned end E)."
