@@ -1,19 +1,17 @@
 {
   "selected_rung": "4",
   "stratum": "observed-only",
-  "rule": "Ship the highest shippable rung in (4, 3, 2) whose held-out observed-only query-weighted MAE is strictly lower than rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship rung 1. Rung 1h is a non-shippable historical baseline and never appears as selected_rung.",
+  "rule": "Ship the highest shippable rung in (4, 2) whose held-out observed-only query-weighted MAE is strictly lower than rung 1 (persistence) at identical per-group observed-vs-interpolated coverage; otherwise ship rung 1. Rung 1h is a non-shippable historical baseline and never appears as selected_rung.",
   "ladder_order": [
     "0",
     "1",
     "1h",
     "2",
-    "3",
     "4"
   ],
   "shippable_rungs": [
     "1",
     "2",
-    "3",
     "4"
   ],
   "holdout_days": [
@@ -87,21 +85,6 @@
       "mean_interval_width_s": null,
       "weighted_mean_group_median_width_s": null
     },
-    "3": {
-      "rung": "3",
-      "shippable": true,
-      "queries": 13299,
-      "overall_mae_s": 69.55761,
-      "delta_vs_rung1_s": -3.208763,
-      "coverage_matches_rung1": true,
-      "beats_rung1_overall": true,
-      "groups_beating_rung1": 6,
-      "total_groups": 6,
-      "beats_rung1_all_groups": true,
-      "interval_coverage_pct": null,
-      "mean_interval_width_s": null,
-      "weighted_mean_group_median_width_s": null
-    },
     "4": {
       "rung": "4",
       "shippable": true,
@@ -130,7 +113,6 @@
         "1": 87.111719,
         "1h": 92.108071,
         "2": 83.199042,
-        "3": 83.262108,
         "4": 75.880979
       },
       "intervals_by_rung": {
@@ -152,7 +134,6 @@
         "1": 79.93617,
         "1h": 80.702753,
         "2": 79.477055,
-        "3": 79.557205,
         "4": 65.930052
       },
       "intervals_by_rung": {
@@ -174,7 +155,6 @@
         "1": 60.185919,
         "1h": 63.576518,
         "2": 57.603499,
-        "3": 57.616116,
         "4": 49.17236
       },
       "intervals_by_rung": {
@@ -196,7 +176,6 @@
         "1": 60.938345,
         "1h": 59.69109,
         "2": 55.85853,
-        "3": 55.911527,
         "4": 47.91369
       },
       "intervals_by_rung": {
@@ -218,7 +197,6 @@
         "1": 59.895457,
         "1h": 59.278212,
         "2": 53.989253,
-        "3": 54.036309,
         "4": 46.648039
       },
       "intervals_by_rung": {
@@ -240,7 +218,6 @@
         "1": 91.263267,
         "1h": 94.786681,
         "2": 89.418054,
-        "3": 89.530686,
         "4": 78.193223
       },
       "intervals_by_rung": {

@@ -30,7 +30,6 @@ from delhi_transit.model.rungs import (
     BaselineModel,
     Prediction,
     Rung2DayTypeModel,
-    Rung3LastDelayModel,
 )
 from delhi_transit.model.selection import select_shipped_rung
 
@@ -43,7 +42,7 @@ STRATA = ("all-stop", "observed-only")
 # Days whose data each selected rung's artifact was fitted or calibrated on.
 ARTIFACT_DATA_DAYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "4": (FIT_DAYS, CALIBRATION_DAYS),
-    **{rung: (TRAIN_DAYS, ()) for rung in ("1h", "2", "3")},
+    **{rung: (TRAIN_DAYS, ()) for rung in ("1h", "2")},
 }
 
 PREDICTION_SCHEMA = pa.schema(
@@ -278,7 +277,6 @@ def run_evaluation(
             cal_queries.extend(queries)
 
     training_stretches = fit_stretches + cal_stretches
-    training_queries = fit_queries + cal_queries
 
     holdout_queries: dict[str, list[ReplayQuery]] = {}
     for day in active_holdout:
@@ -291,7 +289,6 @@ def run_evaluation(
     }
     if not baselines_only:
         models["2"] = Rung2DayTypeModel().fit(training_stretches)
-        models["3"] = Rung3LastDelayModel().fit(training_stretches, training_queries)
         models["4"] = Rung4QuantileLightGBMModel().fit(
             fit_stretches, fit_queries, cal_queries
         )

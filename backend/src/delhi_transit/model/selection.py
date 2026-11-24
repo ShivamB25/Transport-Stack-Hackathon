@@ -10,9 +10,9 @@ from typing import Any
 
 from delhi_transit.core.config import REPO_ROOT
 
-LADDER_ORDER: tuple[str, ...] = ("0", "1", "1h", "2", "3", "4")
-SHIPPABLE_RUNGS: tuple[str, ...] = ("1", "2", "3", "4")
-SHIPPABLE_ABOVE_PERSISTENCE: tuple[str, ...] = ("4", "3", "2")
+LADDER_ORDER: tuple[str, ...] = ("0", "1", "1h", "2", "4")
+SHIPPABLE_RUNGS: tuple[str, ...] = ("1", "2", "4")
+SHIPPABLE_ABOVE_PERSISTENCE: tuple[str, ...] = ("4", "2")
 SHIP_STRATUM = "observed-only"
 
 
@@ -191,7 +191,7 @@ def select_shipped_rung(
         "selected_rung": selected_rung,
         "stratum": stratum,
         "rule": (
-            "Ship the highest shippable rung in (4, 3, 2) whose held-out observed-only "
+            "Ship the highest shippable rung in (4, 2) whose held-out observed-only "
             "query-weighted MAE is strictly lower than rung 1 (persistence) at identical "
             "per-group observed-vs-interpolated coverage; otherwise ship rung 1. Rung 1h is "
             "a non-shippable historical baseline and never appears as selected_rung."
