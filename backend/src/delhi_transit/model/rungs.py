@@ -160,11 +160,28 @@ class HistoricalMedianTable:
         coarse_day_type: str,
         hour: int,
     ) -> tuple[float, float, float]:
-        """Return (dow_hour_median, hour_median, stretch_median) for feature encoding."""
+        """Return (dow_hour_median, hour_median, stretch_median) for feature encoding.
+
+        These feed the `hist_*` features. When no level has any data the three values are
+        NaN, not 0.0: a median error of 0.0 s asserts that runs on this stretch are
+        typically exactly on schedule, which is a measurement we do not have. An unseen
+        stretch is unknown, and `causal_core._OBSERVED_DEFAULTS` uses NaN for exactly this
+        case. `lookup` keeps its 0.0 fallback because there it is a prediction — with no
+        history at all, assuming the timetable holds is the defensible guess.
+        """
         dow_val, _ = self.lookup(stretch_key, day_of_week, coarse_day_type, hour)
         hour_key = (*stretch_key, hour)
         route_key = (stretch_key[0], stretch_key[1], hour)
-        stretch_val = self.stretch.get(stretch_key, self.route_hour.get(route_key, 0.0))
+        has_any_level = (
+            (*stretch_key, day_of_week, hour) in self.dow_hour
+            or (*stretch_key, coarse_day_type, hour) in self.coarse_hour
+            or hour_key in self.hour
+            or stretch_key in self.stretch
+            or route_key in self.route_hour
+        )
+        if not has_any_level:
+            return math.nan, math.nan, math.nan
+        stretch_val = self.stretch.get(stretch_key, self.route_hour.get(route_key, math.nan))
         hour_val = self.hour.get(hour_key, stretch_val)
         return dow_val, hour_val, stretch_val
 

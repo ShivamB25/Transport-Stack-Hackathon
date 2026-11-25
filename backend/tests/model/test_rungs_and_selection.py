@@ -83,6 +83,33 @@ def test_rung2_day_type_hierarchy_and_fallback() -> None:
     assert thu_pred.error_s > tue_pred.error_s + 30.0
 
 
+def test_unseen_stretch_historical_features_are_nan_not_zero() -> None:
+    """An unseen stretch has no historical median error.
+
+    0.0 would assert that runs on that stretch are typically exactly on schedule — a
+    measurement we do not have. ``causal_core._OBSERVED_DEFAULTS`` uses NaN for missing
+    observations, and the feature encoder has to agree: NaN says "unknown" rather than
+    reporting a flattering zero into the ``hist_*`` features.
+    """
+    passages = _make_day_passages("2026-10-06", base_error=50, runs=6)
+    stretches = build_stretch_errors(passages)
+    model = Rung2DayTypeModel(min_day_type_samples=3).fit(stretches)
+
+    seen = stretches[0].stretch_key
+    _, _, seen_stretch_val = model.table.lookup_levels(seen, 1, "weekday", 8)
+    assert not math.isnan(seen_stretch_val)
+
+    unseen = (seen[0], "no-such-stop-a", "no-such-stop-b", seen[3])
+    dow, hour, stretch_val = model.table.lookup_levels(unseen, 1, "weekday", 8)
+    assert math.isnan(dow)
+    assert math.isnan(hour)
+    assert math.isnan(stretch_val)
+
+    # A route that exists but at an hour with no samples still reports NaN, not 0.0.
+    _, _, off_hour_stretch_val = model.table.lookup_levels(seen, 1, "weekday", 3)
+    assert off_hour_stretch_val == seen_stretch_val
+
+
 def test_rung4_quantile_ordering_calibration_and_artifact_roundtrip(tmp_path: Path) -> None:
     fit_p = (
         _make_day_passages("2026-10-05", 20, runs=12)
