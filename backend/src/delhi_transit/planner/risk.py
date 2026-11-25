@@ -11,6 +11,10 @@ from delhi_transit.planner.provenance import TimingEstimate, WaitEstimate
 
 SCENARIOS = 192
 
+# A ride cannot plausibly come in under this fraction of its own estimate. Matches the
+# lower bound clamp_ratio already applies to observed actual/scheduled ratios.
+MIN_RIDE_RATIO = 0.35
+
 
 def clamp_ratio(ratio: float) -> float:
     """Bound an observed actual/scheduled ride ratio before it times a leg."""
@@ -117,10 +121,17 @@ def simulate_joint_scenarios(events: list[dict[str, Any]]) -> tuple[list[list[fl
             elif kind == "ride":
                 estimate: TimingEstimate = event["estimate"]
                 delay = event["delay"]
+                base = estimate.duration_s - delay
                 spread = (estimate.p90_s - estimate.p10_s) / 2.563
-                undelayed = estimate.duration_s - delay + spread * (0.8 * shared + 0.6 * rng.gauss(0.0, 1.0))
-                # Floor the undelayed draw so an injected delay translates the window exactly.
-                duration = max(1.0, undelayed) + delay
+                undelayed = base + spread * (0.8 * shared + 0.6 * rng.gauss(0.0, 1.0))
+                # Floor the undelayed draw at a plausible fraction of the base ride, not at
+                # 1 s. On a wide interval the lower Gaussian tail puts 8-10% of the draws
+                # below zero; flooring those at 1 s made them the p10 of the distribution,
+                # which pushed every reported ride p10 towards zero and published a window
+                # far wider than the calibrated interval (a 51.8 min ride as [0.4, 104.5]).
+                # The delay is re-added below, so an injected replay delay still translates
+                # the window exactly.
+                duration = max(max(1.0, base * MIN_RIDE_RATIO), undelayed) + delay
             else:
                 wait = event["wait"]
                 connection_departure = event["connection_departure_s"]

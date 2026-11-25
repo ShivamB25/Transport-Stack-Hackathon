@@ -8,8 +8,9 @@ import pytest
 
 from delhi_transit.model.features import StretchError
 from delhi_transit.planner.causal_context import TimingRecord
+from delhi_transit.planner.provenance import TimingEstimate, with_replay_delay
 from delhi_transit.planner.rides import RetimeModel
-from delhi_transit.planner.risk import scenario_windows
+from delhi_transit.planner.risk import scenario_windows, simulate_joint_scenarios
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -20,6 +21,53 @@ def test_joint_windows_do_not_add_leg_quantiles() -> None:
     assert windows["total_window_p90_s"] == 30.0
     assert windows["total_window_p10_s"] == 30.0
     assert sum(leg["window_p90_s"] for leg in windows["legs"]) == 38.0
+
+
+def _ride_event(duration_s: float, p10_s: float, p90_s: float, delay: float = 0.0) -> dict:
+    return {
+        "leg": {},
+        "kind": "ride",
+        "estimate": TimingEstimate(
+            duration_s=duration_s,
+            p10_s=p10_s,
+            p90_s=p90_s,
+            source="live",
+            observed_coverage=1.0,
+        ),
+        "delay": delay,
+    }
+
+
+def test_joint_scenarios_never_draw_a_physically_impossible_ride() -> None:
+    """A wide ride interval must not put scenarios near zero.
+
+    Regression: ``simulate_joint_scenarios`` floored the undelayed draw at 1.0 s, so
+    on a wide interval the lower Gaussian tail (8-10% of the 192 scenarios) landed at
+    ~1 s. Those draws set the p10 of the distribution, which dragged every reported
+    ride p10 towards zero and made the published window far wider than the calibrated
+    interval. A 51.8 min ride was reported as [0.4, 104.5] min.
+    """
+    estimate = _ride_event(duration_s=3108.0, p10_s=24.0, p90_s=6270.0)["estimate"]
+    scenarios, _ = simulate_joint_scenarios([_ride_event(3108.0, 24.0, 6270.0)])
+    durations = [scenario[0] for scenario in scenarios]
+    # No scenario may fall below the same 35% floor the ratio path already uses.
+    assert min(durations) >= 0.35 * estimate.duration_s
+    # And the p10 of the distribution must be a usable ride time, not ~1 s.
+    assert sorted(durations)[int(0.1 * (len(durations) - 1))] >= 0.35 * estimate.duration_s
+
+
+def test_joint_scenarios_translate_exactly_with_an_injected_replay_delay() -> None:
+    """The floor must not break the replay delay contract: the window shifts by exactly the delay."""
+    base = _ride_event(duration_s=600.0, p10_s=480.0, p90_s=780.0)
+    delayed_estimate = with_replay_delay(base["estimate"], 300.0)
+    delayed = {"leg": {}, "kind": "ride", "estimate": delayed_estimate, "delay": 300.0}
+
+    plain_scenarios, _ = simulate_joint_scenarios([base])
+    shifted_scenarios, _ = simulate_joint_scenarios([delayed])
+
+    assert len(plain_scenarios) == len(shifted_scenarios)
+    for plain, shifted in zip(plain_scenarios, shifted_scenarios):
+        assert shifted[0] - plain[0] == pytest.approx(300.0)
 
 
 def _record(hour: int, actual: int, scheduled: int = 100) -> TimingRecord:

@@ -95,7 +95,7 @@ class DeterministicModel:
 
 
 class ShortFallbackModel(DeterministicModel):
-    """A short fallback ride whose p10 sits on the 1 s duration floor."""
+    """A short fallback ride whose lower draw used to land on the old 1 s duration floor."""
 
     def predict_ride(
         self,
@@ -223,7 +223,10 @@ def test_replay_delay_shifts_short_fallback_ride_window_exactly(tmp_path: Path) 
     base_ride = next(leg for leg in baseline["legs"] if leg["type"] == "ride")
     delayed_ride = next(leg for leg in delayed["legs"] if leg["type"] == "ride")
 
-    assert base_ride["window_p10_s"] == 1
+    # The lower window floors at MIN_RIDE_RATIO of the 36 s ride, not at the old 1 s
+    # duration floor. The 1 s floor let the Gaussian tail set the p10, so a 36 s ride
+    # reported a p10 of 1 s and the published window was far wider than the estimate.
+    assert base_ride["window_p10_s"] == round(0.35 * 36)
     for key in ("estimated_duration_s", "window_p10_s", "window_p90_s"):
         assert delayed_ride[key] == base_ride[key] + 300
 
