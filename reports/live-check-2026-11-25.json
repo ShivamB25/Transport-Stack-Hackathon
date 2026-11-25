@@ -1,0 +1,390 @@
+{
+  "day": "2026-11-25",
+  "run": {
+    "status": "finished",
+    "started_at": "2026-11-25T06:29:23.410834+05:30",
+    "updated_at": "2026-11-25T11:30:00.001048+05:30",
+    "until": "2026-11-25T11:30:00+05:30",
+    "journeys_until": "2026-11-25T10:00:00+05:30",
+    "slot_minutes": 20.0,
+    "poll_interval_s": 25.0
+  },
+  "slots": [
+    {
+      "slot": 0,
+      "started_at": "2026-11-25T06:29:24.072925+05:30",
+      "finished_at": "2026-11-25T06:30:36.636392+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 28.08,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_000.jsonl"
+    },
+    {
+      "slot": 1,
+      "started_at": "2026-11-25T06:49:26.669323+05:30",
+      "finished_at": "2026-11-25T06:50:41.642118+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 34.67,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_001.jsonl"
+    },
+    {
+      "slot": 2,
+      "started_at": "2026-11-25T07:09:26.674959+05:30",
+      "finished_at": "2026-11-25T07:10:38.609406+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 38.68,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_002.jsonl"
+    },
+    {
+      "slot": 3,
+      "started_at": "2026-11-25T07:29:28.641917+05:30",
+      "finished_at": "2026-11-25T07:30:39.514174+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 33.64,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_003.jsonl"
+    },
+    {
+      "slot": 4,
+      "started_at": "2026-11-25T07:49:24.548042+05:30",
+      "finished_at": "2026-11-25T07:50:37.648426+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 28.55,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_004.jsonl"
+    },
+    {
+      "slot": 5,
+      "started_at": "2026-11-25T08:09:27.681501+05:30",
+      "finished_at": "2026-11-25T08:10:39.846032+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 45.68,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_005.jsonl"
+    },
+    {
+      "slot": 6,
+      "started_at": "2026-11-25T08:29:24.921910+05:30",
+      "finished_at": "2026-11-25T08:30:40.113650+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 18.92,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_006.jsonl"
+    },
+    {
+      "slot": 7,
+      "started_at": "2026-11-25T08:49:25.145885+05:30",
+      "finished_at": "2026-11-25T08:50:36.933249+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 45.15,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_007.jsonl"
+    },
+    {
+      "slot": 8,
+      "started_at": "2026-11-25T09:09:26.965894+05:30",
+      "finished_at": "2026-11-25T09:10:37.841649+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 28.97,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_008.jsonl"
+    },
+    {
+      "slot": 9,
+      "started_at": "2026-11-25T09:29:27.874934+05:30",
+      "finished_at": "2026-11-25T09:30:41.915390+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 25.88,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_009.jsonl"
+    },
+    {
+      "slot": 10,
+      "started_at": "2026-11-25T09:49:26.948556+05:30",
+      "finished_at": "2026-11-25T09:50:39.980773+05:30",
+      "queries": 36,
+      "statuses": {
+        "ok": 36
+      },
+      "feed_age_at_slot_start_s": 58.95,
+      "file": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/journeys/slot_010.jsonl"
+    }
+  ],
+  "window": {
+    "first_ok": "2026-11-25T06:29:24.072000+05:30",
+    "last_ok": "2026-11-25T11:29:49.161000+05:30",
+    "minutes": 300.4,
+    "legs_by_slot": {
+      "0": {
+        "legs": 28,
+        "end_after_window": 0
+      },
+      "1": {
+        "legs": 28,
+        "end_after_window": 0
+      },
+      "10": {
+        "legs": 21,
+        "end_after_window": 3
+      },
+      "2": {
+        "legs": 28,
+        "end_after_window": 0
+      },
+      "3": {
+        "legs": 28,
+        "end_after_window": 0
+      },
+      "4": {
+        "legs": 26,
+        "end_after_window": 0
+      },
+      "5": {
+        "legs": 24,
+        "end_after_window": 0
+      },
+      "6": {
+        "legs": 27,
+        "end_after_window": 0
+      },
+      "7": {
+        "legs": 27,
+        "end_after_window": 0
+      },
+      "8": {
+        "legs": 26,
+        "end_after_window": 0
+      },
+      "9": {
+        "legs": 24,
+        "end_after_window": 1
+      }
+    }
+  },
+  "matching_rule": {
+    "board_tolerance_s": 120,
+    "max_board_delay_s": 1800,
+    "text": "A predicted ride leg (route 2170/2171, boarding stop B, alighting stop A) has a\npredicted boarding time: the request's `depart` plus the estimated durations of the legs before\nthe ride (walks and waits), and a stop-arrival time: the same without the wait. The actual run is\nthe first reconstructed run of the same route whose passage at B is at or after\nmax(stop arrival, predicted boarding - BOARD_TOLERANCE_S). The actual ride time is that run's\npassage time at A minus its passage time at B. The leg is unmatched (with a reason) when a stop is\nnot on the reconstructed pattern, every reconstructed run passed B before that bound, no run passes\nB within MAX_BOARD_DELAY_S of the predicted boarding, or either passage of the chosen run lies outside its observed span (extrapolated)."
+  },
+  "feed_health": {
+    "polls": 722,
+    "ok": 722,
+    "success_rate": 1.0,
+    "errors": {},
+    "first_ok": "2026-11-25T06:29:24.072000+05:30",
+    "last_ok": "2026-11-25T11:29:49.161000+05:30",
+    "repeated_snapshots": 104,
+    "gaps_over_2_min": [],
+    "vehicles": {
+      "count": 722,
+      "min": 284,
+      "median": 5757.5,
+      "max": 6122
+    },
+    "fresh_vehicles": {
+      "count": 722,
+      "min": 284,
+      "median": 5741.0,
+      "max": 6113
+    },
+    "feed_age_at_poll_s": {
+      "count": 722,
+      "min": 5.7,
+      "median": 23.8,
+      "max": 60.8
+    }
+  },
+  "responses": {
+    "responses": 396,
+    "by_status": {
+      "ok": 396
+    },
+    "by_reason_code": {},
+    "ok_not_live_mode": 0,
+    "ok_with_stale_feed": 0,
+    "ok_ride_legs_missing_fields": 0,
+    "abstentions_without_code": 0,
+    "feed_age_s": {
+      "count": 396,
+      "min": 6.8,
+      "median": 34.2,
+      "max": 80.4
+    },
+    "by_slot": {
+      "0": {
+        "ok": 36
+      },
+      "1": {
+        "ok": 36
+      },
+      "2": {
+        "ok": 36
+      },
+      "3": {
+        "ok": 36
+      },
+      "4": {
+        "ok": 36
+      },
+      "5": {
+        "ok": 36
+      },
+      "6": {
+        "ok": 36
+      },
+      "7": {
+        "ok": 36
+      },
+      "8": {
+        "ok": 36
+      },
+      "9": {
+        "ok": 36
+      },
+      "10": {
+        "ok": 36
+      }
+    },
+    "stale_threshold_s": 600.0
+  },
+  "actuals": {
+    "day": "2026-11-25",
+    "gps": {
+      "snapshots": 618,
+      "raw_rows": 3215782,
+      "clean_rows": 2636017,
+      "path": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/archive-gps/day=2026-11-25.parquet"
+    },
+    "passages_path": "$DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-25/passages/day=2026-11-25.parquet",
+    "radius_m": 60.0,
+    "runs": 96,
+    "excluded_runs": 78,
+    "by_direction": {
+      "DOWN": {
+        "route_id": 2170,
+        "runs": 46,
+        "passages": 2116,
+        "observed": 849,
+        "observed_coverage": 0.4012
+      },
+      "UP": {
+        "route_id": 2171,
+        "runs": 50,
+        "passages": 2600,
+        "observed": 1036,
+        "observed_coverage": 0.3985
+      }
+    },
+    "note": null
+  },
+  "accuracy": {
+    "overall": {
+      "count": 177,
+      "mae_s": 227.5,
+      "bias_s": -42.4,
+      "median_ae_s": 128,
+      "timetable_mae_s": 393.3,
+      "p10_p90_coverage": 0.9661,
+      "small_sample": false
+    },
+    "by_provenance": {
+      "model_live": {
+        "count": 177,
+        "mae_s": 227.5,
+        "bias_s": -42.4,
+        "median_ae_s": 128,
+        "timetable_mae_s": 393.3,
+        "p10_p90_coverage": 0.9661,
+        "small_sample": false
+      }
+    },
+    "by_route": {
+      "2170": {
+        "count": 75,
+        "mae_s": 205.7,
+        "bias_s": 91.7,
+        "median_ae_s": 139,
+        "timetable_mae_s": 360.5,
+        "p10_p90_coverage": 0.9733,
+        "small_sample": false
+      },
+      "2171": {
+        "count": 102,
+        "mae_s": 243.5,
+        "bias_s": -141.1,
+        "median_ae_s": 117.0,
+        "timetable_mae_s": 417.5,
+        "p10_p90_coverage": 0.9608,
+        "small_sample": false
+      }
+    },
+    "observed_only": {
+      "count": 67,
+      "mae_s": 300.5,
+      "bias_s": -147.2,
+      "median_ae_s": 158,
+      "timetable_mae_s": 492.4,
+      "p10_p90_coverage": 0.9403,
+      "small_sample": false
+    },
+    "observed_only_by_provenance": {
+      "model_live": {
+        "count": 67,
+        "mae_s": 300.5,
+        "bias_s": -147.2,
+        "median_ae_s": 158,
+        "timetable_mae_s": 492.4,
+        "p10_p90_coverage": 0.9403,
+        "small_sample": false
+      }
+    },
+    "legs_total": 287,
+    "legs_matched": 177,
+    "unmatched_by_reason": {
+      "actual_endpoint_extrapolated": 104,
+      "no_run_within_max_board_delay": 6
+    }
+  },
+  "google": {
+    "summary": {
+      "max_calls": 0,
+      "ledger_limit": 122,
+      "slots": [
+        "2026-11-25T21:45:00+05:30",
+        "2026-11-25T22:15:00+05:30",
+        "2026-11-25T22:45:00+05:30"
+      ],
+      "calls_made": 0,
+      "cache_hits": 0,
+      "unavailable": 0,
+      "stopped_reason": null,
+      "ledger_before": 2,
+      "ledger_after": 2,
+      "ledger_total_now": 2
+    },
+    "calls_in_log": 0,
+    "rows": []
+  }
+}
