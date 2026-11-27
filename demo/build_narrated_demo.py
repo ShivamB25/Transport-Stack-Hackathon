@@ -190,7 +190,7 @@ def ensure_audio_beats(
     try:
         for beat in script["beats"]:
             beat_id = beat["id"]
-            text = beat["text"].strip()
+            text = (beat.get("tts_text") or beat["text"]).strip()
             wav_path = audio_dir / f"{beat_id}.wav"
             fp = beat_fingerprint(tts_cfg, text, effective_voice_id)
             cached_fp = manifest.get(beat_id, {}).get("fingerprint")
@@ -395,7 +395,8 @@ def main() -> None:
                 tail_pad_s=tail_pad_s,
             )
             part_files.append(part_mp4)
-            srt_entries.append((cursor_s + lead_in_s, cursor_s + lead_in_s + audio_dur, beat["text"].strip()))
+            caption = (beat.get("caption") or beat.get("text") or beat["tts_text"]).strip()
+            srt_entries.append((cursor_s + lead_in_s, cursor_s + lead_in_s + audio_dur, caption))
             cursor_s += seg_dur
 
         concat_txt = tmp_dir / "concat.txt"
