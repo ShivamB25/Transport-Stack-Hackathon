@@ -1,29 +1,27 @@
 #!/usr/bin/env bash
-# Record Full HD (1920x1080) demo footage with agent-browser showing:
-#   1. Live journey query (Kashmere Gate ISBT -> Nehru Place, Tue 08:30 IST) + leg breakdown
+# Record Full HD (1920x1080) demo footage with agent-browser, timed to exact
+# spoken cues in demo/audio/ (generated from demo/script.json):
+#   1. Live journey query (Kashmere Gate ISBT -> Nehru Place) + leg breakdown
 #   2. Oct 22 replay on 717A (Badarpur Border (T) -> Kapashera Border) with model_replay legs
 #   3. Oct 22 replay off 717A (Kashmere Gate ISBT -> Nehru Place), which abstains
-#   4. Complete 4-stage marginal-transfer replay journey (Oct 22 run 2171_17_09_490:
-#      initial timetable recommendation -> growing delay -> advice flip -> observed missed outcome)
-#   5. Explicit stale-feed abstention ("Not enough data") and live recovery
+#   4. 4-stage marginal-transfer replay (Oct 22 run 2171_17_09_490):
+#      - Early clip: Stage 1 (0-14.2s) -> Stage 2 click synced to "Just minutes later..." (14.2-20.7s)
+#      - Late clip:  Stage 3 (0-8.9s)  -> Stage 4 click synced to "Stage four reveals..." (8.9-20.0s)
+#   5. Explicit stale-feed abstention ("Not enough data") synced to >45s freshness threshold
+#   6. Live recovery after resuming the poller and retrying
 #
 # Also captures 1920x1080 PNG slides from demo/slides.html (intro, PR #28 Kalman fallback, outro),
-# transcodes demo/demo.mp4, and with --narrate invokes demo/build_narrated_demo.py to mux the
-# pre-generated Sarvam Bulbul narration WAVs (demo/audio/) into demo/demo_narrated.mp4 + .srt.
+# transcodes demo/demo.mp4, and with --narrate muxes the pre-generated Sarvam cloned-voice WAVs
+# (demo/audio/) into demo/demo_narrated.mp4 + demo/demo_narrated.srt (no SARVAM_API_KEY needed).
 #
 # Prerequisites on the recording machine:
 #   - OTP 2.8.1 running on http://localhost:3102/otp/gtfs/v1 (otp/serve.sh)
 #   - FastAPI running on http://localhost:3100 with DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45
-#     (production default is 600 s; 45 s override enables rapid stale-feed demo):
-#       cd backend && DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45 \
-#       DELHI_TRANSIT_DATA_DIR=/path/to/data \
-#       DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
-#         uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100
 #   - agent-browser, ffmpeg, ffprobe, curl, python3
 #
 # Usage:
-#   demo/record_demo.sh --narrate                 # Full HD 1920x1080 + narrated demo/demo_narrated.mp4
-#   demo/record_demo.sh                           # Full HD 1920x1080 silent demo/demo.webm + demo/demo.mp4
+#   demo/record_demo.sh --narrate --width 1920 --height 1080 --fps 15
+#   demo/record_demo.sh                           # silent Full HD demo/demo.webm + demo/demo.mp4
 
 set -euo pipefail
 
@@ -41,6 +39,7 @@ WIDTH="${DEMO_WIDTH:-1920}"
 HEIGHT="${DEMO_HEIGHT:-1080}"
 FPS="${DEMO_FPS:-15}"
 NARRATE=0
+CLIP_START_MS=0
 
 require_arg() {
   if [[ $# -lt 2 ]]; then
@@ -128,8 +127,60 @@ for bin in agent-browser curl python3 ffmpeg ffprobe; do
   fi
 done
 
+if [[ "$NARRATE" == "1" ]]; then
+  if [[ ! -f "${AUDIO_DIR}/manifest.json" ]]; then
+    printf '[demo] Missing %s/manifest.json. Pull demo/audio/ before running --narrate.\n' "$AUDIO_DIR" >&2
+    exit 1
+  fi
+  for beat in 01_intro 02_live_query 03_replay_717a 04_replay_abstain 05_kalman_pr28 06_transfer_s1_s2 07_transfer_s3_s4 08_stale_feed 09_recovery 10_outro; do
+    if [[ ! -f "${AUDIO_DIR}/${beat}.wav" ]]; then
+      printf '[demo] Missing pre-generated audio %s/%s.wav\n' "$AUDIO_DIR" "$beat" >&2
+      exit 1
+    fi
+  done
+fi
+
 ab() {
   agent-browser --session "$SESSION" "$@"
+}
+
+now_ms() {
+  python3 -c 'import time; print(int(time.monotonic() * 1000))'
+}
+
+# Wait until elapsed wall-clock time since start_clip reaches target_ms so every
+# visual cue lands on the exact spoken narration timestamp regardless of API latency.
+wait_until_clip_ms() {
+  local target_ms="$1"
+  local now elapsed rem
+  now="$(now_ms)"
+  elapsed=$(( now - CLIP_START_MS ))
+  rem=$(( target_ms - elapsed ))
+  if (( rem > 0 )); then
+    ab wait "$rem"
+  fi
+}
+
+# agent-browser only emits video frames when the page repaints, which otherwise collapses
+# static holds. A 1x1 nearly transparent corner pulse keeps real wall-clock pacing at FPS.
+install_keepalive() {
+  local interval_ms=$(( 1000 / FPS ))
+  (( interval_ms < 33 )) && interval_ms=33
+  ab eval "(() => {
+    if (window.__demoKeepAlive) clearInterval(window.__demoKeepAlive);
+    let el = document.getElementById('__demo-paint-tick');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = '__demo-paint-tick';
+      el.style.cssText = 'position:fixed;right:0;bottom:0;width:2px;height:2px;pointer-events:none;z-index:999999;background:#0b1120;opacity:0.01;';
+      document.body.appendChild(el);
+    }
+    let flip = false;
+    window.__demoKeepAlive = setInterval(() => {
+      flip = !flip;
+      el.style.opacity = flip ? '0.02' : '0.01';
+    }, ${interval_ms});
+  })()" >/dev/null
 }
 
 # Wait until Leaflet map tiles finish loading so frames never flash grey tiles.
@@ -144,15 +195,14 @@ wait_for_tiles() {
     };
     check();
   })" >/dev/null || true
-  ab wait 450
+  ab wait 350
 }
 
-# The recorder only emits frames when the page changes, so stepping scroll keeps views on screen.
 scroll_sidebar() {
-  local steps="$1" px="$2"
+  local steps="$1" px="$2" step_ms="${3:-650}"
   for _ in $(seq "$steps"); do
     ab eval "document.querySelector('aside.sidebar')?.scrollBy({top: $px, behavior: 'smooth'})" >/dev/null
-    ab wait 550
+    ab wait "$step_ms"
   done
 }
 
@@ -162,6 +212,7 @@ reset_sidebar() {
 
 start_clip() {
   local name="$1"
+  CLIP_START_MS="$(now_ms)"
   if [[ -n "$SEGMENTS_DIR" ]]; then
     ab record start "${SEGMENTS_DIR}/${name}" --fps "$FPS"
   fi
@@ -180,7 +231,7 @@ capture_slides() {
   for slide in intro kalman outro; do
     ab open "${slides_url}#${slide}"
     ab set viewport "$WIDTH" "$HEIGHT"
-    ab wait 400
+    ab wait 500
     ab screenshot "${out_dir}/slide_${slide}.png"
   done
 }
@@ -219,28 +270,32 @@ ab open "${API_URL}/"
 ab set viewport "$WIDTH" "$HEIGHT"
 ab wait --text "Delhi Bus Journey Planner"
 wait_for_tiles
+install_keepalive
 
 if [[ -z "$SEGMENTS_DIR" ]]; then
   printf '[demo] Starting single-file WebM recording -> %s (%sx%s @ %sfps)\n' "$OUTPUT_WEBM" "$WIDTH" "$HEIGHT" "$FPS"
   ab record start "$OUTPUT_WEBM" --fps "$FPS"
 fi
 
-# Segment 1: Live journey planning (Kashmere Gate ISBT -> Nehru Place, Tue 08:30)
-printf '[demo] Segment 1: Live journey query\n'
+# Segment 1 (02_live_query.wav: 16.8s speech / 17.3s slot):
+#   0-12.2s: load Kashmere Gate -> Nehru Place live query, hold arrival window & quiet-hour comparison
+#   12.2-17.3s: scroll smoothly into per-leg breakdown ("...and clear data sources for every leg.")
+printf '[demo] Segment 1: Live journey query (target 17.3s)\n'
 start_clip "seg_01_live.webm"
 ab click "#preset-example-live"
 ab click "#plan-btn"
 ab wait --text "Option 1"
 wait_for_tiles
-ab wait 1500
-scroll_sidebar 4 110
-ab wait 1200
-reset_sidebar
-ab wait 600
+wait_until_clip_ms 11800
+scroll_sidebar 4 115 700
+wait_until_clip_ms 17400
 stop_clip
+reset_sidebar
 
-# Segment 2: Oct 22 replay on 717A
-printf '[demo] Segment 2: Oct 22 replay on 717A\n'
+# Segment 2 (03_replay_717a.wav: 21.8s speech / 22.4s slot):
+#   0-12.5s: load Oct 22 replay on 717A, expand 717AUP card & South Delhi route
+#   12.5-22.4s: scroll smoothly through BOARD, RIDE (model_replay, LightGBM+conformal), ALIGHT legs
+printf '[demo] Segment 2: Oct 22 replay on 717A (target 22.4s)\n'
 start_clip "seg_02_replay_717a.webm"
 ab click "#preset-example-replay"
 ab click "#plan-btn"
@@ -248,58 +303,62 @@ ab wait --text "717AUP"
 ab eval "Array.from(document.querySelectorAll('#options-list .option-card')).find((card) => card.textContent.includes('717AUP'))?.click()"
 ab wait --text "model_replay"
 wait_for_tiles
-ab wait 1000
-scroll_sidebar 6 120
-ab wait 1200
-reset_sidebar
-ab wait 600
+wait_until_clip_ms 12200
+scroll_sidebar 6 120 750
+wait_until_clip_ms 22400
 stop_clip
+reset_sidebar
 
-# Segment 3: Oct 22 replay off 717A abstains
-printf '[demo] Segment 3: Oct 22 replay off 717A abstains\n'
+# Segment 3 (04_replay_abstain.wav: 12.2s speech / 12.7s slot):
+#   0-12.7s: replay corridor off 717A -> hold explicit "Not enough data" abstention card
+printf '[demo] Segment 3: Oct 22 replay off 717A abstains (target 12.7s)\n'
 start_clip "seg_03_replay_abstain.webm"
 ab click "#preset-replay-abstain"
 ab click "#plan-btn"
 ab wait --text "Not enough data"
-ab wait 2500
+wait_until_clip_ms 12800
 stop_clip
 
-# Pause live poller now so the >45s stale clock advances while the viewer watches the replay demo
+# Pause live poller now so the >45s stale clock advances while recording the ~41s replay demo
 printf '[demo] Pausing live poller via POST /live/pause (threshold=%ss)\n' "$actual_threshold"
 curl -sf -X POST "${API_URL}/live/pause?reason=demo_stale_abstention" >/dev/null
 
-# Segment 4a: Marginal-transfer replay Stages 1 & 2 (initial advice + growing delay)
-printf '[demo] Segment 4a: Marginal-transfer replay demo (Stages 1 & 2)\n'
+# Segment 4a (06_transfer_s1_s2.wav: 20.1s speech / 20.7s slot):
+#   0-14.2s: Stage 1 ("...recommends a transfer at Hamdard Nagar." ends at 14.9s)
+#   14.2-20.7s: Click Stage 2 right as "Just minutes later, incoming GPS delay..." starts
+printf '[demo] Segment 4a: Marginal-transfer replay Stages 1 & 2 (target 20.7s; Stage 2 at 14.2s)\n'
 start_clip "seg_04_transfer_early.webm"
 ab click "#replay-demo-btn"
 ab wait --text "Marginal-Transfer Replay Demo"
 ab wait --text "Hamdard Nagar / Sangam Vihar"
 wait_for_tiles
-ab wait 2200
+wait_until_clip_ms 14200
 printf '[demo]   Stage 2: Growing delay at Badarpur M B Road / Rajiv Gandhi Stadium\n'
 ab click "#stage-tabs button:nth-child(2)"
-ab wait 2500
+wait_until_clip_ms 20700
 stop_clip
 
-# Segment 4b: Marginal-transfer replay Stages 3 & 4 (advice flip + observed missed outcome)
-printf '[demo] Segment 4b: Marginal-transfer replay demo (Stages 3 & 4)\n'
+# Segment 4b (07_transfer_s3_s4.wav: 19.5s speech / 20.0s slot):
+#   0-8.9s: Stage 3 ("...advice flips to the direct 717A bus..." ends at 9.35s) + peek comparison
+#   8.9-20.0s: Click Stage 4 right on "Stage four reveals...", hold banner+telemetry, then scroll outcome cards
+printf '[demo] Segment 4b: Marginal-transfer replay Stages 3 & 4 (target 20.0s; Stage 4 at 8.9s)\n'
 start_clip "seg_04_transfer_late.webm"
 printf '[demo]   Stage 3: Advice flip at Tuglaqabad MB Road / Okhla more\n'
 ab click "#stage-tabs button:nth-child(3)"
-ab wait 2200
-scroll_sidebar 3 110
-ab wait 1000
+wait_until_clip_ms 4200
+scroll_sidebar 3 115 650
+wait_until_clip_ms 8800
 reset_sidebar
 printf '[demo]   Stage 4: Observed Oct 22 outcome reveal (missed by 27m 43s)\n'
 ab click "#stage-tabs button:nth-child(4)"
-ab wait 2200
-scroll_sidebar 4 115
-ab wait 1500
-reset_sidebar
+wait_until_clip_ms 13800
+scroll_sidebar 4 115 700
+wait_until_clip_ms 20100
 stop_clip
 
+reset_sidebar
 ab click "#close-demo-btn"
-ab wait 800
+ab wait 600
 
 # Wait until feed age strictly exceeds stale_threshold_seconds (bounded timeout)
 printf '[demo] Waiting for live feed age to exceed %ss (timeout=%ss)...\n' "$actual_threshold" "$STALE_WAIT_TIMEOUT_S"
@@ -317,26 +376,30 @@ while true; do
     printf '[demo] Timed out waiting for stale feed (>%ss).\n' "$STALE_WAIT_TIMEOUT_S" >&2
     exit 1
   fi
-  sleep 3
+  sleep 2
 done
 
-# Segment 5: Explicit stale-feed abstention in UI ("Not enough data")
-printf '[demo] Segment 5: Triggering stale-feed abstention in UI\n'
+# Segment 5 (08_stale_feed.wav: 14.6s speech / 15.1s slot):
+#   0-3.8s: Show UI with Stale GPS badge ("A trustworthy planner also knows when its own GPS feed goes stale.")
+#   3.8-15.1s: Trigger live query right on "Here we pause..." -> hold "Not enough data" stale_feed card
+printf '[demo] Segment 5: Triggering stale-feed abstention in UI (target 15.1s; click at 3.8s)\n'
 start_clip "seg_05_stale.webm"
 ab click "#preset-example-live"
+wait_until_clip_ms 3800
 ab click "#plan-btn"
 ab wait --text "Not enough data"
-ab wait 3000
+wait_until_clip_ms 15200
 stop_clip
 
-# Segment 6: Resume live poller and show UI recovery
-printf '[demo] Segment 6: Resuming live poller via POST /live/resume and recovering UI\n'
+# Segment 6 (09_recovery.wav: 7.0s speech / 7.6s slot):
+#   0-7.6s: Resume live poller + click Retry -> wait for clean Leaflet tiles -> hold restored Option 1
+printf '[demo] Segment 6: Resuming live poller and recovering UI (target 7.6s)\n'
 curl -sf -X POST "${API_URL}/live/resume?poll_now=true" >/dev/null
 start_clip "seg_06_recovery.webm"
 ab click "#abstention-retry-btn"
 ab wait --text "Option 1"
 wait_for_tiles
-ab wait 2500
+wait_until_clip_ms 7700
 stop_clip
 
 if [[ -z "$SEGMENTS_DIR" ]]; then
@@ -371,7 +434,8 @@ if [[ "$NARRATE" == "1" ]]; then
       --output "$NARRATED_MP4" \
       --width "$WIDTH" \
       --height "$HEIGHT" \
-      --fps "$FPS"
+      --fps "$FPS" \
+      --use-existing-audio
   )
 fi
 
