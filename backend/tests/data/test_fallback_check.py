@@ -50,7 +50,7 @@ def test_fallback_beats_the_timetable_when_stretches_run_slow() -> None:
     # the fallback learns the 2.0 ratio and lands exactly
     assert result["fallback_mae_s"] == 0.0
     assert result["gain_pct"] == 100.0
-    assert result["levels"] == {"stretch_hour": 12}
+    assert result["levels"] == {"stretch_hour": 2, "kalman_route": 1, "kalman_exact": 9}
 
 
 def test_fallback_is_no_worse_than_the_timetable_when_stretches_run_on_time() -> None:
@@ -85,3 +85,16 @@ def test_measure_requires_observed_stretches_on_both_days() -> None:
         assert HOLDOUT in str(exc)
     else:  # pragma: no cover - the call must raise
         raise AssertionError("measure should reject a holdout day with no observations")
+
+
+def test_fallback_adapts_causally_when_holdout_day_shifts_from_train() -> None:
+    """When holdout runs slower than train, same-day Kalman updates beat the static train prior."""
+    # Train day runs on time (ratio 1.0); holdout day runs at 2.0x schedule.
+    passages = _day(TRAIN, 1616, ratio=1.0, runs=6) + _day(HOLDOUT, 1616, ratio=2.0, runs=6)
+    result = measure(passages, TRAIN, HOLDOUT)
+
+    # Static median from train would predict 1.0x (0% gain); causal Kalman adapts after run 0.
+    assert result["timetable_mae_s"] == 120.0
+    assert result["fallback_mae_s"] < 30.0
+    assert result["gain_pct"] > 75.0
+    assert result["levels"] == {"stretch_hour": 2, "kalman_route": 1, "kalman_exact": 15}
