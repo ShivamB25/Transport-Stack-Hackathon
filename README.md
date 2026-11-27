@@ -1,182 +1,103 @@
-# Delhi bus travel times and journey planner (PS1)
+# Delhi Bus Journey Planner (PS1)
 
-This project estimates how long Delhi DTC bus journeys actually take. It reconstructs stop arrivals from the October 2026 GPS archive, trains travel-time models on them, and serves a journey planner that times OpenTripPlanner (OTP) candidate itineraries with those models instead of the timetable. Every answer is labelled `live` or `replay`, carries per-leg provenance and a door-to-door `[p10, p90]` window, and the API abstains when it does not have the data to answer.
+**Team DROIDERS · Shivam Bansal**
 
-## How it works
+Causal bus travel-time modelling, calibrated `[p10, p90]` arrival windows, joint transfer-miss risk, and freshness-gated abstention for Delhi DTC buses—built over 31 days of October 2026 GPS data (`560.4M` clean pings), static GTFS v32, live GTFS-RT `VehiclePositions`, and OpenTripPlanner 2.8.1.
 
-1. **Data.** `delhi_transit.data.acquire` range-reads the 31-day GPS archive one day at a time, removes duplicate pings and out-of-area points, and writes one Parquet file per day. `delhi_transit.data.stop_passages` matches pings to the 717A stop pattern geometrically (60 m radius; GPS `trip_id` is not a GTFS key) and interpolates unobserved stops. Each passage records `available_at`, the time it became knowable from the GPS.
-2. **Model.** `delhi_transit.model.evaluate` scores a ladder of models on whole held-out days: timetable (rung 0), previous-run persistence (rung 1), a day-type historical median (2) and LightGBM quantile regression with split-conformal calibration (4). `delhi_transit.model.selection` ships the highest rung that beats persistence on observed stop pairs. Rung 4 is shipped.
-3. **Planning.** OTP 2.8.1 proposes candidate bus itineraries from the static GTFS and an OSM street graph. `delhi_transit.planner` (`itinerary.retime_itinerary`) replaces every transit leg's scheduled time with a model estimate, estimates boarding waits, simulates 192 joint scenarios to get transfer miss probabilities and the end-to-end `[p10, p90]` window (per-leg p90s are never summed), and labels each leg `model_live`, `model_replay`, `historical_fallback` or `timetable_fallback`.
-4. **Live and replay.** In live mode a background poller reads the Delhi GTFS-RT VehiclePositions feed every 25 s. October 2026 departures run in replay mode from the reconstructed passages, using only observations available before the requested departure.
-5. **Abstention.** `GET /journeys` returns `status: "insufficient_data"` with a reason code (`stale_feed`, `feed_unavailable`, `insufficient_coverage`, `insufficient_route_coverage`, `replay_data_unavailable`) instead of options when the feed is stale or no candidate route has observations.
-
-The React UI in `frontend/` (built into `frontend/dist` and served by the API at `http://localhost:3100/`) shows the options on a map, the live/replay badge and feed age, the abstention panel, and a scripted October 22 missed-transfer replay.
-
-## Quickstart
-
-Both paths need the data directory (GPS Parquet, passages, GTFS, model artifact), the OTP directory with the jar and a built graph, and a `.env` file in the repository root. Copy `.env.example` to `.env` and fill in `DELHI_TS_API_KEY` (live feed and static GTFS) and `GOOGLE_MAPS_API_KEY` (comparator only). Keys are read in-process and never logged.
-
-### Native
-
-Requirements: [uv](https://docs.astral.sh/uv/) (Python 3.12; `backend/pyproject.toml` and `backend/uv.lock` pin every version), [Bun](https://bun.sh/) for the UI (`frontend/bun.lock` pins every version), Temurin 21 (`DELHI_TRANSIT_JAVA`), the data directory (`DELHI_TRANSIT_DATA_DIR`) and the OTP directory (`DELHI_TRANSIT_OTP_DIR`); see [Paths and environment variables](#paths-and-environment-variables).
-
-```bash
-otp/build.sh                  # one-time: downloads the OTP jar and OSM extract if missing, builds the graph (about 1.5 min)
-otp/serve.sh                  # OTP on port 3102; leave it running and start the API in another shell
-(cd frontend && bun install --frozen-lockfile && bun run build)   # builds frontend/dist, which the API serves at /
-cd backend
-uv sync --frozen
-DELHI_TRANSIT_DATA_DIR=/path/to/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
-  uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100
-```
-
-Health checks:
-
-```bash
-curl -sf -X POST http://localhost:3102/otp/gtfs/v1 -H 'Content-Type: application/json' \
-  -d '{"query":"{ __schema { queryType { name } } }"}'
-curl -sf http://localhost:3100/health
-```
-
-### Paths and environment variables
-
-Paths in this README, `docs/` and `reports/` are written relative to the variables below, so they map onto any layout. The defaults in `backend/src/delhi_transit/core/config.py` and the shell scripts point at the original development machine (`/home/factory-user/ps1-scratch`); set the variables on any other machine.
-
-| Variable | Expected contents | Default |
-|---|---|---|
-| `DELHI_TRANSIT_SCRATCH_DIR` | Parent of the data, work, OTP and JDK directories; also holds the Google call ledger (`google-mission-call-ledger.json`), the probe report and live-check recordings (`live-check/<day>/`) | `/home/factory-user/ps1-scratch` |
-| `DELHI_TRANSIT_DATA_DIR` | GPS Parquet (`gps/`), 717A passages (`passages/`), static GTFS (`gtfs/`), model artifact (`model/`), live snapshots (`live/`), Google cache (`google/`) | `$DELHI_TRANSIT_SCRATCH_DIR/data` |
-| `DELHI_TRANSIT_WORK_DIR` | Temporary SQLite files and DuckDB temp space | `$DELHI_TRANSIT_SCRATCH_DIR/work` |
-| `DELHI_TRANSIT_OTP_DIR` | OTP jar, OSM extract, `graph/`, build and serve logs | `$DELHI_TRANSIT_SCRATCH_DIR/otp` |
-| `DELHI_TRANSIT_JAVA` | Temurin 21 `java` binary | `$DELHI_TRANSIT_SCRATCH_DIR/jdk/bin/java` |
-| `DELHI_TRANSIT_OTP_URL` | OTP GraphQL endpoint | `http://localhost:3102/otp/gtfs/v1` |
-| `DELHI_TRANSIT_FRONTEND_DIR` | Built UI served at `/` | `frontend/dist` |
-| `DELHI_TRANSIT_HOST_DATA_DIR`, `DELHI_TRANSIT_HOST_OTP_DIR` | Docker Compose host bind-mount sources | the native data and OTP directories |
-
-### Docker Compose
-
-`docker-compose.yml` defines `otp` (the `eclipse-temurin:21-jre` image running the bind-mounted OTP jar and graph), `api` (built from the two-stage `Dockerfile`: an `oven/bun` stage builds `frontend/dist`, then a Python 3.12 slim stage installs the backend with `uv sync --frozen --no-dev` and runs uvicorn on port 3100 serving the API and the UI; it waits for a healthy `otp`) and an optional `otp-build` service under the `build` profile that runs `otp/build.sh` inside the container. Data and the graph are bind-mounted, and keys come from `.env` at runtime; neither is copied into an image. Host paths default to the native layout and can be changed with `DELHI_TRANSIT_HOST_DATA_DIR` and `DELHI_TRANSIT_HOST_OTP_DIR`. Ports bind to `127.0.0.1` unless `DELHI_TRANSIT_BIND_ADDR` is set.
-
-```bash
-docker compose --profile build run --rm otp-build   # one-time graph build
-docker compose up -d --build
-docker compose ps                                   # both services should report healthy
-```
-
-## Getting the data
-
-- **GPS archive.** `uv run python -m delhi_transit.data.acquire` (from `backend/`) fetches all 31 October days (two at a time, resumable from `data/download.log`). It reads the 7z archive with HTTP range requests and never downloads it whole; at most two unpacked SQLite days exist at once and each is deleted after conversion. Output: about 10 GB of Parquet in `data/gps/`.
-- **Static GTFS.** Download `delhi_buses_static_gtfs_v1.zip` from `https://dts-backend.transportstack.in/api/dataset/otd/get-file?agency=delhi-buses&category=static_gtfs&filename=delhi_buses_static_gtfs_v1.zip` with the `x-api-key` header set to `DELHI_TS_API_KEY`, and unzip it into `data/gtfs/` (keep the zip there too; the OTP build reads it). This repository uses feed v32.
-- **OTP inputs.** `otp/build.sh` downloads `otp-shaded-2.8.1.jar` from Maven Central and the BBBike `NewDelhi.osm.pbf` extract when they are missing.
-- **Passages and model.** Run the stop-passage and evaluation commands below. They write `data/passages/`, `data/model/` and the committed reports.
-
-## Commands
-
-Python commands run from `backend/` after `uv sync --frozen`. Report paths default to the repository's `reports/` directory whatever the working directory.
-
-| Task | Command |
-|---|---|
-| Tests | `uv run pytest -q` |
-| Bytecode check | `uv run python -m compileall -q src` |
-| Lint | `uv run ruff check src tests` |
-| Frontend install, lint, type check and build (from `frontend/`) | `bun install --frozen-lockfile && bun run lint && bun run typecheck && bun run build` |
-| Frontend dev server on port 3110 (proxies API calls to 3100) | `bun run dev` (from `frontend/`) |
-| Extract one GPS day | `uv run python -m delhi_transit.data.extract_day --day 2026-10-15 --output /tmp/repro15.parquet` |
-| 717A stop passages (10 days) and `reports/coverage-717a.md` | `uv run python -m delhi_transit.data.stop_passages --overwrite` |
-| Measure the causal Kalman ratio fallback against the timetable on routes with no model (rebuilds its own passages) | `uv run python -m delhi_transit.data.fallback_check --reconstruct` |
-| Evaluate all rungs, write reports, selection and model artifact | `uv run python -m delhi_transit.model.evaluate` |
-| Re-apply the selection rule to `reports/eval-full.csv` | `uv run python -m delhi_transit.model.selection` |
-| One live feed poll | `uv run python -m delhi_transit.live.poller --once` |
-| Render the Google comparison from frozen inputs (no network calls) | `uv run python -m delhi_transit.comparator --render-only` |
-| Record a live check (from the repository root; reuses or starts OTP on 3102, runs the API with the live poller on 3120) | `livecheck/launch.sh $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24 23:30` |
-| Rebuild live-check actuals and write `reports/live-check-<day>.{md,csv,json}` | `uv run python -m delhi_transit.livecheck actuals --in $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24` then `uv run python -m delhi_transit.livecheck analyze --in $DELHI_TRANSIT_SCRATCH_DIR/live-check/2026-11-24 --report-dir ../reports` |
-| Record the demo (from the repository root) | `demo/record_demo.sh` (API started with `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45`; the normal stale-feed threshold is 600 s) |
-
-Example API calls:
-
-```bash
-# Live: departs now (Asia/Kolkata) when depart is omitted
-curl -s 'http://localhost:3100/journeys?from=Kashmere%20Gate%20ISBT&to=Nehru%20Place'
-# Replay on 717A, October 22 08:30 IST
-curl -s 'http://localhost:3100/journeys?from=Badarpur%20Border%20(T)&to=Kapashera%20Border&depart=2026-10-22T08:30:00%2B05:30'
-# Scripted missed-transfer replay
-curl -s 'http://localhost:3100/replay/demo'
-```
-
-`from` and `to` accept `lat,lng` or an exact GTFS stop name. `depart` is ISO 8601 with an offset. OpenAPI docs are at `http://localhost:3100/docs`.
-
-How `depart` and `mode` combine:
-
-- **No `depart`.** Replay is used only when it is explicit: `mode=replay`, or the default `mode=auto` with `DELHI_TRANSIT_MODE=replay`. The request then uses the scripted demo departure, 2026-10-22T08:30+05:30. In every other case the request departs now in Asia/Kolkata in live mode.
-- **Explicit `depart`.** `mode=live` or `mode=replay` is used as given. With `mode=auto`, `DELHI_TRANSIT_MODE` (`live` or `replay`) decides if it is set; otherwise October 2026 departures run in replay and all others in live. Replay outside October 2026 returns 422.
-
-## Results
-
-All numbers come from the committed reports and are regenerated by the commands above.
-
-- **GPS acquisition** ([`reports/data-quality.md`](reports/data-quality.md)): 31/31 days, 912,877,061 raw rows reduced to 560,357,771 (38.62% removed, mostly repeated identical pings). Every file has 0 duplicate groups and 0 out-of-area points.
-- **717A stop passages** ([`reports/coverage-717a.md`](reports/coverage-717a.md)): 2,546 runs over 10 days. 48.55% of UP (2171) and 50.75% of DOWN (2170) stop passages are directly observed; the rest are interpolated.
-- **Persistence gate, October 22** ([`reports/eval-baselines.md`](reports/eval-baselines.md)), observed-only stratum (both stretch endpoints directly observed: 100% observed, 0% interpolated): persistence beats the timetable in both directions, UP 79.936 s vs 95.608 s MAE (2,397 queries) and DOWN 87.112 s vs 101.801 s (2,193 queries). These queries are the directly observed 36.154% (UP) and 33.718% (DOWN) of the October 22 all-stop query sets.
-- **Model selection, held-out Oct 22, 27 and 28** ([`reports/eval-full.md`](reports/eval-full.md), [`reports/selection.json`](reports/selection.json)), observed-only stratum, 13,299 stop-pair queries (100% observed, 0% interpolated). They are the directly observed 34.740% of the 38,282 all-stop held-out queries; by day and direction that share ranges from 26.354% (Oct 28 UP) to 42.754% (Oct 27 DOWN). This is stretch-query coverage, a different measure from the stop-passage coverage above.
-
-  | Rung | Model | Stratum | Queries | Observed / interpolated % | MAE (s) | vs persistence (s) |
-  |---|---|---|---:|---|---:|---:|
-  | 0 | Timetable | observed-only | 13,299 | 100.000 / 0.000 | 87.273 | +14.506 |
-  | 1 | Previous-run persistence | observed-only | 13,299 | 100.000 / 0.000 | 72.766 | 0.000 |
-  | 2 | + day type | observed-only | 13,299 | 100.000 / 0.000 | 69.498 | -3.269 |
-  | **4** | **LightGBM quantile + conformal (shipped)** | **observed-only** | **13,299** | **100.000 / 0.000** | **60.178** | **-12.588** |
-
-  Rung 4 beats persistence in all 6 observed-only day-direction groups. Its nominal 80% `[p10, p90]` intervals cover 79.156% of the held-out observed-only queries (pooled over 13,299 queries) with a pooled median width of 81.518 s. Coverage differs by group, and four of the six groups fall below the nominal 80% (two of them by more than 2 points):
-
-  | Day | Direction | Observed queries | Rung 4 `[p10, p90]` coverage |
-  |---|---|---:|---:|
-  | 2026-10-22 | DOWN (2170) | 2,193 | **76.197%** |
-  | 2026-10-22 | UP (2171) | 2,397 | 80.434% |
-  | 2026-10-27 | DOWN (2170) | 2,372 | **79.764%** |
-  | 2026-10-27 | UP (2171) | 2,368 | 81.208% |
-  | 2026-10-28 | DOWN (2170) | 2,047 | **79.238%** |
-  | 2026-10-28 | UP (2171) | 1,922 | **77.575%** |
-
-  The intervals use one split-conformal offset (2.359 s) calibrated on the training day 2026-10-15 and shared by every day and direction. Split conformal guarantees marginal coverage on exchangeable data, not coverage within each day or direction, so the per-group spread above is expected and is not corrected. Rows come from the `observed-only` rung 4 rows of [`reports/eval-full.md`](reports/eval-full.md). All-stop rows, which score against schedule-interpolated stops and are therefore biased toward the timetable, are in [`reports/eval-full.md`](reports/eval-full.md) with their coverage; they are not used for the gate or selection.
-- **Unmodelled-route fallback, held-out 2026-10-22 → 2026-10-27** (`uv run python -m delhi_transit.data.fallback_check --reconstruct`), six busiest non-717A routes, 16,247 directly observed stretches. Replacing the carry-forward/median point estimator in `planner/rides.py` with a per-stretch, per-service-day scalar Kalman filter over clamped `actual/scheduled` ratios (`Q=0.01`, `R=0.05`, `var0=1.0`, seeded from prior-day historical ratios) reduces pooled MAE from **67.4 s** (previous `fallback_check` static median, 16.1% vs timetable) and **63.1 s** (previous `rides.py` observed-only chain, 21.4% vs timetable) to **57.3 s** (**28.6%** vs timetable):
-
-  | Route | Stretches | Timetable MAE (s) | Previous `fallback_check` (s) | Previous `rides.py` chain (s) | Kalman filter (s) | Gain vs timetable |
-  |---:|---:|---:|---:|---:|---:|---:|
-  | 1615 | 2,402 | 87.9 | 67.3 (23.5%) | 73.4 (16.6%) | **65.9** | **25.0%** |
-  | 1616 | 2,489 | 78.8 | 68.5 (13.1%) | 60.8 (22.9%) | **55.3** | **29.9%** |
-  | 2182 | 2,963 | 70.6 | 55.3 (21.6%) | 59.6 (15.6%) | **53.4** | **24.3%** |
-  | 2183 | 2,803 | 67.6 | 49.8 (26.2%) | 55.1 (18.4%) | **48.7** | **27.9%** |
-  | 2203 | 2,771 | 84.1 | 88.2 (-4.9%) | 56.9 (32.4%) | **55.0** | **34.6%** |
-  | 2204 | 2,819 | 94.4 | 76.2 (19.3%) | 74.8 (20.8%) | **66.9** | **29.2%** |
-  | **POOLED** | **16,247** | **80.3** | **67.4 (16.1%)** | **63.1 (21.4%)** | **57.3** | **28.6%** |
-
-  Across five train/holdout pairs (`10-15→10-22`, `10-15→10-27`, `10-22→10-27`, `10-22→10-28`, `10-27→10-28`), the filter achieves **27.4–28.7%** vs timetable (+8.4% to +9.9% over the previous `rides.py` chain). Serving levels on `2026-10-22 → 2026-10-27`: `kalman_exact` 15,983, `kalman_route` 254, `stretch_hour` 10. **Caveat:** measured offline against reconstructed October ground truth only; the project's only live check covers 717A, so unmodelled-route gains are not live-verified.
-- **Google Routes comparison, Tuesday 2026-11-24** ([`reports/google-comparator.md`](reports/google-comparator.md)): of 90 planned OD-time slots (30 pairs at 08:30, 14:00 and 18:30 IST), 19 were compared, 49 are recorded API abstentions and 22 are excluded because the option first listed in an `ok` response had no route-level observations (the API now lists the options that pass the support gate first, and the comparator compares only such an option). Google's duration contains no first boarding wait, so the like-for-like comparison removes ours: on the compared slots, excluding our median first boarding wait, our estimate is on average 273 s (4.6 min) longer than Google's bus-only duration (median +252 s). Door-to-door, including that wait, the mean difference is 509 s (8.5 min). 94.7% of Google durations fall inside our door-to-door `[p10, p90]` window. 92 of the 300 allowed Google calls were used.
-- **Live check, 2026-11-24** ([`reports/live-check-2026-11-24.md`](reports/live-check-2026-11-24.md), with [`.csv`](reports/live-check-2026-11-24.csv) and [`.json`](reports/live-check-2026-11-24.json)): **no live accuracy number. 0 of 66 predicted 717A ride legs matched an actual ride.** The check scores live `/journeys` predictions against ride times rebuilt from the same day's recorded GPS, rather than against the October reconstruction. The run was planned to 23:30 IST but was shortened to three query slots and stopped at about 21:46 IST, so the recording covers only 21:04 to 21:44 IST (40.4 min, after the evening peak; 98/98 polls ok). It saved 108 live `/journeys` responses, all `ok`. Of the 66 legs, 48 had an extrapolated actual endpoint and 18 boarded after the last recorded run; most rides predicted in the last two slots end after the recording stopped. One Google call was made at 21:45 IST before the run was stopped (ledger 93/300). The raw recording stays outside the repository.
-- **Live check, 2026-11-25** ([`reports/live-check-2026-11-25.md`](reports/live-check-2026-11-25.md), with [`.csv`](reports/live-check-2026-11-25.csv) and [`.json`](reports/live-check-2026-11-25.json)): 300.4 min morning recording (06:29 to 11:30 IST; 722/722 polls ok; 396/396 live `/journeys` responses `ok` across 11 slots; 0 Google calls). 96 actual 717A runs were rebuilt from the recorded GPS (46 DOWN, 50 UP). Of 287 predicted 717A ride legs, 177 matched an actual ride (all `model_live`: 227.5 s MAE vs 393.3 s timetable MAE, 96.6% `[p10, p90]` coverage) and 67 were observed-only (300.5 s MAE vs 492.4 s timetable MAE, 94.0% `[p10, p90]` coverage).
-- **OTP smoke test** ([`reports/otp-smoke.md`](reports/otp-smoke.md)): the graph builds in 1m22.896s under the 2.5 GB heap cap and returns five itineraries for Kashmere Gate ISBT to Nehru Place.
-
-Method details are in [`docs/technical-note.md`](docs/technical-note.md), the frozen evaluation protocol in [`docs/eval-protocol.md`](docs/eval-protocol.md), and OTP setup in [`docs/otp.md`](docs/otp.md).
+OpenTripPlanner only proposes candidate routes; this engine owns transit leg timing, transfer risk, uncertainty intervals, and abstention.
 
 ## Demo
 
-[`demo/demo.webm`](demo/demo.webm), recorded with [`demo/record_demo.sh`](demo/record_demo.sh), shows:
+Watch the 3m 19s Full HD narrated walkthrough: **[`demo/demo_narrated.mp4`](demo/demo_narrated.mp4)** ([subtitles](demo/demo_narrated.srt)).
 
-1. A live query (Kashmere Gate ISBT to Nehru Place) with the `live` badge, arrival windows and per-leg provenance.
-2. A replay query on 717A for October 22 08:30, with legs timed by `model_replay`.
-3. The same Kashmere Gate query in October replay, which abstains because no candidate route has replay observations.
-4. The October 22 missed-transfer replay: the timetable recommends a 717AUP transfer at Hamdard Nagar / Sangam Vihar, the advice flips as the first bus falls behind, and the observed GPS passages show the connection was missed by 27m 43s.
-5. A stale live feed producing "Not enough data", then recovery after the poller resumes. The recording runs the API with `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45` so the feed goes stale quickly; the normal default is 600 s.
+1. **Live query** (Kashmere Gate ISBT → Nehru Place) with live GTFS-RT ingestion, `[p10, p90]` windows, quiet-hour comparison, and per-leg provenance.
+2. **Oct 22 causal replay on 717A** (Badarpur Border → Kapashera Border) with `model_replay` LightGBM + split-conformal leg timings.
+3. **Off-717A replay abstention** returning explicit `Not enough data` instead of guessing.
+4. **PR #28 scalar Kalman ratio filter** for unmodelled routes (`80.3 s → 57.3 s` offline MAE).
+5. **4-stage missed-transfer replay** (actual Oct 22 GPS, run `2171_17_09_490`): timetable transfer advice flips to direct `717AUP` before boarding; real GPS confirms the connection was missed by `27m 43s`.
+6. **Stale-feed abstention & live recovery** (poller paused past 45 s demo threshold → `stale_feed` → resumed).
 
-## Known limitations
+## Headline Results
 
-- **October data.** Models and replay use October 2026 GPS. Live mode applies them to current feed positions; nothing has been re-evaluated on later months.
-- **One modelled corridor, with a measured offline fallback.** Stop passages, replay observations and the learned rung 4 model exist only for route 717A (UP 2171, DOWN 2170). On all other routes, `planner/rides.py` keeps the live vehicle-speed tier first (`model_live`, as on 502UP in [`reports/google-comparator.md`](reports/google-comparator.md)) and otherwise uses the causal per-stretch, per-service-day scalar Kalman ratio filter (`Q=0.01`, `R=0.05`) summarised in [Results](#results) (28.6% pooled offline gain vs timetable on the six busiest non-717A routes, not live-verified), degrading to `historical_fallback` and then `timetable_fallback` when observations are absent. In replay mode, journeys with no 717A leg abstain with `insufficient_route_coverage`.
-- **GTFS v32 drift.** The static feed (v32, 6,862 stops) is newer than the snapshot behind the older reference numbers (41 s persistence vs 59 s timetable MAE). Those numbers are not reproduced; the results above are on v32.
-- **About half the stops are observed.** Roughly 50% of stop passages are observed and the rest are schedule-interpolated, so model selection uses observed stop pairs only.
-- **Google is a comparator, not ground truth.** It covers one future date, includes only 19 of 90 slots, and measures journeys differently (our totals include the first boarding wait). Google cannot be queried for October dates.
-- **No CI; Docker Compose is not checked automatically.** There is no continuous integration. Run the tests, lint, bytecode check, frontend type check and build from the Commands table before merging. Docker is not installed on the development machine, so the Compose stack is checked against the compose-spec schema and by running the same commands natively. `docker compose up` with the real data and OTP graph mounts has not been run.
+All figures come from committed reproducible reports under [`reports/`](reports/):
 
-## Repository layout
+| Evaluation | Metric | Baseline | Result | Report |
+|---|---|---:|---:|---|
+| GPS archive cleaning (31 days) | Clean pings retained | 912.9M raw | **560.4M** (0 dupes, 0 bbox violations) | [`data-quality.md`](reports/data-quality.md) |
+| 717A held-out (Oct 22, 27, 28; `n = 13,299` observed-only) | MAE | 87.3 s timetable / 72.8 s persist | **60.2 s** (**−31.0%**) | [`eval-full.md`](reports/eval-full.md) |
+| 717A split-conformal intervals (80% target) | Pooled `[p10, p90]` coverage | — | **79.2%** (81.5 s median width) | [`selection.json`](reports/selection.json) |
+| Unmodelled routes fallback (PR #28; 6 routes, `n = 16,247`, offline) | Scalar Kalman ratio MAE | 80.3 s timetable / 63.1 s prior chain | **57.3 s** (**−28.6%**) | `fallback_check --reconstruct` |
+| Nov 25 5-hour morning live check (`722/722` polls, `n = 177` matched legs) | Live 717A MAE & coverage | 393.3 s timetable | **227.5 s** (**96.6%** in `[p10, p90]`) | [`live-check-2026-11-25.md`](reports/live-check-2026-11-25.md) |
+| Google Routes comparator (Nov 24, `n = 19` compared slots) | Door-to-door containment | — | **94.7%** inside `[p10, p90]` | [`google-comparator.md`](reports/google-comparator.md) |
 
-`backend/` is the uv project: `src/delhi_transit/` holds the `core`, `data`, `model`, `planner`, `live`, `livecheck`, `comparator` and `api` packages and `tests/` the pytest suite mirroring them; `frontend/` the React UI (Bun, Vite, TypeScript, Tailwind, shadcn/ui, TanStack Query and plain Leaflet); `otp/` the OTP build and serve scripts and build config; `reports/` the committed results; `docs/` the technical note, protocol and OTP notes; `demo/` the recording. [`AGENTS.md`](AGENTS.md) holds the project's standing rules, settled decisions and commands.
+## Architecture
+
+- **Data & causality (`delhi_transit.data`):** Streams 31 days of October GPS into 9.96 GB of clean Parquet, matches pings to 717A stops geometrically (60 m radius; never joining GPS `trip_id` to GTFS), and stamps every passage with strict `available_at` causality.
+- **Timing models (`delhi_transit.model`, `planner/rides.py`):** Shipped Rung 4 (LightGBM quantile + split-conformal) serves route 717A (`2171` UP / `2170` DOWN). All other routes use live GTFS-RT vehicle speeds first (`model_live`) and otherwise a causal per-stretch, per-day scalar Kalman ratio filter (`Q = 0.01`, `R = 0.05`) degrading cleanly to `historical_fallback` and `timetable_fallback`.
+- **Joint journey simulation (`delhi_transit.planner`):** Runs 192 joint Monte Carlo scenarios over OTP 2.8.1 candidates to compute transfer miss probabilities and end-to-end `[p10, p90]` windows (per-leg `p90`s are never summed).
+- **Live & replay (`delhi_transit.live`, `api`):** Polls live `VehiclePositions` every 25 s in live mode; replays October 2026 departures strictly from passages with `available_at < depart`.
+- **Honest abstention:** Returns `status: "insufficient_data"` with explicit codes (`stale_feed`, `feed_unavailable`, `insufficient_coverage`, `insufficient_route_coverage`, `replay_data_unavailable`) when telemetry is stale or routes lack observations.
+
+## Quickstart
+
+Requires Python 3.12 (`uv`), Bun, Java 21 (`DELHI_TRANSIT_JAVA`), a `.env` file copied from `.env.example` (`DELHI_TS_API_KEY`; `GOOGLE_MAPS_API_KEY` only for the comparator), and paths configured via `DELHI_TRANSIT_SCRATCH_DIR` (or individually via `DELHI_TRANSIT_DATA_DIR`, `DELHI_TRANSIT_OTP_DIR`, `DELHI_TRANSIT_OTP_URL` — see [`backend/src/delhi_transit/core/config.py`](backend/src/delhi_transit/core/config.py)).
+
+### Native
+
+```bash
+otp/build.sh                                                          # one-time: fetch OTP 2.8.1 + OSM extract and build graph (~1.5 min)
+otp/serve.sh                                                          # run OTP on :3102
+(cd frontend && bun install --frozen-lockfile && bun run build)       # build React UI -> frontend/dist
+cd backend && uv sync --frozen
+DELHI_TRANSIT_DATA_DIR=/path/to/data \
+DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 \
+  uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100
+```
+
+### Docker Compose
+
+```bash
+docker compose --profile build run --rm otp-build   # one-time graph build
+docker compose up -d --build                        # OTP (:3102) + API/UI (:3100)
+```
+
+### Example API Calls
+
+Open the UI at `http://localhost:3100/` or OpenAPI docs at `http://localhost:3100/docs`:
+
+```bash
+curl -s 'http://localhost:3100/health'
+curl -s 'http://localhost:3100/journeys?from=Kashmere%20Gate%20ISBT&to=Nehru%20Place'
+curl -s 'http://localhost:3100/journeys?from=Badarpur%20Border%20(T)&to=Kapashera%20Border&depart=2026-10-22T08:30:00%2B05:30'
+curl -s 'http://localhost:3100/replay/demo'
+```
+
+### Common Checks & Pipelines
+
+```bash
+# Backend checks (from backend/)
+uv run ruff check src tests && uv run python -m compileall -q src && uv run pytest -q
+
+# Frontend checks (from frontend/)
+bun run lint && bun run typecheck && bun run build
+
+# Recompute passages, Rung 4 evaluation, or PR #28 Kalman fallback (from backend/)
+uv run python -m delhi_transit.data.stop_passages --overwrite
+uv run python -m delhi_transit.model.evaluate
+uv run python -m delhi_transit.data.fallback_check --reconstruct
+```
+
+## Key Caveats
+
+- **Model scope:** Learned Rung 4 covers route 717A (`2171`/`2170`) only; unmodelled routes use live speeds first and the scalar Kalman ratio filter otherwise (28.6% gain is measured offline on October data and not yet live-verified).
+- **Archive window:** Models and replay use October 2026 GPS on static GTFS v32; ~50% of 717A stop passages are directly observed and the rest interpolated, so gating uses `observed-only` stop pairs exclusively.
+- **Comparator boundary:** Google Routes is an external comparator (19/90 slots on Nov 24, no October/past dates), never ground truth.
+- **Local verification:** No CI is configured; run the backend and frontend checks above before merging.
+
+## Documentation & Layout
+
+- [`docs/technical-note.md`](docs/technical-note.md) — full methodology, Kalman filter equations, and error analysis
+- [`docs/eval-protocol.md`](docs/eval-protocol.md) — frozen train/test split and gating protocol
+- [`docs/otp.md`](docs/otp.md) — OTP 2.8.1 graph setup and configuration
+- [`reports/`](reports/) — committed data-quality, evaluation, comparator, and live-check reports
+- `backend/` (`uv` Python 3.12), `frontend/` (`bun` React 19 + Vite + Tailwind v4 + Leaflet), `otp/`, `livecheck/`, `demo/`

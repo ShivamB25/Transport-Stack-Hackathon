@@ -31,3 +31,7 @@ graphs/
 
 # temporary per-segment demo captures (final MP4/WebM + pre-generated WAVs live under demo/)
 demo/segments/
+demo/demo_segments.tar.gz
+
+# macOS metadata
+.DS_Store
