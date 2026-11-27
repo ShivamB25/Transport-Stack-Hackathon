@@ -1,0 +1,39 @@
+1
+00:00:00,200 --> 00:00:27,018
+Hi everyone, I'm Shivam Bansal from Team DROIDERS. Today I'm showing how we solved real-world bus travel-time prediction and journey planning for Delhi over 560M cleaned GPS pings: OTP2 proposes routes while our causal engine owns timing, [p10, p90] windows, transfer risk, and honest abstention.
+
+2
+00:00:27,568 --> 00:00:42,514
+Starting in real time from Kashmere Gate ISBT to Nehru Place: live GTFS-RT positions from active Delhi buses, arrival windows, late-night comparisons, and per-leg provenance.
+
+3
+00:00:43,064 --> 00:01:04,893
+Switching to Oct 22 replay on route 717A with a strict causal cutoff: our LightGBM + split-conformal model cuts held-out MAE by 31% (87.3 s -> 60.2 s) with 79.2% [p10, p90] coverage.
+
+4
+00:01:05,443 --> 00:01:17,611
+Replaying a corridor outside route 717A: with no replay observations covering candidate routes, the planner refuses to guess and abstains with "Not enough data".
+
+5
+00:01:18,161 --> 00:01:47,475
+For routes outside 717A, PR #28 adds a causal per-stretch, per-day scalar Kalman ratio filter: across 16,247 held-out stretches on 6 busy routes, offline MAE drops from 80.3 s to 57.3 s (28.6% gain vs timetable).
+
+6
+00:01:48,025 --> 00:02:08,122
+Why real-time transfer risk matters (Oct 22 GPS, run 2171): the timetable recommends transferring at Hamdard Nagar, then incoming GPS delay pushes the buffer into risk.
+
+7
+00:02:08,672 --> 00:02:28,122
+At Tuglaqabad, advice flips to the direct 717A bus before boarding. Stage 4 reveals the true Oct 22 GPS outcome: the connecting bus left 27m 43s before 717A arrived.
+
+8
+00:02:28,672 --> 00:02:43,239
+Pausing the poller past the 45 s demo threshold triggers a stale-GPS abstention, blocking outdated estimates with exact provenance.
+
+9
+00:02:43,789 --> 00:02:50,800
+Resuming polling and re-running the query immediately restores fresh live routes.
+
+10
+00:02:51,350 --> 00:03:19,070
+Nov 25 5-hour live check (177 matched 717A legs): 227.5 s vs 393.3 s timetable MAE, 96.6% [p10, p90] coverage. Built by Shivam Bansal and Team DROIDERS.

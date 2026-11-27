@@ -449,10 +449,16 @@ def render_beat_segment(
 ) -> float:
     target_dur = lead_in_s + audio_dur + tail_pad_s
     scale_vf = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:"
+        f"out_color_matrix=bt709:out_range=tv,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0b1120,"
         f"fps={fps},setsar=1,format=yuv420p"
     )
+    v_enc = [
+        "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+        "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+        "-video_track_timescale", "15360",
+    ]
     delay_ms = round(lead_in_s * 1000)
     audio_af = (
         f"adelay={delay_ms}|{delay_ms},"
@@ -474,7 +480,7 @@ def render_beat_segment(
             "-i", str(wav_path),
             "-vf", scale_vf,
             "-af", audio_af,
-            "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+            *v_enc,
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-t", f"{target_dur:.3f}",
             str(out_mp4),
@@ -492,7 +498,7 @@ def render_beat_segment(
             "-i", str(wav_path),
             "-vf", vf,
             "-af", audio_af,
-            "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+            *v_enc,
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-t", f"{target_dur:.3f}",
             str(out_mp4),
@@ -511,7 +517,7 @@ def render_beat_segment(
             "-i", str(wav_path),
             "-vf", vf,
             "-af", audio_af,
-            "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+            *v_enc,
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-t", f"{target_dur:.3f}",
             str(out_mp4),
