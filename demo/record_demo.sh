@@ -229,7 +229,7 @@ capture_slides() {
   local slides_url="file://${REPO_ROOT}/demo/slides.html"
   printf '[demo] Capturing %sx%s slides -> %s\n' "$WIDTH" "$HEIGHT" "$out_dir"
   for slide in intro kalman outro; do
-    ab open "${slides_url}#${slide}"
+    ab open "${slides_url}?slide=${slide}#${slide}"
     ab set viewport "$WIDTH" "$HEIGHT"
     ab wait 500
     ab screenshot "${out_dir}/slide_${slide}.png"
@@ -277,18 +277,18 @@ if [[ -z "$SEGMENTS_DIR" ]]; then
   ab record start "$OUTPUT_WEBM" --fps "$FPS"
 fi
 
-# Segment 1 (02_live_query.wav: 16.8s speech / 17.3s slot):
-#   0-12.2s: load Kashmere Gate -> Nehru Place live query, hold arrival window & quiet-hour comparison
-#   12.2-17.3s: scroll smoothly into per-leg breakdown ("...and clear data sources for every leg.")
-printf '[demo] Segment 1: Live journey query (target 17.3s)\n'
+# Segment 1 (02_live_query.wav: 14.9s speech / 15.5s slot):
+#   0-10.2s: load Kashmere Gate -> Nehru Place live query, hold arrival window & quiet-hour comparison
+#   10.2-15.5s: scroll smoothly into per-leg breakdown ("...and clear data sources for every leg.")
+printf '[demo] Segment 1: Live journey query (target 15.5s)\n'
 start_clip "seg_01_live.webm"
 ab click "#preset-example-live"
 ab click "#plan-btn"
 ab wait --text "Option 1"
 wait_for_tiles
-wait_until_clip_ms 11800
+wait_until_clip_ms 10200
 scroll_sidebar 4 115 700
-wait_until_clip_ms 17400
+wait_until_clip_ms 15600
 stop_clip
 reset_sidebar
 

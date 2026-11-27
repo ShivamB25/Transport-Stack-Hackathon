@@ -13,14 +13,14 @@
     "file": "01_intro.wav"
   },
   "02_live_query": {
-    "fingerprint": "492a3e0e2a5993cc",
-    "duration_s": 16.787,
-    "chars": 269,
+    "fingerprint": "6b9aaaeac4c2d4cb",
+    "duration_s": 14.945,
+    "chars": 256,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
     "request_ids": [
-      "20261127_b3f197e3-5195-409c-908c-da37c59b33e1",
-      "20261127_e8692caa-06e5-47ff-bf91-0785c7385cdf"
+      "20261127_eb63c0a6-0351-4349-92c3-4bd234abdd32",
+      "20261127_af2b0368-03ec-4931-ba6c-654a34b42964"
     ],
     "file": "02_live_query.wav"
   },

@@ -59,7 +59,31 @@ def probe_duration(path: Path) -> float:
         ],
         text=True,
     ).strip()
-    return float(out)
+    try:
+        val = float(out)
+        if val > 0:
+            return val
+    except ValueError:
+        pass
+    pkt_out = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "packet=pts_time",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
+        text=True,
+    )
+    pts = [float(line.strip()) for line in pkt_out.splitlines() if line.strip() and line.strip() != "N/A"]
+    if pts:
+        return max(pts)
+    raise RuntimeError(f"Could not determine media duration for {path}")
 
 
 def fmt_srt_ts(seconds: float) -> str:

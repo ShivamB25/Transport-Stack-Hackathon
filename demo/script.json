@@ -36,8 +36,8 @@
       "kind": "video",
       "source_clip": "seg_01_live.webm",
       "fallback_slice": [1.6, 5.4],
-      "caption": "Starting in real time from Kashmere Gate ISBT to Nehru Place: live GTFS-RT positions for 3,000+ Delhi buses, arrival windows, late-night comparisons, and per-leg provenance.",
-      "tts_text": "Let us start with a real time journey from Kashmere Gate ISBT to Nehru Place. Our planner pulls fresh GPS positions from over three thousand Delhi buses, displaying realistic arrival windows, comparisons against late night traffic, and clear data sources for every leg."
+      "caption": "Starting in real time from Kashmere Gate ISBT to Nehru Place: live GTFS-RT positions from active Delhi buses, arrival windows, late-night comparisons, and per-leg provenance.",
+      "tts_text": "Let us start with a real time journey from Kashmere Gate ISBT to Nehru Place. Our planner pulls fresh GPS positions from active Delhi buses, displaying realistic arrival windows, comparisons against late night traffic, and clear data sources for every leg."
     },
     {
       "id": "03_replay_717a",

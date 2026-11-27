@@ -529,7 +529,8 @@
 
   <script>
     function showSlide() {
-      const id = (window.location.hash || '#intro').replace(/^#/, '');
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('slide') || (window.location.hash || '#intro').replace(/^#/, '');
       document.querySelectorAll('.slide').forEach((el) => {
         el.classList.toggle('active', el.id === id);
       });
