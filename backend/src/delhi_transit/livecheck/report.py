@@ -9,6 +9,7 @@ from typing import Any
 
 from delhi_transit.core.config import portable_path
 from delhi_transit.core.io import atomic_write_json, atomic_write_text
+from delhi_transit.livecheck.analyze import SMALL_SAMPLE
 
 PATH_KEYS = frozenset({"file", "path", "passages_path"})
 
@@ -83,10 +84,11 @@ def _limitations(result: dict[str, Any]) -> list[str]:
         "(their actual ride cannot be rebuilt from this recording)."
         for slot, c in window["legs_by_slot"].items()
     ]
-    lines.append(
-        f"- Small sample: {acc['legs_matched']} matched legs of {acc['legs_total']}; the accuracy numbers below are "
-        "indicative only."
-    )
+    if acc["legs_matched"] < SMALL_SAMPLE:
+        lines.append(
+            f"- Small sample: {acc['legs_matched']} matched legs of {acc['legs_total']}; the accuracy numbers below are "
+            "indicative only."
+        )
     return lines + [""]
 
 

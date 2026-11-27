@@ -1,4 +1,4 @@
-import type { AbstentionCode, JourneyResponse, LiveStatus, ReplayDemoReady } from '@/api/types'
+import type { Abstention, AbstentionCode, JourneyResponse, LiveStatus, ReplayDemoReady } from '@/api/types'
 import { fmtAge } from './format'
 
 export interface BadgeState {
@@ -7,7 +7,7 @@ export interface BadgeState {
   text: string
 }
 
-export const ABSTENTION_LABELS: Record<AbstentionCode, string> = {
+const ABSTENTION_LABELS: Record<AbstentionCode, string> = {
   stale_feed: 'Stale GPS',
   feed_unavailable: 'GPS feed unavailable',
   insufficient_coverage: 'Insufficient GPS coverage',
@@ -23,12 +23,19 @@ function vehicles(count: number | null | undefined): string {
   return count ? ` · ${count} buses` : ''
 }
 
+function abstentionBadge(
+  mode: 'live' | 'replay',
+  abstention: Abstention | null | undefined,
+  feedAge: number | null | undefined,
+): BadgeState {
+  const label = (abstention && ABSTENTION_LABELS[abstention.code]) || 'Not enough data'
+  const age = feedAge != null ? ` · age ${fmtAge(feedAge)}` : ''
+  return { mode, stale: true, text: label + age + limit(abstention?.threshold_seconds) }
+}
+
 export function badgeForJourney(journey: JourneyResponse): BadgeState {
   if (journey.status === 'insufficient_data') {
-    const abstention = journey.abstention
-    const label = (abstention && ABSTENTION_LABELS[abstention.code]) || 'Not enough data'
-    const age = journey.feed_age_seconds != null ? ` · age ${fmtAge(journey.feed_age_seconds)}` : ''
-    return { mode: journey.mode, stale: true, text: label + age + limit(abstention?.threshold_seconds) }
+    return abstentionBadge(journey.mode, journey.abstention, journey.feed_age_seconds)
   }
   if (journey.mode === 'replay') {
     const reference = journey.reference_timestamp
@@ -51,9 +58,9 @@ export function badgeForDemo(demo: ReplayDemoReady, stageIndex: number): BadgeSt
 
 export function badgeForLiveStatus(status: LiveStatus | undefined): BadgeState {
   if (!status) return { mode: 'live', stale: false, text: 'Checking feed status...' }
-  const age = fmtAge(status.current_feed_age_seconds)
   if (status.is_fresh) {
+    const age = fmtAge(status.current_feed_age_seconds)
     return { mode: 'live', stale: false, text: `Feed age: ${age}${vehicles(status.state?.fresh_vehicle_count)}` }
   }
-  return { mode: 'live', stale: true, text: `Stale GPS · age ${age}${limit(status.abstention?.threshold_seconds)}` }
+  return abstentionBadge('live', status.abstention, status.current_feed_age_seconds)
 }

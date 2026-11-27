@@ -143,7 +143,7 @@ export interface DemoOption {
 
 export interface DemoStage {
   index: number
-  stage_id: 'initial' | 'delay_growing' | 'advice_flip' | 'outcome'
+  stage_id: 'initial' | 'delay_growing' | 'advice_flip' | 'outcome_reveal'
   title: string
   status_badge: string
   headline: string

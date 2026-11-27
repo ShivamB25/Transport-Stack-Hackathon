@@ -42,7 +42,7 @@ STRATA = ("all-stop", "observed-only")
 # Days whose data each selected rung's artifact was fitted or calibrated on.
 ARTIFACT_DATA_DAYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "4": (FIT_DAYS, CALIBRATION_DAYS),
-    **{rung: (TRAIN_DAYS, ()) for rung in ("2",)},
+    "2": (TRAIN_DAYS, ()),
 }
 
 PREDICTION_SCHEMA = pa.schema(
@@ -346,7 +346,7 @@ def run_evaluation(
                 "train": TRAIN_DAYS,
                 "fit": FIT_DAYS,
                 "calibration": CALIBRATION_DAYS,
-                "holdout": HOLDOUT_DAYS,
+                "holdout": active_holdout,
             },
             predictions_path=pred_path,
         )

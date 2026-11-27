@@ -30,7 +30,6 @@ class CausalityViolationError(ValueError):
     """Raised when feature construction receives non-causal future observations."""
 
 
-
 @dataclass(frozen=True)
 class PassageRow:
     day: str

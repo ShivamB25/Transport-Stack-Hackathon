@@ -343,16 +343,16 @@ def window_coverage(legs: list[dict[str, Any]], polls: list[dict[str, Any]]) -> 
     if not times:
         return {}
     last = times[-1]
-    per_slot: dict[str, dict[str, int]] = defaultdict(lambda: {"legs": 0, "end_after_window": 0})
+    per_slot: dict[int, dict[str, int]] = defaultdict(lambda: {"legs": 0, "end_after_window": 0})
     for leg in legs:
-        counts = per_slot[str(leg["slot"])]
+        counts = per_slot[int(leg["slot"])]
         counts["legs"] += 1
         counts["end_after_window"] += int(leg["predicted_board_ts"] + leg["predicted_s"] > last)
     return {
         "first_ok": iso_ist(times[0]),
         "last_ok": iso_ist(last),
         "minutes": round((last - times[0]) / 60, 1),
-        "legs_by_slot": dict(sorted(per_slot.items())),
+        "legs_by_slot": {str(slot): counts for slot, counts in sorted(per_slot.items())},
     }
 
 

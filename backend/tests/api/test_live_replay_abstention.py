@@ -680,3 +680,34 @@ def test_supported_option_is_listed_first_even_when_an_unsupported_one_is_faster
     assert all(leg["observed_coverage"] == 0 for leg in second_rides)
     # The unsupported option is faster, so duration alone would have put it first.
     assert second["total_duration_s"] < first["total_duration_s"]
+
+
+def test_live_status_reports_request_time_fresh_vehicle_count_in_state(
+    tmp_path: Path, make_protobuf
+) -> None:
+    _make_stops(tmp_path)
+    now = int(time.time())
+    # Header is fresh, but only 2 of 12 vehicles have timestamps within the 60 s threshold.
+    vehicles = [
+        (f"FRESH{i}", "100", 28.65, 77.22, 5.0, now - 5) for i in range(2)
+    ] + [
+        (f"STALE{i}", "100", 28.65, 77.22, 5.0, now - 120) for i in range(10)
+    ]
+    decoded = decode_vehicle_positions(
+        make_protobuf(now - 5, vehicles), polled_at=now, entity_max_age_s=600
+    )
+    persist_decoded_feed(tmp_path, decoded)
+    app = create_app(
+        tmp_path,
+        otp_url="http://unused",
+        otp=FakeOTP(),
+        model=_build_retime_model(tmp_path, []),
+        enable_poller=False,
+        stale_threshold_s=60,
+        min_live_vehicles=10,
+    )
+    body = TestClient(app).get("/live/status").json()
+    assert body["is_fresh"] is False
+    assert body["abstention"]["code"] == "insufficient_coverage"
+    assert body["abstention"]["fresh_vehicle_count"] == 2
+    assert body["state"]["fresh_vehicle_count"] == 2

@@ -95,7 +95,8 @@ def connect_duckdb(temp_dir: Path) -> duckdb.DuckDBPyConnection:
     con.execute("SET threads=2")
     con.execute("SET memory_limit='2GB'")
     con.execute("SET preserve_insertion_order=false")
-    con.execute(f"SET temp_directory='{temp_dir}'")
+    escaped_temp = str(temp_dir).replace("'", "''")
+    con.execute(f"SET temp_directory='{escaped_temp}'")
     return con
 
 

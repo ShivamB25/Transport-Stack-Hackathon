@@ -417,9 +417,7 @@ def build_router(rt: ApiRuntime) -> APIRouter:
 
     @router.get("/live/status")
     async def live_status() -> dict[str, Any]:
-        state = read_live_state(rt.data_dir)
-        age = live_feed_age_seconds(state)
-        _, _, abstention = rt.evaluate_live_feed()
+        state, age, abstention = rt.evaluate_live_feed()
         return {
             "paused": is_feed_paused(rt.data_dir),
             "poller_enabled": rt.poller_enabled,

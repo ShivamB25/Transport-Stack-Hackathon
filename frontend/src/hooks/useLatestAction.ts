@@ -2,10 +2,10 @@ import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { actionQueryOptions, type ActionRequest, type UserAction } from '@/api/queries'
 
-export const IDLE_ACTION: UserAction = { id: 0, kind: 'idle' }
+const IDLE_ACTION: UserAction = { id: 0, kind: 'idle' }
 
 /** Every request supersedes the current action, including an identical resubmit. */
-export function nextAction(current: UserAction, request: ActionRequest): UserAction {
+function nextAction(current: UserAction, request: ActionRequest): UserAction {
   return { ...request, id: current.id + 1 }
 }
 

@@ -7,13 +7,15 @@ import httpx
 
 from delhi_transit.core.config import IST
 from delhi_transit.livecheck.analyze import (
+    SMALL_SAMPLE,
     ActualRun,
     StopPassage,
     match_leg,
     run_status,
+    window_coverage,
 )
 from delhi_transit.livecheck.record import Recorder, RunSettings
-from delhi_transit.livecheck.report import run_status_line
+from delhi_transit.livecheck.report import render_markdown, run_status_line
 
 BOARD_TS = 1_800_000_000
 
@@ -150,3 +152,73 @@ def test_run_left_running_is_reported_as_stopped_before_completion():
     line = run_status_line(run)
     assert "stopped before completion" in line
     assert "last summary update U, last successful poll L (planned end E)" in line
+
+
+def test_window_coverage_orders_slots_numerically() -> None:
+    polls = [
+        {"ok": True, "attempted_at": BOARD_TS},
+        {"ok": True, "attempted_at": BOARD_TS + 3600},
+    ]
+    legs = [
+        {"slot": 10, "predicted_board_ts": BOARD_TS + 100, "predicted_s": 600},
+        {"slot": 2, "predicted_board_ts": BOARD_TS + 100, "predicted_s": 600},
+        {"slot": 0, "predicted_board_ts": BOARD_TS + 100, "predicted_s": 600},
+    ]
+    window = window_coverage(legs, polls)
+    assert list(window["legs_by_slot"]) == ["0", "2", "10"]
+
+
+def test_render_markdown_only_warns_small_sample_below_threshold() -> None:
+    def _report(matched: int) -> str:
+        return render_markdown(
+            {
+                "day": "2026-11-25",
+                "run": {"status": "finished", "started_at": "S", "updated_at": "U", "until": "E"},
+                "slots": [],
+                "window": {
+                    "first_ok": "2026-11-25T06:30:00+05:30",
+                    "last_ok": "2026-11-25T11:30:00+05:30",
+                    "minutes": 300.0,
+                    "legs_by_slot": {"0": {"legs": matched, "end_after_window": 0}},
+                },
+                "matching_rule": {"board_tolerance_s": 120, "max_board_delay_s": 1800, "text": "rule"},
+                "feed_health": {
+                    "polls": 1,
+                    "ok": 1,
+                    "success_rate": 1.0,
+                    "errors": {},
+                    "first_ok": "2026-11-25T06:30:00+05:30",
+                    "last_ok": "2026-11-25T11:30:00+05:30",
+                    "repeated_snapshots": 0,
+                    "gaps_over_2_min": [],
+                    "vehicles": {},
+                    "feed_age_at_poll_s": {},
+                },
+                "responses": {
+                    "responses": 0,
+                    "by_status": {},
+                    "by_reason_code": {},
+                    "feed_age_s": {},
+                    "stale_threshold_s": 600,
+                    "ok_not_live_mode": 0,
+                    "ok_with_stale_feed": 0,
+                    "ok_ride_legs_missing_fields": 0,
+                    "abstentions_without_code": 0,
+                },
+                "actuals": None,
+                "accuracy": {
+                    "legs_total": matched,
+                    "legs_matched": matched,
+                    "unmatched_by_reason": {},
+                    "overall": {"count": 0},
+                    "by_provenance": {},
+                    "by_route": {},
+                    "observed_only": {"count": 0},
+                    "observed_only_by_provenance": {},
+                },
+                "google": {"summary": {}, "calls_in_log": 0, "rows": []},
+            }
+        )
+
+    assert "- Small sample:" in _report(SMALL_SAMPLE - 1)
+    assert "- Small sample:" not in _report(SMALL_SAMPLE)

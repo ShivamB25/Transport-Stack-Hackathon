@@ -52,7 +52,7 @@ function busLine(layer: L.FeatureGroup, coords: L.LatLngTuple[], color: string, 
 }
 
 /** Draws one journey option; returns the zoom cap for fitting the view. */
-export function drawJourney(layer: L.FeatureGroup, response: JourneyResponse, option: JourneyOption): number {
+function drawJourney(layer: L.FeatureGroup, response: JourneyResponse, option: JourneyOption): number {
   const markers: Parameters<typeof stopMarker>[] = []
   const { resolved_from: from, resolved_to: to } = response
   markers.push([layer, from.routing_lat, from.routing_lng, '#0f766e', 7, `Origin: ${from.stop_name}`])
@@ -101,7 +101,7 @@ function drawDemoLegs(layer: L.FeatureGroup, legs: DemoLeg[], color: string, pri
 }
 
 /** Draws both replay-demo itineraries, emphasising the one recommended at this stage, and the bus position. */
-export function drawDemoStage(layer: L.FeatureGroup, demo: ReplayDemoReady, stage: DemoStage): number {
+function drawDemoStage(layer: L.FeatureGroup, demo: ReplayDemoReady, stage: DemoStage): number {
   const transferRecommended = stage.recommended_option === 'transfer'
   drawDemoLegs(layer, demo.geometries.direct_legs, transferRecommended ? '#64748b' : '#0f766e', !transferRecommended, 'Direct option')
   drawDemoLegs(layer, demo.geometries.transfer_legs, transferRecommended ? '#0f766e' : '#dc2626', transferRecommended, 'Transfer option')
