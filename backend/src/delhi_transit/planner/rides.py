@@ -43,6 +43,27 @@ from delhi_transit.planner.waits import fallback_wait, headway_wait, recent_stop
 # (from_sequence, to_sequence, from_stop_id, to_stop_id, scheduled_s)
 Stretch = tuple[int, int, str, str, float]
 
+# Scalar Kalman filter hyperparameters over stretch ratio (actual / scheduled).
+KALMAN_Q = 0.01
+KALMAN_R = 0.05
+KALMAN_INIT_VAR = 1.0
+
+
+def kalman_step(
+    state: float,
+    var: float,
+    ratio: float,
+    *,
+    q: float = KALMAN_Q,
+    r: float = KALMAN_R,
+) -> tuple[float, float]:
+    """Run one scalar Kalman update over a clamped stretch ratio."""
+    z = clamp_ratio(ratio)
+    gain = var / (var + r)
+    state = state + gain * (z - state)
+    var = (1.0 - gain) * var + q
+    return state, var
+
 
 class RetimeModel:
     """Selected-rung adapter with causal historical and timetable fallbacks."""
@@ -60,11 +81,17 @@ class RetimeModel:
         self.records: list[TimingRecord] = []
         self.exact: dict[tuple[int, str, str], list[TimingRecord]] = defaultdict(list)
         self.route_hour: dict[tuple[int, int], list[TimingRecord]] = defaultdict(list)
+        self.route_day: dict[tuple[int, str], list[TimingRecord]] = defaultdict(list)
         self.global_hour: dict[int, list[TimingRecord]] = defaultdict(list)
         self.stop_events: dict[tuple[int, str], list[PassageRow]] = defaultdict(list)
         self.route_geometries: dict[tuple[int, str], RouteGeometry] = {}
         self.route_patterns: dict[int, tuple[str, list[tuple[int, str]]]] = {}
         self.stretch_typical_scheduled: dict[tuple[int, str, str], float] = {}
+        self.kalman_state: dict[tuple[int, str, str, str], float] = {}
+        self.kalman_var: dict[tuple[int, str, str, str], float] = {}
+        self._kalman_obs_keys: dict[
+            tuple[int, str, str, str], tuple[tuple[int, int, str, int], ...]
+        ] = {}
         self._live_stats_mtime: float | None = None
         self._live_stats_cache: dict[int, dict[str, Any]] = {}
         self._loaded_passage_files: list[Path] = []
@@ -185,6 +212,7 @@ class RetimeModel:
             sched_samples[key].append(stretch.scheduled_duration_s)
             if stretch.target_observed:
                 self.route_hour[(stretch.route_id, record.hour)].append(record)
+                self.route_day[(stretch.route_id, stretch.day)].append(record)
                 self.global_hour[record.hour].append(record)
         self.stretch_typical_scheduled.update(
             {key: float(median(vals)) for key, vals in sched_samples.items()}
@@ -195,6 +223,74 @@ class RetimeModel:
             self.stop_events[(passage.route_id, passage.stop_id)].append(passage)
         for group in self.stop_events.values():
             group.sort(key=lambda row: row.ts)
+
+    @staticmethod
+    def _kalman_prior(
+        historical_exact: list[TimingRecord],
+        route_records: list[TimingRecord],
+        global_records: list[TimingRecord],
+        service_day: str,
+        hour: int,
+    ) -> float:
+        """Prior ratio from prior-day observed records (excludes same-day observations)."""
+        prior_exact = [record for record in historical_exact if record.stretch.day != service_day]
+        prior_same_hour = [record for record in prior_exact if record.hour == hour]
+        prior_route = [record for record in route_records if record.stretch.day != service_day]
+        prior_global = [record for record in global_records if record.stretch.day != service_day]
+        prior_ref = prior_same_hour or prior_exact or prior_route or prior_global
+        return median(clamp_ratio(row.ratio) for row in prior_ref) if prior_ref else 1.0
+
+    def _kalman_ratio(
+        self,
+        stretch_key: tuple[int, str, str, str],
+        prior: float,
+        observations: list[TimingRecord],
+    ) -> float:
+        """Update or replay the causal per-stretch per-day scalar Kalman ratio filter."""
+        if not observations:
+            self.kalman_state[stretch_key] = prior
+            self.kalman_var[stretch_key] = KALMAN_INIT_VAR
+            return prior
+
+        ordered = sorted(
+            observations,
+            key=lambda record: (
+                record.stretch.available_at,
+                record.stretch.query_ts,
+                record.stretch.run_id,
+                record.stretch.from_sequence,
+            ),
+        )
+        obs_keys = tuple(
+            (
+                record.stretch.available_at,
+                record.stretch.query_ts,
+                record.stretch.run_id,
+                record.stretch.from_sequence,
+            )
+            for record in ordered
+        )
+        prev_keys = self._kalman_obs_keys.get(stretch_key)
+        if (
+            prev_keys is not None
+            and len(obs_keys) >= len(prev_keys)
+            and obs_keys[: len(prev_keys)] == prev_keys
+        ):
+            state = self.kalman_state[stretch_key]
+            var = self.kalman_var[stretch_key]
+            new_obs = ordered[len(prev_keys) :]
+        else:
+            state = prior
+            var = KALMAN_INIT_VAR
+            new_obs = ordered
+
+        for record in new_obs:
+            state, var = kalman_step(state, var, record.ratio)
+
+        self.kalman_state[stretch_key] = state
+        self.kalman_var[stretch_key] = var
+        self._kalman_obs_keys[stretch_key] = obs_keys
+        return state
 
     def _stretch_features(
         self,
@@ -389,10 +485,8 @@ class RetimeModel:
         route_records = visible(self.route_hour.get((route_id, depart.hour), []), as_of_ts)
         same_day_route = [
             record
-            for record in visible(self.records, as_of_ts)
-            if record.stretch.route_id == route_id
-            and record.stretch.day == service_day
-            and record.stretch.target_observed
+            for record in visible(self.route_day.get((route_id, service_day), []), as_of_ts)
+            if record.stretch.target_observed
             and record.stretch.available_at >= as_of_ts - 7200
         ]
         global_records = visible(self.global_hour.get(depart.hour, []), as_of_ts)
@@ -445,29 +539,9 @@ class RetimeModel:
         else:
             fallback_suffix = ""
 
-        if mode == "replay" and same_day:
-            previous = max(same_day, key=lambda record: record.stretch.query_ts)
-            duration = max(1.0, scheduled + previous.stretch.error_s)
-            source, timing_source = "replay", "model_replay"
-            reference = exact or [previous]
-            observation_count = len(same_day)
-            coverage = observed_coverage(reference)
-            coverage_note = (
-                f"causal October replay rung 1 persistence "
-                f"({len(same_day)} same-day observed runs on route {route_id}){fallback_suffix}"
-            )
-        elif mode == "replay" and same_day_route:
-            recent = sorted(same_day_route, key=lambda record: record.stretch.query_ts)[-20:]
-            duration = max(1.0, scheduled * median(clamp_ratio(row.ratio) for row in recent))
-            source, timing_source = "replay", "model_replay"
-            reference = recent
-            observation_count = len(same_day_route)
-            coverage = observed_coverage(same_day_route)
-            coverage_note = (
-                f"causal October replay rung 1 route-level persistence "
-                f"({len(same_day_route)} same-day route-{route_id} observed stretches){fallback_suffix}"
-            )
-        elif (
+        stretch_day_key = (route_id, from_stop, to_stop, service_day)
+
+        if (
             mode == "live"
             and live_fresh >= 1
             and live_stat is not None
@@ -491,9 +565,49 @@ class RetimeModel:
                 f"live VehiclePositions ({live_fresh} fresh vehicles on route {route_id}, "
                 f"median {median_speed:.1f} m/s) + {profile_label}"
             )
+        elif mode == "replay" and same_day:
+            prior = self._kalman_prior(
+                historical_exact, route_records, global_records, service_day, depart.hour
+            )
+            ratio = self._kalman_ratio(stretch_day_key, prior, same_day)
+            duration = max(1.0, scheduled * ratio)
+            source, timing_source = "replay", "model_replay"
+            reference = exact or same_day
+            observation_count = len(same_day)
+            coverage = observed_coverage(reference)
+            coverage_note = (
+                f"causal October replay Kalman ratio filter "
+                f"({len(same_day)} same-day observed runs on route {route_id}){fallback_suffix}"
+            )
+        elif mode == "replay" and same_day_route:
+            recent = sorted(
+                same_day_route,
+                key=lambda record: (
+                    record.stretch.available_at,
+                    record.stretch.query_ts,
+                    record.stretch.run_id,
+                    record.stretch.from_sequence,
+                ),
+            )[-20:]
+            prior = self._kalman_prior(
+                historical_exact, route_records, global_records, service_day, depart.hour
+            )
+            ratio = self._kalman_ratio(stretch_day_key, prior, recent)
+            duration = max(1.0, scheduled * ratio)
+            source, timing_source = "replay", "model_replay"
+            reference = recent
+            observation_count = len(same_day_route)
+            coverage = observed_coverage(same_day_route)
+            coverage_note = (
+                f"causal October replay route-level Kalman ratio filter "
+                f"({len(recent)} of {len(same_day_route)} same-day route-{route_id} observed stretches)"
+                f"{fallback_suffix}"
+            )
         elif hist_reference:
             reference = hist_reference
-            duration = scheduled * median(clamp_ratio(row.ratio) for row in reference)
+            prior = median(clamp_ratio(row.ratio) for row in reference)
+            ratio = self._kalman_ratio(stretch_day_key, prior, [])
+            duration = max(1.0, scheduled * ratio)
             source, timing_source = "historical", "historical_fallback"
             observation_count = len(reference)
             # Corridor-hour references come from other routes, so they say nothing about this route.
@@ -505,13 +619,14 @@ class RetimeModel:
                     else f"sparse live observations (0 fresh vehicles on route {route_id})"
                 )
                 coverage_note = (
-                    f"{live_note}; historical {hist_level} fallback "
-                    f"(n={len(reference)}){fallback_suffix}"
+                    f"{live_note}; Kalman ratio filter prior from historical {hist_level} fallback "
+                    f"(0 same-day obs, n={len(reference)}){fallback_suffix}"
                 )
             else:
                 coverage_note = (
-                    f"sparse replay observations (0 same-day exact obs on route {route_id}); "
-                    f"historical {hist_level} fallback (n={len(reference)}){fallback_suffix}"
+                    f"sparse replay observations (0 same-day obs on route {route_id}); "
+                    f"Kalman ratio filter prior from historical {hist_level} fallback "
+                    f"(n={len(reference)}){fallback_suffix}"
                 )
         else:
             reference = []

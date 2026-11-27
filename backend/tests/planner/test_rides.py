@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta, timezone
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -275,4 +276,184 @@ def test_retime_model_loads_rung4_artifact_and_times_covered_vs_uncovered_routes
     est_replay_tt = model.predict_ride(1920, "X", "Y", 600.0, datetime(2026, 10, 22, 23, 0, tzinfo=IST), "replay")
     assert est_replay_tt.source == "timetable"
     assert est_replay_tt.timing_source == "timetable_fallback"
+
+
+def _same_day_record(
+    day: str,
+    hour: int,
+    minute: int,
+    actual: int,
+    *,
+    scheduled: int = 100,
+    route_id: int = 1616,
+    from_stop: str = "A",
+    to_stop: str = "B",
+    available_at: datetime | None = None,
+    run_id: str | None = None,
+) -> TimingRecord:
+    y, m, d = (int(p) for p in day.split("-"))
+    query = datetime(y, m, d, hour, minute, tzinfo=IST)
+    to_dt = query + timedelta(seconds=actual)
+    avail_dt = available_at or to_dt
+    return TimingRecord(
+        StretchError(
+            day=day,
+            route_id=route_id,
+            direction="UP",
+            vehicle_id="v1",
+            run_id=run_id or f"{day}-{hour:02d}{minute:02d}",
+            from_sequence=1,
+            to_sequence=2,
+            from_stop_id=from_stop,
+            to_stop_id=to_stop,
+            query_ts=int(query.timestamp()),
+            to_ts=int(to_dt.timestamp()),
+            scheduled_duration_s=scheduled,
+            actual_duration_s=actual,
+            error_s=actual - scheduled,
+            from_observed=True,
+            to_observed=True,
+            from_available_at=int(query.timestamp()),
+            to_available_at=int(avail_dt.timestamp()),
+        )
+    )
+
+
+def test_kalman_filter_converges_monotonically_toward_observations(tmp_path: Path) -> None:
+    """A stretch seeded at 1.0 with observations at 1.5 converges monotonically toward 1.5."""
+    records = [
+        _same_day_record("2026-10-22", 8, 5 * i, actual=150, scheduled=100, run_id=f"r{i}")
+        for i in range(6)
+    ]
+    model = _model(records, tmp_path)
+
+    # Query before any observation is available: no-data fallback (ratio 1.0).
+    ratios: list[float] = [1.0]
+    for i in range(6):
+        query_time = datetime(2026, 10, 22, 8, 5 * i, tzinfo=IST) + timedelta(seconds=200)
+        est = model.predict_ride(1616, "A", "B", 100.0, query_time, "replay")
+        assert est.source == "replay"
+        assert est.timing_source == "model_replay"
+        assert est.observation_count == i + 1
+        assert est.coverage_note is not None
+        assert "Kalman ratio filter" in est.coverage_note
+        assert f"{i + 1} same-day" in est.coverage_note
+        ratios.append(est.duration_s / 100.0)
+
+    for prev_ratio, next_ratio in pairwise(ratios):
+        assert prev_ratio < next_ratio < 1.5
+    assert ratios[-1] == pytest.approx(1.5, abs=0.01)
+
+
+def test_kalman_filter_strict_causality_blocks_future_available_at(tmp_path: Path) -> None:
+    """An observation with available_at after the query time must not affect the prediction."""
+    past = _same_day_record("2026-10-22", 8, 0, actual=120, scheduled=100, run_id="past")
+    # Completed physically at 08:13 but only knowable from GPS at 08:40 (> 08:30 query).
+    future_avail = _same_day_record(
+        "2026-10-22",
+        8,
+        10,
+        actual=250,
+        scheduled=100,
+        available_at=datetime(2026, 10, 22, 8, 40, tzinfo=IST),
+        run_id="delayed",
+    )
+    query_t = datetime(2026, 10, 22, 8, 30, tzinfo=IST)
+
+    base_model = _model([past], tmp_path)
+    with_future_model = _model([past, future_avail], tmp_path)
+
+    est_base = base_model.predict_ride(1616, "A", "B", 100.0, query_t, "replay")
+    est_future = with_future_model.predict_ride(1616, "A", "B", 100.0, query_t, "replay")
+    assert est_future.duration_s == est_base.duration_s
+    assert est_future.observation_count == 1
+
+    # Querying a later time (08:45) sees the delayed observation, and then querying 08:30
+    # again on the same RetimeModel instance must still not leak the 08:40 observation.
+    est_later = with_future_model.predict_ride(
+        1616, "A", "B", 100.0, datetime(2026, 10, 22, 8, 45, tzinfo=IST), "replay"
+    )
+    assert est_later.duration_s > est_base.duration_s
+    assert est_later.observation_count == 2
+
+    est_back = with_future_model.predict_ride(1616, "A", "B", 100.0, query_t, "replay")
+    assert est_back.duration_s == est_base.duration_s
+    assert est_back.observation_count == 1
+
+
+def test_kalman_filter_rolls_over_daily_from_prior(tmp_path: Path) -> None:
+    """A new service_day starts from the historical prior rather than yesterday's state."""
+    # Day 1 (Oct 21): historical baseline at 1.2x.
+    day1_prior = _same_day_record("2026-10-21", 8, 0, actual=120, scheduled=100, run_id="d1")
+    # Day 2 (Oct 22): extreme congestion at 2.8x late in the day (hour 18).
+    day2_spike = [
+        _same_day_record("2026-10-22", 18, 5 * i, actual=280, scheduled=100, run_id=f"d2-{i}")
+        for i in range(4)
+    ]
+    model = _model([day1_prior, *day2_spike], tmp_path)
+
+    # Late on Oct 22, filter state tracks the 2.8x congestion.
+    est_day2 = model.predict_ride(
+        1616, "A", "B", 100.0, datetime(2026, 10, 22, 18, 30, tzinfo=IST), "replay"
+    )
+    assert est_day2.duration_s > 250.0
+
+    # Next morning on Oct 23 (hour 8, no same-day obs yet): rolls over cleanly to the
+    # hour-8 historical prior (1.2x), NOT Oct 22's 2.8x filter state.
+    est_day3 = model.predict_ride(
+        1616, "A", "B", 100.0, datetime(2026, 10, 23, 8, 30, tzinfo=IST), "replay"
+    )
+    assert est_day3.source == "historical"
+    assert est_day3.timing_source == "historical_fallback"
+    assert est_day3.duration_s == pytest.approx(120.0)
+    assert model.kalman_state[(1616, "A", "B", "2026-10-23")] == pytest.approx(1.2)
+    assert model.kalman_state[(1616, "A", "B", "2026-10-22")] > 2.5
+
+
+def test_kalman_filter_no_data_degrades_to_timetable_fallback(tmp_path: Path) -> None:
+    """With no same-day and no historical records, duration == scheduled and timetable_fallback."""
+    model = _model([], tmp_path)
+    est = model.predict_ride(1616, "A", "B", 420.0, datetime(2026, 10, 22, 9, 0, tzinfo=IST), "replay")
+    assert est.duration_s == 420.0
+    assert est.source == "timetable"
+    assert est.timing_source == "timetable_fallback"
+    assert est.observation_count == 0
+    assert est.observed_coverage == 0.0
+    assert (1616, "A", "B", "2026-10-22") not in model.kalman_state
+
+
+def test_717a_artifact_path_is_unaffected_by_kalman_filter(tmp_path: Path) -> None:
+    """Route 717A with an eligible artifact never invokes or populates the Kalman filter."""
+    from delhi_transit.model.rungs import Prediction
+
+    records = [
+        _same_day_record(
+            "2026-10-22", 8, 5, actual=200, scheduled=100, route_id=2171, from_stop="S0", to_stop="S1"
+        )
+    ]
+    model = _model(records, tmp_path)
+    model.selected_rung = "4"
+    model.route_patterns[2171] = ("UP", [(1, "S0"), (2, "S1")])
+    model.stretch_typical_scheduled[(2171, "S0", "S1")] = 100.0
+
+    class Stub717Artifact:
+        rung = "4"
+        covered_routes = frozenset({2170, 2171})
+
+        @staticmethod
+        def is_eligible_as_of(as_of_ts: int) -> bool:
+            return True
+
+        @staticmethod
+        def predict_batch_from_features(items: list) -> list[Prediction]:
+            return [Prediction(error_s=35.0, p10_s=10.0, p50_s=35.0, p90_s=70.0) for _ in items]
+
+    model._artifact = Stub717Artifact()
+    est = model.predict_ride(2171, "S0", "S1", 100.0, datetime(2026, 10, 22, 8, 30, tzinfo=IST), "replay")
+    assert est.duration_s == pytest.approx(135.0)
+    assert est.timing_source == "model_replay"
+    assert est.coverage_note is not None
+    assert "rung 4 LightGBM" in est.coverage_note
+    assert "Kalman" not in est.coverage_note
+    assert model.kalman_state == {}
 

@@ -25,7 +25,7 @@ Delhi DTC bus travel-time modelling and journey planning over the October 2026 G
 - **Runtime and ports:** Keep services within `3100–3199`: `3100` (API + built `frontend/dist`), `3102` (OTP 2.8.1 with `-Xmx2500m`), `3110` (Vite dev proxy), `3120` (livecheck API).
 - **Environment paths:** Configure external data/work/OTP/JDK locations via `DELHI_TRANSIT_SCRATCH_DIR`, `DELHI_TRANSIT_DATA_DIR`, `DELHI_TRANSIT_WORK_DIR`, `DELHI_TRANSIT_OTP_DIR`, `DELHI_TRANSIT_JAVA`, `DELHI_TRANSIT_OTP_URL`, and `DELHI_TRANSIT_FRONTEND_DIR` (see `core/config.py` and `README.md`). Importing `delhi_transit.api` builds the default app and reads `$DELHI_TRANSIT_DATA_DIR/gtfs/stops.txt`, so pytest requires a data directory with `gtfs/stops.txt`.
 - **Default `depart`:** Omit `depart` to plan from now in Asia/Kolkata in `live` mode, or from `2026-10-22T08:30+05:30` when replay is explicit (`mode=replay`, or `mode=auto` with `DELHI_TRANSIT_MODE=replay`).
-- **Model scope and shipped rung:** Stop passages and learned Rung 4 (LightGBM quantile + split-conformal) cover route 717A (`2171` UP, `2170` DOWN) only; all other routes use the causal Rung 1 fallback chain in `planner/rides.py`.
+- **Model scope and shipped rung:** Stop passages and learned Rung 4 (LightGBM quantile + split-conformal) cover route 717A (`2171` UP, `2170` DOWN) only; all other routes use the live speed tier when fresh speeds exist and otherwise the causal per-stretch, per-day scalar Kalman ratio filter fallback (`Q=0.01`, `R=0.05`) in `planner/rides.py`.
 - **Known archive gaps:** Archive day `d` runs from ~23:30 IST on `d-1` to 23:59 IST on `d`. `2026-10-07` ends at 19:53:23 IST (training only); `2026-10-08` starts at 02:02:10 IST. Static GTFS v32 has 6,862 stops.
 - **No CI:** Run backend and frontend checks locally before merging; frontend has no automated test suite.
 - **Headline committed results:**
@@ -36,6 +36,7 @@ Delhi DTC bus travel-time modelling and journey planning over the October 2026 G
   - Google comparator (`reports/google-comparator.md`): 90 slots on 2026-11-24, 19 compared, 49 abstentions, 22 `our_unsupported_option`; mean diff (ours minus Google) +273 s excluding first boarding wait, +509 s door-to-door; 94.7% inside `[p10, p90]`; 92/300 calls used.
   - Live check, 2026-11-24 (`reports/live-check-2026-11-24.md`): shortened 40.4 min post-peak window (21:04–21:44 IST; 98/98 polls ok; 108/108 live `/journeys` ok; 0/66 717A legs matched; ledger 93/300).
   - Live check, 2026-11-25 (`reports/live-check-2026-11-25.md`): 300.4 min morning window (06:29–11:30 IST; 722/722 polls ok; 396/396 live `/journeys` ok; 177/287 predicted 717A legs matched at 227.5 s MAE vs 393.3 s timetable MAE; 67 observed-only matched legs at 300.5 s MAE vs 492.4 s timetable MAE, 94.0% `[p10, p90]` coverage; 0 Google calls).
+  - Unmodelled-route fallback (`delhi_transit.data.fallback_check --reconstruct`, 2026-10-22 → 2026-10-27, 6 busiest non-717A routes, 16,247 observed stretches): scalar Kalman ratio filter 57.3 s MAE vs 80.3 s timetable MAE (28.6% gain; up from 67.4 s / 16.1% static fallback and 63.1 s / 21.4% previous chain); offline against reconstructed ground truth only (not live-verified).
 
 ## Commands
 
@@ -46,6 +47,7 @@ Run Python commands from `backend/`, frontend commands from `frontend/`, and she
 - GPS archive: `uv run python -m delhi_transit.data.acquire` (31 days), `uv run python -m delhi_transit.data.extract_day --day 2026-10-15 --output /tmp/repro15.parquet`
 - 717A passages: `uv run python -m delhi_transit.data.stop_passages --overwrite` (canonical 10 days + `reports/coverage-717a.md`), or `--day 2026-10-22 --output-dir /tmp/passages-check --overwrite` (scoped; never touches canonical report)
 - Evaluation & selection: `uv run python -m delhi_transit.model.evaluate`, `uv run python -m delhi_transit.model.selection`
+- Unmodelled-route fallback check: `uv run python -m delhi_transit.data.fallback_check --reconstruct`
 - OTP & API: `otp/build.sh`, `otp/serve.sh` (3102), `DELHI_TRANSIT_DATA_DIR=$DELHI_TRANSIT_SCRATCH_DIR/data DELHI_TRANSIT_OTP_URL=http://localhost:3102/otp/gtfs/v1 uv run uvicorn delhi_transit.api:app --host 127.0.0.1 --port 3100`
 - Live poller & comparator: `uv run python -m delhi_transit.live.poller --once`, `uv run python -m delhi_transit.comparator --render-only`, `uv run python -m delhi_transit.comparator --date 2026-11-24 --cache-only`
 - Live check & demo: `livecheck/launch.sh $DELHI_TRANSIT_SCRATCH_DIR/live-check/<day> <HH:MM>` (extra flags pass to `livecheck run`), `uv run python -m delhi_transit.livecheck actuals --in <dir>`, `uv run python -m delhi_transit.livecheck analyze --in <dir> --report-dir ../reports`, `demo/record_demo.sh` (requires API started with `DELHI_TRANSIT_LIVE_STALE_THRESHOLD_S=45`)

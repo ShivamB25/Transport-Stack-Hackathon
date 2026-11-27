@@ -4,22 +4,27 @@ The README says only route 717A has a trained model. This reports what the *fall
 actually achieves on other routes, so that limitation carries a number instead of an
 adjective.
 
-It reproduces the reference selection in `planner/rides.py`: `stretch_hour`, then
-`stretch`, then `route_hour`, then `corridor_hour`, predicting
-`scheduled * median(clamp_ratio(actual / scheduled))` over the chosen set.
+It reproduces the causal fallback path in `planner/rides.py`: a scalar Kalman filter
+over the stretch ratio (`actual / scheduled`) per `(route_id, from_stop, to_stop)` per
+service day, seeded from the historical median prior (`stretch_hour`, then `stretch`,
+then `route_hour`, then `corridor_hour`, else `1.0`) and updated strictly causally from
+same-day observed stretches (`available_at < query_ts`, `to_ts <= query_ts`).
 """
 from __future__ import annotations
 
 import argparse
-import statistics
+from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
+from statistics import median
 from typing import Any
 
-from delhi_transit.core.config import DATA_DIR
+from delhi_transit.core.config import DATA_DIR, IST
 from delhi_transit.model.features import PassageRow, load_passages
+from delhi_transit.planner.rides import KALMAN_INIT_VAR, kalman_step
 from delhi_transit.planner.risk import clamp_ratio
 
 # Busiest non-717A routes by October GPS volume, as used for the committed measurement.
@@ -49,8 +54,13 @@ def _observed_stretches(passages: Sequence[PassageRow]) -> list[dict[str, Any]]:
                 {
                     "day": day,
                     "route_id": route_id,
-                    "hour": (left.ts // 3600) % 24,
+                    "hour": datetime.fromtimestamp(left.ts, IST).hour,
                     "key": (route_id, left.stop_id, right.stop_id),
+                    "run_id": left.run_id,
+                    "from_sequence": left.stop_sequence,
+                    "query_ts": left.ts,
+                    "to_ts": right.ts,
+                    "available_at": max(left.source_available_at, right.source_available_at),
                     "scheduled": scheduled,
                     "actual": actual,
                 }
@@ -77,20 +87,81 @@ def measure(passages: Sequence[PassageRow], train_day: str, holdout_day: str) ->
         by_route_hour[(s["route_id"], s["hour"])].append(ratio)
         by_hour[s["hour"]].append(ratio)
 
-    def predict(s: dict[str, Any]) -> tuple[float, str]:
+    def prior_for(s: dict[str, Any]) -> tuple[float, str]:
         values = by_stretch_hour.get((s["key"], s["hour"]))
         if values:
-            return s["scheduled"] * statistics.median(values), "stretch_hour"
+            return median(values), "stretch_hour"
         values = by_stretch.get(s["key"])
         if values:
-            return s["scheduled"] * statistics.median(values), "stretch"
+            return median(values), "stretch"
         values = by_route_hour.get((s["route_id"], s["hour"]))
         if values:
-            return s["scheduled"] * statistics.median(values), "route_hour"
+            return median(values), "route_hour"
         values = by_hour.get(s["hour"])
         if values:
-            return s["scheduled"] * statistics.median(values), "corridor_hour"
-        return float(s["scheduled"]), "timetable"
+            return median(values), "corridor_hour"
+        return 1.0, "timetable"
+
+    holdout.sort(key=lambda s: (s["query_ts"], s["run_id"], s["from_sequence"]))
+
+    by_key_avail: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
+    by_route_avail: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for s in holdout:
+        by_key_avail[s["key"]].append(s)
+        by_route_avail[s["route_id"]].append(s)
+    for group in by_key_avail.values():
+        group.sort(key=lambda s: (s["available_at"], s["query_ts"], s["run_id"], s["from_sequence"]))
+    for group in by_route_avail.values():
+        group.sort(key=lambda s: (s["available_at"], s["query_ts"], s["run_id"], s["from_sequence"]))
+    key_avail_ts = {k: [s["available_at"] for s in group] for k, group in by_key_avail.items()}
+    route_avail_ts = {rid: [s["available_at"] for s in group] for rid, group in by_route_avail.items()}
+
+    kf_state: dict[tuple, float] = {}
+    kf_var: dict[tuple, float] = {}
+    kf_applied: dict[tuple, int] = defaultdict(int)
+
+    def predict(s: dict[str, Any]) -> tuple[float, str]:
+        as_of_ts = s["query_ts"]
+        key = s["key"]
+        prior, hist_level = prior_for(s)
+
+        k_idx = bisect_left(key_avail_ts[key], as_of_ts)
+        same_day = [
+            row
+            for row in by_key_avail[key][:k_idx]
+            if row["query_ts"] < as_of_ts and row["to_ts"] <= as_of_ts
+        ]
+        if same_day:
+            if key not in kf_state:
+                kf_state[key] = prior
+                kf_var[key] = KALMAN_INIT_VAR
+            state = kf_state[key]
+            var = kf_var[key]
+            for row in same_day[kf_applied[key] :]:
+                state, var = kalman_step(state, var, row["actual"] / row["scheduled"])
+            kf_state[key] = state
+            kf_var[key] = var
+            kf_applied[key] = len(same_day)
+            return max(1.0, s["scheduled"] * state), "kalman_exact"
+
+        route_id = s["route_id"]
+        r_hi = bisect_left(route_avail_ts[route_id], as_of_ts)
+        r_lo = bisect_left(route_avail_ts[route_id], as_of_ts - 7200)
+        same_day_route = [
+            row
+            for row in by_route_avail[route_id][r_lo:r_hi]
+            if row["query_ts"] < as_of_ts and row["to_ts"] <= as_of_ts
+        ]
+        if same_day_route:
+            state = prior
+            var = KALMAN_INIT_VAR
+            for row in same_day_route[-20:]:
+                state, var = kalman_step(state, var, row["actual"] / row["scheduled"])
+            return max(1.0, s["scheduled"] * state), "kalman_route"
+
+        if hist_level == "timetable":
+            return float(s["scheduled"]), "timetable"
+        return max(1.0, s["scheduled"] * prior), hist_level
 
     levels: dict[str, int] = defaultdict(int)
     per_route: dict[int, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -126,7 +197,6 @@ def measure(passages: Sequence[PassageRow], train_day: str, holdout_day: str) ->
             for route_id, row in sorted(per_route.items())
         },
     }
-
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
