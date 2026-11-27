@@ -1,82 +1,124 @@
 {
   "01_intro": {
-    "fingerprint": "066459535b325080",
-    "duration_s": 19.311,
-    "chars": 315,
+    "fingerprint": "f7e3b0721c5ee25a",
+    "duration_s": 26.818,
+    "chars": 446,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_f307aaa0-f0ca-481d-ad30-cf9669de6814",
+      "20261127_73e56e0e-b48d-4639-b745-0fd38aa43bf2",
+      "20261127_4f170ceb-5cd0-4075-a406-be5a59288390"
+    ],
     "file": "01_intro.wav"
   },
   "02_live_query": {
-    "fingerprint": "c26f45b1ce702aec",
-    "duration_s": 13.086,
-    "chars": 224,
+    "fingerprint": "492a3e0e2a5993cc",
+    "duration_s": 16.787,
+    "chars": 269,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_b3f197e3-5195-409c-908c-da37c59b33e1",
+      "20261127_e8692caa-06e5-47ff-bf91-0785c7385cdf"
+    ],
     "file": "02_live_query.wav"
   },
   "03_replay_717a": {
-    "fingerprint": "4becff12d0f4fb9d",
-    "duration_s": 18.408,
-    "chars": 295,
+    "fingerprint": "54c2b09196e3d3ae",
+    "duration_s": 21.83,
+    "chars": 351,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_b009b590-fd6e-4c30-a945-e822407c36e6",
+      "20261127_d7e26d81-14c0-42bb-925d-4b7caef585b1"
+    ],
     "file": "03_replay_717a.wav"
   },
   "04_replay_abstain": {
-    "fingerprint": "46c642254b517748",
-    "duration_s": 11.535,
-    "chars": 185,
+    "fingerprint": "c32b6725c4a50a5b",
+    "duration_s": 12.167,
+    "chars": 217,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_9f79e2bb-416b-47ec-8a0a-70aec0a1edfc",
+      "20261127_be597cdf-667e-49a0-bdcf-f873af1e58f5"
+    ],
     "file": "04_replay_abstain.wav"
   },
   "05_kalman_pr28": {
-    "fingerprint": "6732e366fe27dde8",
-    "duration_s": 26.307,
-    "chars": 442,
+    "fingerprint": "b1b00a3de49d0aff",
+    "duration_s": 29.314,
+    "chars": 469,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_15f52308-74f6-43ce-acbf-64ad49c21a06",
+      "20261127_d3279527-72f6-44da-8d32-916bdb1bbb5c",
+      "20261127_8fec07fa-f425-475c-a507-3f34daa3f54d"
+    ],
     "file": "05_kalman_pr28.wav"
   },
   "06_transfer_s1_s2": {
-    "fingerprint": "7fdf9ae3b762396b",
-    "duration_s": 16.694,
-    "chars": 265,
+    "fingerprint": "5c944c273713ce16",
+    "duration_s": 20.097,
+    "chars": 303,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_24eb2c0d-ee33-42e7-88f0-9c65610ebcef",
+      "20261127_6729a5df-99ec-4faa-9a5f-ae88d0e84666"
+    ],
     "file": "06_transfer_s1_s2.wav"
   },
   "07_transfer_s3_s4": {
-    "fingerprint": "c37c254b6120e7b1",
-    "duration_s": 17.08,
-    "chars": 292,
+    "fingerprint": "9cab4a9db74a28ec",
+    "duration_s": 19.206,
+    "chars": 318,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_d4cac018-1357-4ac6-acd8-dc4372cb7e22",
+      "20261127_3195ce49-0dc2-4218-b029-b1ea76b76de8"
+    ],
     "file": "07_transfer_s3_s4.wav"
   },
   "08_stale_feed": {
-    "fingerprint": "b21be5d2fc9e9706",
-    "duration_s": 12.624,
-    "chars": 202,
+    "fingerprint": "1f393c0606d5bdb9",
+    "duration_s": 14.394,
+    "chars": 255,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_713a511d-fccd-4cc8-b5d4-996b219726ad",
+      "20261127_2541c457-d37b-4ec8-b118-7091c37ec825"
+    ],
     "file": "08_stale_feed.wav"
   },
   "09_recovery": {
-    "fingerprint": "d8f126fb0ea96b0c",
-    "duration_s": 6.141,
-    "chars": 93,
+    "fingerprint": "2d28b0cef7cac22e",
+    "duration_s": 7.011,
+    "chars": 118,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_2b177c45-21b7-4299-9d77-f03723cfed07"
+    ],
     "file": "09_recovery.wav"
   },
   "10_outro": {
-    "fingerprint": "6fdd89e449c9e06e",
-    "duration_s": 25.598,
-    "chars": 433,
+    "fingerprint": "48843754931cd300",
+    "duration_s": 27.72,
+    "chars": 474,
     "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
     "model": "voice_cloning",
+    "request_ids": [
+      "20261127_5b498454-d61c-4dfa-951f-9d200fcaecc2",
+      "20261127_2cbd825f-d9fe-4346-b15d-08fcd162d471",
+      "20261127_c93c203b-d53a-4a88-957e-a4365ca4a403"
+    ],
     "file": "10_outro.wav"
   }
 }

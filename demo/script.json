@@ -15,7 +15,10 @@
     "speech_sample_rate": 48000,
     "enable_preprocessing": true,
     "enable_text_normalization": false,
-    "enable_qc": true
+    "enable_qc": true,
+    "enable_vad": false,
+    "max_chunk_chars": 185,
+    "sentence_gap_s": 0.16
   },
   "lead_in_s": 0.2,
   "tail_pad_s": 0.35,
@@ -25,56 +28,56 @@
       "kind": "slide",
       "slide": "intro",
       "source_clip": "slide_intro.png",
-      "caption": "Hi, I'm Shivam Bansal from Team DROIDERS. Delhi bus timetables drift heavily in traffic. Built on 560M cleaned GPS pings, OTP2 proposes routes while our causal engine owns timing, [p10, p90] arrival windows, transfer risk, and honest abstention.",
-      "tts_text": "Hi, I am Shivam Bansal from Team Droiders. Delhi bus timetables drift heavily in real traffic. Using five hundred sixty million cleaned GPS pings, Open Trip Planner suggests candidate routes, while our causal engine handles bus timing, ten to ninety percentile arrival windows, transfer risk, and honest abstention."
+      "caption": "Hi everyone, I'm Shivam Bansal from Team DROIDERS. Today I'm showing how we solved real-world bus travel-time prediction and journey planning for Delhi over 560M cleaned GPS pings: OTP2 proposes routes while our causal engine owns timing, [p10, p90] windows, transfer risk, and honest abstention.",
+      "tts_text": "Hi everyone, I am Shivam Bansal from Team Droiders. Today I am showing you how we solved real world bus travel time prediction and journey planning for Delhi. Standard timetables break down in heavy traffic and hide uncertainty. Using five hundred sixty million cleaned GPS pings, Open Trip Planner proposes candidate routes, while our causal engine owns bus timing, ten to ninety percentile arrival windows, transfer risk, and honest abstention."
     },
     {
       "id": "02_live_query",
       "kind": "video",
       "source_clip": "seg_01_live.webm",
       "fallback_slice": [1.6, 5.4],
-      "caption": "Starting in real time from Kashmere Gate ISBT to Nehru Place, we ingest live GTFS-RT positions for 3,000+ buses, showing arrival windows, late-night comparisons, and per-leg provenance.",
-      "tts_text": "Starting in real time from Kashmere Gate ISBT to Nehru Place, we pull real time bus positions for over three thousand vehicles, showing arrival windows, comparisons against late night traffic, and clear per leg data sources."
+      "caption": "Starting in real time from Kashmere Gate ISBT to Nehru Place: live GTFS-RT positions for 3,000+ Delhi buses, arrival windows, late-night comparisons, and per-leg provenance.",
+      "tts_text": "Let us start with a real time journey from Kashmere Gate ISBT to Nehru Place. Our planner pulls fresh GPS positions from over three thousand Delhi buses, displaying realistic arrival windows, comparisons against late night traffic, and clear data sources for every leg."
     },
     {
       "id": "03_replay_717a",
       "kind": "video",
       "source_clip": "seg_02_replay_717a.webm",
       "fallback_slice": [7.6, 15.8],
-      "caption": "Switching to Oct 22 replay on route 717A, our causal LightGBM + split-conformal model cuts held-out MAE by 31% (87.3 s -> 60.2 s) with 79.2% [p10, p90] coverage.",
-      "tts_text": "Now switching to October twenty second replay on route seven seventeen A. Our causal Light GBM and split conformal model cuts held out mean absolute error by thirty one percent, from eighty seven point three down to sixty point two seconds, with seventy nine point two percent interval coverage."
+      "caption": "Switching to Oct 22 replay on route 717A with a strict causal cutoff: our LightGBM + split-conformal model cuts held-out MAE by 31% (87.3 s -> 60.2 s) with 79.2% [p10, p90] coverage.",
+      "tts_text": "Next, let us switch to October twenty second replay on route seven seventeen A, using a strict causal cutoff at departure time. Our Light GBM and split conformal model cuts held out mean absolute error by thirty one percent, dropping from eighty seven point three down to sixty point two seconds, with seventy nine point two percent interval coverage."
     },
     {
       "id": "04_replay_abstain",
       "kind": "video",
       "source_clip": "seg_03_replay_abstain.webm",
       "fallback_slice": [18.0, 19.8],
-      "caption": "On corridors outside route 717A in October replay, no candidate route has replay observations—so the planner explicitly abstains with \"Not enough data\".",
-      "tts_text": "When we replay a corridor outside route seven seventeen A, no candidate route has replay observations. Instead of guessing, the planner explicitly abstains and displays Not enough data."
+      "caption": "Replaying a corridor outside route 717A: with no replay observations covering candidate routes, the planner refuses to guess and abstains with \"Not enough data\".",
+      "tts_text": "Now watch what happens when we replay a corridor outside route seven seventeen A. Because there are no replay observations covering those routes, the planner refuses to guess and clearly abstains with Not enough data."
     },
     {
       "id": "05_kalman_pr28",
       "kind": "slide",
       "slide": "kalman",
       "source_clip": "slide_kalman.png",
-      "caption": "Beyond 717A, PR #28 adds a causal per-stretch, per-day scalar Kalman ratio filter: across 16,247 held-out stretches on 6 busy routes, offline MAE drops from 80.3 s to 57.3 s (28.6% gain vs timetable).",
-      "tts_text": "So what happens on routes outside seven seventeen A? Pull request twenty eight adds a causal scalar Kalman filter that tracks each road segment every day using travel time ratios. Across sixteen thousand two hundred forty seven held out segments on six busy routes, it lowers offline mean absolute error from eighty point three down to fifty seven point three seconds, a twenty eight point six percent gain over the timetable on October data."
+      "caption": "For routes outside 717A, PR #28 adds a causal per-stretch, per-day scalar Kalman ratio filter: across 16,247 held-out stretches on 6 busy routes, offline MAE drops from 80.3 s to 57.3 s (28.6% gain vs timetable).",
+      "tts_text": "So how do we improve accuracy on routes outside seven seventeen A? In pull request twenty eight, we added a causal scalar Kalman filter that tracks each road segment every day using travel time ratios. Across sixteen thousand two hundred forty seven held out segments on six busy routes, it cuts offline mean absolute error from eighty point three down to fifty seven point three seconds, a twenty eight point six percent improvement over the timetable on October data."
     },
     {
       "id": "06_transfer_s1_s2",
       "kind": "video",
       "source_clip": "seg_04_transfer_early.webm",
       "fallback_slice": [22.0, 27.6],
-      "caption": "Replaying real Oct 22 GPS for run 2171: at departure, the timetable recommends transferring at Hamdard Nagar; minutes later, real GPS delay shrinks the buffer into risk.",
-      "tts_text": "Next, let us see why transfer risk matters using real October twenty second GPS for run twenty one seventy one. At departure, the timetable recommends transferring at Hamdard Nagar. Minutes later, incoming GPS delay shrinks the transfer buffer into the danger zone."
+      "caption": "Why real-time transfer risk matters (Oct 22 GPS, run 2171): the timetable recommends transferring at Hamdard Nagar, then incoming GPS delay pushes the buffer into risk.",
+      "tts_text": "Now let us see why real time transfer risk matters, replaying actual October twenty second GPS for run twenty one seventy one. At departure, the timetable recommends a transfer at Hamdard Nagar. Just minutes later, incoming GPS delay eats into the buffer and pushes that connection into the danger zone."
     },
     {
       "id": "07_transfer_s3_s4",
       "kind": "video",
       "source_clip": "seg_04_transfer_late.webm",
       "fallback_slice": [28.0, 35.8],
-      "caption": "At Tuglaqabad, advice flips to the direct 717A bus before boarding. Stage 4 reveals the true Oct 22 GPS outcome: the connecting bus departed 27m 43s before 717A arrived.",
-      "tts_text": "By Tuglaqabad, our advice flips to the direct route seven seventeen A bus before the rider commits. Stage four reveals what actually happened on October twenty second: the connecting bus had already departed twenty seven minutes and forty three seconds before route seven seventeen A arrived."
+      "caption": "At Tuglaqabad, advice flips to the direct 717A bus before boarding. Stage 4 reveals the true Oct 22 GPS outcome: the connecting bus left 27m 43s before 717A arrived.",
+      "tts_text": "By the time the bus reaches Tuglaqabad, our planner flips its advice to the direct route seven seventeen A bus before the rider commits. And stage four reveals what truly happened that evening: the connecting bus had already departed twenty seven minutes and forty three seconds before route seven seventeen A arrived."
     },
     {
       "id": "08_stale_feed",
@@ -82,7 +85,7 @@
       "source_clip": "seg_05_stale.webm",
       "fallback_slice": [38.2, 43.8],
       "caption": "Pausing the poller past the 45 s demo threshold triggers a stale-GPS abstention, blocking outdated estimates with exact provenance.",
-      "tts_text": "Now we pause the background poller until feed age passes our forty five second freshness limit. The header flags stale GPS, and the planner blocks outdated estimates with the exact reason and timestamp."
+      "tts_text": "A trustworthy planner also knows when its own telemetry goes stale. Here we pause the background poller past our forty five second freshness threshold, and the interface immediately blocks outdated predictions with the exact abstention code and timestamp."
     },
     {
       "id": "09_recovery",
@@ -90,15 +93,15 @@
       "source_clip": "seg_06_recovery.webm",
       "fallback_slice": [48.2, 50.0],
       "caption": "Resuming polling and re-running the query immediately restores fresh live routes.",
-      "tts_text": "As soon as we resume polling and run the query again, fresh real time routes come right back."
+      "tts_text": "The moment we resume polling and run the query again, freshness checks pass and real time routes return automatically."
     },
     {
       "id": "10_outro",
       "kind": "slide",
       "slide": "outro",
       "source_clip": "slide_outro.png",
-      "caption": "On our 5-hour Nov 25 live check (177 matched 717A legs), live MAE was 227.5 s vs 393.3 s timetable with 96.6% coverage. Built by Shivam Bansal, Team DROIDERS.",
-      "tts_text": "Finally, on our five hour November twenty fifth morning field check across one hundred seventy seven matched bus rides on route seven seventeen A, real time mean absolute error beat the timetable at two hundred twenty seven point five seconds versus three hundred ninety three point three seconds, with ninety six point six percent coverage. Causal, calibrated, and honest, built by Shivam Bansal, Team Droiders. Thanks for watching."
+      "caption": "Nov 25 5-hour live check (177 matched 717A legs): 227.5 s vs 393.3 s timetable MAE, 96.6% [p10, p90] coverage. Built by Shivam Bansal and Team DROIDERS.",
+      "tts_text": "To validate everything in the real world, we ran a five hour morning field check on November twenty fifth across one hundred seventy seven matched bus rides on route seven seventeen A. Our model beat the timetable at two hundred twenty seven point five seconds versus three hundred ninety three point three seconds mean absolute error, with ninety six point six percent coverage. Causal, calibrated, and honest, built by Shivam Bansal and Team Droiders. Thanks for watching."
     }
   ]
 }

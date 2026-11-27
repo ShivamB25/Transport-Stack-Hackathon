@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Generate Sarvam Bulbul v4 Flash narration WAVs and assemble a Full HD MP4 demo.
+"""Generate Sarvam cloned-voice / Bulbul narration WAVs and assemble a Full HD MP4 demo.
 
-Two workflows:
-  1. Local (where SARVAM_API_KEY lives in .env) — generate all WAV beats once:
-       cd backend && uv run python ../demo/build_narrated_demo.py --tts-only
-
-  2. Remote (where OTP + FastAPI + data live; no SARVAM_API_KEY needed if demo/audio/ is present):
-       demo/record_demo.sh --narrate
-     or directly:
-       cd backend && uv run python ../demo/build_narrated_demo.py \
-         --segments-dir ../demo/segments \
-         --audio-dir ../demo/audio \
-         --output ../demo/demo_narrated.mp4
+Sarvam Voice Cloning best practices implemented here (per docs.sarvam.ai):
+  - Splits multi-sentence beats into single-chunk requests (<= max_chunk_chars) so every
+    request runs through Sarvam's built-in QC pipeline (ASR + CER + prompt-leak check),
+    which is silently skipped for long multi-sentence server-side chunked generations.
+  - Disables aggressive server-side VAD chopping (enable_vad=false) and instead applies
+    uniform ffmpeg silence trimming, 15 ms micro-fades, consistent inter-sentence breaths,
+    and EBU R128 loudness normalization (-16 LUFS) across every beat for continuous flow.
+  - Disables server-side text normalization when tts_text is already spoken-form English,
+    eliminating mangled hyphens, dates, route codes, and homographs.
+  - Logs Sarvam request_id values into demo/audio/manifest.json and supports --verify-stt
+    for automated round-trip transcript QA via POST /speech-to-text.
 
 Secrets are loaded exclusively via delhi_transit.core.config.load_env_key and never logged.
 """
@@ -21,6 +21,7 @@ import argparse
 import base64
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,9 @@ from delhi_transit.core.config import load_env_key
 
 SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 SARVAM_CLONE_URL = "https://api.sarvam.ai/voices/clone"
+SARVAM_STT_URL = "https://api.sarvam.ai/speech-to-text"
+
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 def probe_duration(path: Path) -> float:
@@ -66,8 +70,29 @@ def fmt_srt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
+def split_qc_chunks(text: str, max_chars: int) -> list[str]:
+    """Split text on sentence boundaries so each call stays single-chunk and runs QC."""
+    sentences = [s.strip() for s in SENTENCE_SPLIT_RE.split(text.strip()) if s.strip()]
+    if not sentences:
+        return [text.strip()]
+    chunks: list[str] = []
+    buf = ""
+    for sent in sentences:
+        if not buf:
+            buf = sent
+        elif len(buf) + 1 + len(sent) <= max_chars:
+            buf = f"{buf} {sent}"
+        else:
+            chunks.append(buf)
+            buf = sent
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
 def beat_fingerprint(tts_cfg: dict[str, Any], text: str, voice_id: str | None) -> str:
     payload = {
+        "pipeline_v": 2,
         "model": "voice_cloning" if voice_id else tts_cfg["model"],
         "language_code": tts_cfg["language_code"],
         "speaker": None if voice_id else tts_cfg["speaker"],
@@ -78,14 +103,17 @@ def beat_fingerprint(tts_cfg: dict[str, Any], text: str, voice_id: str | None) -
         "temperature": None if voice_id else tts_cfg["temperature"],
         "speech_sample_rate": tts_cfg["speech_sample_rate"],
         "enable_preprocessing": None if voice_id else tts_cfg["enable_preprocessing"],
-        "enable_text_normalization": tts_cfg.get("enable_text_normalization", True) if voice_id else None,
+        "enable_text_normalization": tts_cfg.get("enable_text_normalization", False) if voice_id else None,
         "enable_qc": tts_cfg.get("enable_qc", True) if voice_id else None,
+        "enable_vad": tts_cfg.get("enable_vad", False) if voice_id else None,
+        "max_chunk_chars": tts_cfg.get("max_chunk_chars", 185) if voice_id else None,
+        "sentence_gap_s": tts_cfg.get("sentence_gap_s", 0.16) if voice_id else None,
         "text": text,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
-def synthesize_beat(
+def synthesize_chunk(
     client: httpx.Client,
     api_key: str,
     tts_cfg: dict[str, Any],
@@ -93,7 +121,7 @@ def synthesize_beat(
     out_wav: Path,
     *,
     voice_id: str | None = None,
-) -> None:
+) -> str | None:
     headers = {"api-subscription-key": api_key}
     last_err: Exception | None = None
     for attempt in range(4):
@@ -106,9 +134,12 @@ def synthesize_beat(
                     ("pace", (None, str(tts_cfg["pace"]))),
                     ("output_audio_codec", (None, "wav")),
                     ("speech_sample_rate", (None, str(tts_cfg["speech_sample_rate"]))),
-                    ("enable_text_normalization", (None, str(bool(tts_cfg.get("enable_text_normalization", True))).lower())),
+                    (
+                        "enable_text_normalization",
+                        (None, str(bool(tts_cfg.get("enable_text_normalization", False))).lower()),
+                    ),
                     ("enable_qc", (None, str(bool(tts_cfg.get("enable_qc", True))).lower())),
-                    ("enable_vad", (None, "true")),
+                    ("enable_vad", (None, str(bool(tts_cfg.get("enable_vad", False))).lower())),
                 ]
                 resp = client.post(SARVAM_CLONE_URL, headers=headers, files=fields, timeout=120.0)
                 if resp.status_code in {429, 500, 502, 503, 504} and attempt < 3:
@@ -121,7 +152,7 @@ def synthesize_beat(
                 if not raw_b64:
                     raise RuntimeError(f"Unexpected clone response keys: {sorted(body)}")
                 out_wav.write_bytes(base64.b64decode(raw_b64))
-                return
+                return body.get("request_id")
 
             payload = {
                 "text": text,
@@ -147,7 +178,7 @@ def synthesize_beat(
             if not audios:
                 raise RuntimeError(f"Sarvam TTS returned no audio (request_id={body.get('request_id')})")
             out_wav.write_bytes(base64.b64decode(audios[0]))
-            return
+            return body.get("request_id")
         except httpx.HTTPError as exc:
             last_err = exc
             if attempt < 3:
@@ -156,6 +187,127 @@ def synthesize_beat(
             raise
     if last_err is not None:
         raise last_err
+    return None
+
+
+def polish_and_stitch_chunks(
+    chunk_wavs: list[Path],
+    out_wav: Path,
+    *,
+    sample_rate: int,
+    sentence_gap_s: float,
+) -> None:
+    """Trim dead air gently, apply 15 ms micro-fades, stitch with natural breath, normalize loudness."""
+    with tempfile.TemporaryDirectory(prefix="delhi-tts-polish-") as tmp_str:
+        tmp_dir = Path(tmp_str)
+        clean_parts: list[Path] = []
+        for idx, raw_wav in enumerate(chunk_wavs):
+            clean = tmp_dir / f"clean_{idx:02d}.wav"
+            trim_af = (
+                "silenceremove=start_periods=1:start_duration=0:start_threshold=-42dB:start_silence=0.05,"
+                "areverse,"
+                "silenceremove=start_periods=1:start_duration=0:start_threshold=-42dB:start_silence=0.07,"
+                "areverse,"
+                "afade=t=in:st=0:d=0.015,"
+                f"aresample={sample_rate},aformat=channel_layouts=mono"
+            )
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", str(raw_wav),
+                    "-af", trim_af,
+                    "-c:a", "pcm_s16le", "-ar", str(sample_rate), "-ac", "1",
+                    str(clean),
+                ],
+                check=True,
+            )
+            dur = probe_duration(clean)
+            faded = tmp_dir / f"faded_{idx:02d}.wav"
+            fade_st = max(0.0, dur - 0.02)
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", str(clean),
+                    "-af", f"afade=t=out:st={fade_st:.3f}:d=0.02",
+                    "-c:a", "pcm_s16le", "-ar", str(sample_rate), "-ac", "1",
+                    str(faded),
+                ],
+                check=True,
+            )
+            clean_parts.append(faded)
+
+        if len(clean_parts) == 1:
+            stitched = clean_parts[0]
+        else:
+            gap_wav = tmp_dir / "gap.wav"
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=mono",
+                    "-t", f"{sentence_gap_s:.3f}",
+                    "-c:a", "pcm_s16le",
+                    str(gap_wav),
+                ],
+                check=True,
+            )
+            concat_txt = tmp_dir / "chunks.txt"
+            lines: list[str] = []
+            for idx, part in enumerate(clean_parts):
+                lines.append(f"file '{part}'\n")
+                if idx < len(clean_parts) - 1:
+                    lines.append(f"file '{gap_wav}'\n")
+            concat_txt.write_text("".join(lines), encoding="utf-8")
+            stitched = tmp_dir / "stitched.wav"
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "concat", "-safe", "0", "-i", str(concat_txt),
+                    "-c:a", "pcm_s16le", "-ar", str(sample_rate), "-ac", "1",
+                    str(stitched),
+                ],
+                check=True,
+            )
+
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(stitched),
+                "-af", "loudnorm=I=-16:TP=-1.5:LRA=9",
+                "-c:a", "pcm_s16le", "-ar", str(sample_rate), "-ac", "1",
+                str(out_wav),
+            ],
+            check=True,
+        )
+
+
+def synthesize_beat(
+    client: httpx.Client,
+    api_key: str,
+    tts_cfg: dict[str, Any],
+    text: str,
+    out_wav: Path,
+    *,
+    voice_id: str | None = None,
+) -> list[str]:
+    sample_rate = int(tts_cfg["speech_sample_rate"])
+    sentence_gap_s = float(tts_cfg.get("sentence_gap_s", 0.16))
+    max_chunk_chars = int(tts_cfg.get("max_chunk_chars", 185))
+    chunks = split_qc_chunks(text, max_chunk_chars) if voice_id else [text]
+    request_ids: list[str] = []
+
+    with tempfile.TemporaryDirectory(prefix="delhi-tts-raw-") as tmp_str:
+        tmp_dir = Path(tmp_str)
+        raw_wavs: list[Path] = []
+        for idx, chunk in enumerate(chunks):
+            chunk_wav = tmp_dir / f"raw_{idx:02d}.wav"
+            req_id = synthesize_chunk(client, api_key, tts_cfg, chunk, chunk_wav, voice_id=voice_id)
+            if req_id:
+                request_ids.append(req_id)
+            raw_wavs.append(chunk_wav)
+        polish_and_stitch_chunks(raw_wavs, out_wav, sample_rate=sample_rate, sentence_gap_s=sentence_gap_s)
+
+    return request_ids
+
 
 def ensure_audio_beats(
     script: dict[str, Any],
@@ -194,6 +346,7 @@ def ensure_audio_beats(
             wav_path = audio_dir / f"{beat_id}.wav"
             fp = beat_fingerprint(tts_cfg, text, effective_voice_id)
             cached_fp = manifest.get(beat_id, {}).get("fingerprint")
+            req_ids: list[str] = manifest.get(beat_id, {}).get("request_ids", [])
 
             needs_gen = force_tts or not wav_path.exists() or (allow_synthesize and cached_fp != fp)
             if needs_gen:
@@ -209,9 +362,10 @@ def ensure_audio_beats(
                             "Set it or pass --use-existing-audio with pre-generated WAVs."
                         )
                     client = httpx.Client()
+                chunks = split_qc_chunks(text, int(tts_cfg.get("max_chunk_chars", 185))) if effective_voice_id else [text]
                 label = effective_voice_id or tts_cfg["speaker"]
-                print(f"[tts] Synthesizing {beat_id} ({len(text)} chars, voice={label})...")
-                synthesize_beat(client, api_key, tts_cfg, text, wav_path, voice_id=effective_voice_id)
+                print(f"[tts] Synthesizing {beat_id} ({len(text)} chars, {len(chunks)} QC chunk(s), voice={label})...")
+                req_ids = synthesize_beat(client, api_key, tts_cfg, text, wav_path, voice_id=effective_voice_id)
                 total_chars += len(text)
 
             dur = probe_duration(wav_path)
@@ -221,6 +375,7 @@ def ensure_audio_beats(
                 "chars": len(text),
                 "speaker": effective_voice_id or tts_cfg["speaker"],
                 "model": "voice_cloning" if effective_voice_id else tts_cfg["model"],
+                "request_ids": req_ids,
                 "file": wav_path.name,
             }
             results.append((beat, wav_path, dur))
@@ -232,6 +387,26 @@ def ensure_audio_beats(
     total_audio = sum(d for _, _, d in results)
     print(f"[tts] Ready: {len(results)} beats, speech={total_audio:.1f}s (synthesized {total_chars} chars this run)")
     return results
+
+
+def verify_audio_stt(beats: list[tuple[dict[str, Any], Path, float]], language_code: str) -> None:
+    api_key = load_env_key("SARVAM_API_KEY")
+    if not api_key:
+        raise RuntimeError("SARVAM_API_KEY required for --verify-stt.")
+    with httpx.Client(timeout=60.0) as client:
+        for beat, wav_path, dur in beats:
+            resp = client.post(
+                SARVAM_STT_URL,
+                headers={"api-subscription-key": api_key},
+                data={"language_code": language_code},
+                files={"file": (wav_path.name, wav_path.read_bytes(), "audio/wav")},
+            )
+            resp.raise_for_status()
+            transcript = resp.json().get("transcript", "")
+            expected = (beat.get("tts_text") or beat["text"]).strip()
+            print(f"\n[stt] {beat['id']} ({dur:.1f}s)")
+            print(f"  EXP: {expected}")
+            print(f"  GOT: {transcript}")
 
 
 def render_beat_segment(
@@ -347,6 +522,7 @@ def main() -> None:
     parser.add_argument("--voice-id", type=str, default=None, help="Use a Sarvam Instant Voice Cloning voice_id")
     parser.add_argument("--pace", type=float, default=None, help="Override speech pace (0.5-2.0)")
     parser.add_argument("--tts-only", action="store_true", help="Only synthesize/verify WAVs in --audio-dir")
+    parser.add_argument("--verify-stt", action="store_true", help="Round-trip verify generated WAVs via Sarvam STT")
     parser.add_argument("--force-tts", action="store_true", help="Re-synthesize all WAVs even if cached")
     parser.add_argument("--use-existing-audio", action="store_true", help="Require pre-generated WAVs; never call Sarvam API")
     args = parser.parse_args()
@@ -363,14 +539,17 @@ def main() -> None:
         allow_synthesize=allow_synth,
     )
 
+    if args.verify_stt:
+        verify_audio_stt(beats, script["tts"]["language_code"])
+
     if args.tts_only:
         total = sum(d for _, _, d in beats)
-        pad_total = len(beats) * (script.get("lead_in_s", 0.35) + script.get("tail_pad_s", 0.55))
+        pad_total = len(beats) * (script.get("lead_in_s", 0.2) + script.get("tail_pad_s", 0.35))
         print(f"[tts] Done. Pure speech: {total:.1f}s | With beat padding: {total + pad_total:.1f}s")
         return
 
-    lead_in_s = float(script.get("lead_in_s", 0.35))
-    tail_pad_s = float(script.get("tail_pad_s", 0.55))
+    lead_in_s = float(script.get("lead_in_s", 0.2))
+    tail_pad_s = float(script.get("tail_pad_s", 0.35))
 
     with tempfile.TemporaryDirectory(prefix="delhi-demo-") as tmp_str:
         tmp_dir = Path(tmp_str)
@@ -409,7 +588,7 @@ def main() -> None:
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                 "-f", "concat", "-safe", "0", "-i", str(concat_txt),
                 "-c:v", "copy",
-                "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+                "-af", "loudnorm=I=-16:TP=-1.5:LRA=9",
                 "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                 "-movflags", "+faststart",
                 str(args.output),
