@@ -1,0 +1,94 @@
+{
+  "title": "Delhi Bus Journey Planner — Team DROIDERS (Shivam Bansal)",
+  "team": "DROIDERS",
+  "presenter": "Shivam Bansal",
+  "tts": {
+    "provider": "sarvam",
+    "model": "bulbul:v4-flash",
+    "voice_id": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "language_code": "en-IN",
+    "speaker": "shubh_en_narration",
+    "pace": 1.05,
+    "pitch": 0.0,
+    "loudness": 1.1,
+    "temperature": 0.5,
+    "speech_sample_rate": 48000,
+    "enable_preprocessing": true,
+    "enable_text_normalization": true,
+    "enable_qc": true
+  },
+  "lead_in_s": 0.35,
+  "tail_pad_s": 0.55,
+  "beats": [
+    {
+      "id": "01_intro",
+      "kind": "slide",
+      "slide": "intro",
+      "source_clip": "slide_intro.png",
+      "text": "Hi, I'm Shivam Bansal from Team DROIDERS. Delhi bus timetables drift sharply under traffic. Built on 560 million cleaned GPS pings, OpenTripPlanner proposes routes while our causal engine owns timing, p10 to p90 arrival windows, transfer risk, and abstention."
+    },
+    {
+      "id": "02_live_query",
+      "kind": "video",
+      "source_clip": "seg_01_live.webm",
+      "fallback_slice": [1.6, 5.4],
+      "text": "In live mode from Kashmere Gate ISBT to Nehru Place, we ingest live GTFS-RT positions for over three thousand buses, showing realistic arrival windows, quiet-hour comparisons, and per-leg provenance."
+    },
+    {
+      "id": "03_replay_717a",
+      "kind": "video",
+      "source_clip": "seg_02_replay_717a.webm",
+      "fallback_slice": [7.6, 15.8],
+      "text": "On October 22 replay for route 717A, our causal LightGBM and split-conformal model cuts held-out MAE by 31 percent—from 87.3 to 60.2 seconds—with 79.2 percent interval coverage."
+    },
+    {
+      "id": "04_replay_abstain",
+      "kind": "video",
+      "source_clip": "seg_03_replay_abstain.webm",
+      "fallback_slice": [18.0, 19.8],
+      "text": "Off 717A in October replay, no candidate route has replay observations—so instead of guessing, the planner explicitly abstains with Not enough data."
+    },
+    {
+      "id": "05_kalman_pr28",
+      "kind": "slide",
+      "slide": "kalman",
+      "source_clip": "slide_kalman.png",
+      "text": "For unmodelled routes, PR 28 adds a causal per-stretch, per-day scalar Kalman filter over travel-time ratios. Across 16,247 held-out stretches on six busy routes, it cuts offline MAE from 80.3 to 57.3 seconds—a 28.6 percent gain over the timetable, measured offline on October data."
+    },
+    {
+      "id": "06_transfer_s1_s2",
+      "kind": "video",
+      "source_clip": "seg_04_transfer_early.webm",
+      "fallback_slice": [22.0, 27.6],
+      "text": "On real October 22 GPS for run 2171, the timetable starts by recommending a transfer at Hamdard Nagar. Minutes later, live delay shrinks the transfer buffer into risk."
+    },
+    {
+      "id": "07_transfer_s3_s4",
+      "kind": "video",
+      "source_clip": "seg_04_transfer_late.webm",
+      "fallback_slice": [28.0, 35.8],
+      "text": "At Tuglaqabad, advice flips to the direct 717A bus before boarding. Stage four confirms the real GPS outcome: the connecting bus left 27 minutes and 43 seconds before 717A arrived."
+    },
+    {
+      "id": "08_stale_feed",
+      "kind": "video",
+      "source_clip": "seg_05_stale.webm",
+      "fallback_slice": [38.2, 43.8],
+      "text": "Pausing the live poller past our 45-second threshold triggers a stale-GPS abstention—blocking outdated estimates with exact provenance."
+    },
+    {
+      "id": "09_recovery",
+      "kind": "video",
+      "source_clip": "seg_06_recovery.webm",
+      "fallback_slice": [48.2, 50.0],
+      "text": "Resuming polling and clicking Retry immediately restores fresh live routes."
+    },
+    {
+      "id": "10_outro",
+      "kind": "slide",
+      "slide": "outro",
+      "source_clip": "slide_outro.png",
+      "text": "On our five-hour November 25 live check across 177 matched 717A legs, live MAE beat the timetable at 227.5 versus 393.3 seconds, with 96.6 percent coverage. Causal, calibrated, and honest—built by Shivam Bansal, Team DROIDERS. Thanks for watching."
+    }
+  ]
+}

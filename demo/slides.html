@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Delhi Bus Journey Planner — Demo Slides</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: #111c32;
+      --panel-2: #16233d;
+      --border: #253657;
+      --fg: #f8fafc;
+      --muted: #94a3b8;
+      --teal: #14b8a6;
+      --teal-dark: #0f766e;
+      --teal-soft: rgba(20, 184, 166, 0.14);
+      --amber: #f59e0b;
+      --indigo: #818cf8;
+      --green: #22c55e;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .slide {
+      display: none;
+      width: 100vw;
+      height: 100vh;
+      padding: 64px 88px;
+      position: relative;
+      background:
+        radial-gradient(900px 520px at 88% 12%, rgba(20, 184, 166, 0.16), transparent 65%),
+        radial-gradient(760px 480px at 10% 92%, rgba(99, 102, 241, 0.14), transparent 65%),
+        var(--bg);
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .slide.active { display: flex; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: var(--teal);
+      box-shadow: 0 0 0 6px rgba(20, 184, 166, 0.22);
+    }
+
+    .brand-title {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 18px;
+      border-radius: 999px;
+      font-size: 18px;
+      font-weight: 700;
+      border: 1px solid rgba(20, 184, 166, 0.45);
+      background: var(--teal-soft);
+      color: #5eead4;
+      letter-spacing: 0.01em;
+    }
+
+    .pill.indigo {
+      border-color: rgba(129, 140, 248, 0.45);
+      background: rgba(129, 140, 248, 0.14);
+      color: #c7d2fe;
+    }
+
+    .pill.amber {
+      border-color: rgba(245, 158, 11, 0.45);
+      background: rgba(245, 158, 11, 0.14);
+      color: #fde68a;
+    }
+
+    h1 {
+      font-size: 62px;
+      line-height: 1.08;
+      font-weight: 850;
+      letter-spacing: -0.03em;
+      max-width: 1480px;
+    }
+
+    h1 span { color: var(--teal); }
+
+    h2 {
+      font-size: 46px;
+      line-height: 1.12;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+    }
+
+    h2 span { color: var(--teal); }
+
+    .lead {
+      margin-top: 22px;
+      font-size: 27px;
+      line-height: 1.45;
+      color: #cbd5e1;
+      max-width: 1380px;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      margin-top: 34px;
+    }
+
+    .step {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px 26px;
+      position: relative;
+    }
+
+    .step-num {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--teal);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+
+    .step-title {
+      font-size: 24px;
+      font-weight: 750;
+      margin-bottom: 8px;
+    }
+
+    .step-desc {
+      font-size: 19px;
+      line-height: 1.42;
+      color: var(--muted);
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 22px;
+    }
+
+    .kpi {
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--border);
+      border-top: 4px solid var(--teal);
+      border-radius: 18px;
+      padding: 26px 28px;
+    }
+
+    .kpi.indigo { border-top-color: var(--indigo); }
+    .kpi.amber { border-top-color: var(--amber); }
+    .kpi.green { border-top-color: var(--green); }
+
+    .kpi-val {
+      font-size: 46px;
+      font-weight: 850;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .kpi-label {
+      margin-top: 8px;
+      font-size: 19px;
+      font-weight: 700;
+      color: #e2e8f0;
+    }
+
+    .kpi-sub {
+      margin-top: 6px;
+      font-size: 16px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 0.92fr 1.25fr;
+      gap: 36px;
+      align-items: start;
+      margin-top: 26px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px 32px;
+    }
+
+    .card-title {
+      font-size: 22px;
+      font-weight: 750;
+      color: #e2e8f0;
+      margin-bottom: 16px;
+    }
+
+    .eq-box {
+      background: #091020;
+      border: 1px solid #2b426b;
+      border-left: 5px solid var(--teal);
+      border-radius: 14px;
+      padding: 20px 24px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 21px;
+      line-height: 1.65;
+      color: #99f6e4;
+      margin-bottom: 18px;
+    }
+
+    .bullets {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      font-size: 20px;
+      line-height: 1.42;
+      color: #cbd5e1;
+    }
+
+    .bullets li {
+      padding-left: 22px;
+      position: relative;
+    }
+
+    .bullets li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 10px;
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--teal);
+    }
+
+    .caveat {
+      margin-top: 18px;
+      padding: 14px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      background: rgba(245, 158, 11, 0.11);
+      color: #fde68a;
+      font-size: 17px;
+      line-height: 1.4;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+      font-size: 20px;
+    }
+
+    th {
+      text-align: right;
+      padding: 12px 14px;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid var(--border);
+    }
+
+    th:first-child, td:first-child { text-align: left; }
+
+    td {
+      text-align: right;
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(37, 54, 87, 0.7);
+      color: #e2e8f0;
+    }
+
+    tr.pooled td {
+      border-top: 2px solid var(--teal);
+      border-bottom: none;
+      background: rgba(20, 184, 166, 0.12);
+      font-weight: 800;
+      color: #ffffff;
+    }
+
+    .hl { color: #5eead4; font-weight: 800; }
+
+    .outro-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 32px;
+      margin-top: 28px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 16px 0;
+      border-bottom: 1px solid rgba(37, 54, 87, 0.7);
+      font-size: 22px;
+    }
+
+    .stat-row:last-child { border-bottom: none; }
+    .stat-row strong { font-size: 28px; color: #5eead4; font-variant-numeric: tabular-nums; }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid var(--border);
+      padding-top: 18px;
+      font-size: 18px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SLIDE 1: INTRO -->
+  <section id="intro" class="slide active">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-title">Delhi Bus Journey Planner</span>
+      </div>
+      <span class="pill">Team DROIDERS · Shivam Bansal · PS1</span>
+    </header>
+
+    <div>
+      <h1>Causal Bus Travel-Time Modelling, <span>Calibrated Windows</span> &amp; Honest Abstention</h1>
+      <p class="lead">
+        OpenTripPlanner 2.8.1 proposes candidate routes from static GTFS v32. Our engine owns transit leg timing,
+        joint transfer miss risk, <strong>[p10, p90]</strong> arrival windows, and freshness-gated abstention.
+      </p>
+
+      <div class="pipeline">
+        <div class="step">
+          <div class="step-num">01 · Data</div>
+          <div class="step-title">560M Clean GPS Pings</div>
+          <div class="step-desc">31 days of Oct 2026 DTC GPS cleaned (38.6% noise removed) + live GTFS-RT VehiclePositions.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">02 · Causality</div>
+          <div class="step-title">Strict Cutoff Discipline</div>
+          <div class="step-desc">Every feature and passage consumes only observations with <code>available_at &lt; query_ts</code>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">03 · Timing</div>
+          <div class="step-title">Rung 4 + Kalman Fallback</div>
+          <div class="step-desc">LightGBM quantile + split-conformal on 717A; live speeds + scalar Kalman ratio filter on all other routes.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">04 · Safety</div>
+          <div class="step-title">Explicit Abstention</div>
+          <div class="step-desc">Refuses stale feeds, unsupported replay corridors, and too few fresh vehicles instead of guessing.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi-val">60.2 s</div>
+        <div class="kpi-label">717A Held-Out MAE</div>
+        <div class="kpi-sub">vs 87.3 s timetable (−31.0%, 13,299 observed queries)</div>
+      </div>
+      <div class="kpi indigo">
+        <div class="kpi-val">79.2%</div>
+        <div class="kpi-label">Pooled [p10, p90] Coverage</div>
+        <div class="kpi-sub">Split-conformal 80% target · 81.5 s median width</div>
+      </div>
+      <div class="kpi green">
+        <div class="kpi-val">−28.6%</div>
+        <div class="kpi-label">Kalman Fallback Gain</div>
+        <div class="kpi-sub">57.3 s vs 80.3 s offline MAE on 6 unmodelled routes</div>
+      </div>
+      <div class="kpi amber">
+        <div class="kpi-val">227.5 s</div>
+        <div class="kpi-label">Nov 25 Live-Check MAE</div>
+        <div class="kpi-sub">vs 393.3 s timetable · 96.6% [p10, p90] coverage</div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <span>Team DROIDERS (Shivam Bansal) · FastAPI · DuckDB · LightGBM · OTP 2.8.1 · React 19 · Leaflet</span>
+      <span>Live GPS · Strict Replay · Marginal-Transfer Risk</span>
+    </footer>
+  </section>
+
+  <!-- SLIDE 2: PR #28 KALMAN RATIO FILTER -->
+  <section id="kalman" class="slide">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-title">Unmodelled-Route Fallback · PR #28</span>
+      </div>
+      <span class="pill indigo">Causal Scalar Kalman Ratio Filter</span>
+    </header>
+
+    <div>
+      <h2>Beyond Route 717A: <span>Causal Kalman Ratio Filter</span> on Unmodelled Routes</h2>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title">Per-Stretch, Per-Day State Update (planner/rides.py)</div>
+          <div class="eq-box">
+            z = clip(actual / scheduled, 0.35, 3.0)<br />
+            K = v / (v + R) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(Q = 0.01, R = 0.05)<br />
+            s &larr; s + K &middot; (z &minus; s) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(v&#8320; = 1.0)<br />
+            v &larr; (1 &minus; K) &middot; v + Q &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;d&#770; = max(1, sched &middot; s)
+          </div>
+          <ul class="bullets">
+            <li><strong>717A untouched:</strong> Rung 4 LightGBM + split-conformal still serves covered 717A legs.</li>
+            <li><strong>Live speed tier stays first:</strong> fresh VehiclePositions run ahead of the filter in live mode.</li>
+            <li><strong>Strictly causal:</strong> seeded from prior-day median ratio; updates only on <code>available_at &lt; as_of_ts</code>.</li>
+            <li><strong>Clean degradation:</strong> falls back to <code>historical_fallback</code>, then exact timetable when empty.</li>
+          </ul>
+          <div class="caveat">
+            <strong>Honest caveat:</strong> Measured offline against reconstructed October ground truth (5 train/holdout pairs: 27.4–28.7% gain). Live check covers 717A only, so unmodelled-route gains are not live-verified yet.
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Held-Out 2026-10-22 &rarr; 2026-10-27 · Six Busiest Non-717A Routes (16,247 Stretches)</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Route</th>
+                <th>Stretches</th>
+                <th>Timetable</th>
+                <th>Static Median</th>
+                <th>Prior Chain</th>
+                <th>Kalman (PR #28)</th>
+                <th>Gain vs Sched</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>1615</td><td>2,402</td><td>87.9 s</td><td>67.3 s</td><td>73.4 s</td><td class="hl">65.9 s</td><td class="hl">25.0%</td></tr>
+              <tr><td>1616</td><td>2,489</td><td>78.8 s</td><td>68.5 s</td><td>60.8 s</td><td class="hl">55.3 s</td><td class="hl">29.9%</td></tr>
+              <tr><td>2182</td><td>2,963</td><td>70.6 s</td><td>55.3 s</td><td>59.6 s</td><td class="hl">53.4 s</td><td class="hl">24.3%</td></tr>
+              <tr><td>2183</td><td>2,803</td><td>67.6 s</td><td>49.8 s</td><td>55.1 s</td><td class="hl">48.7 s</td><td class="hl">27.9%</td></tr>
+              <tr><td>2203</td><td>2,771</td><td>84.1 s</td><td>88.2 s</td><td>56.9 s</td><td class="hl">55.0 s</td><td class="hl">34.6%</td></tr>
+              <tr><td>2204</td><td>2,819</td><td>94.4 s</td><td>76.2 s</td><td>74.8 s</td><td class="hl">66.9 s</td><td class="hl">29.2%</td></tr>
+              <tr class="pooled"><td>POOLED</td><td>16,247</td><td>80.3 s</td><td>67.4 s (16.1%)</td><td>63.1 s (21.4%)</td><td>57.3 s</td><td>28.6%</td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top:16px;font-size:17px;color:#94a3b8;">
+            Serving levels: <strong style="color:#e2e8f0;">kalman_exact</strong> 15,983 &middot;
+            <strong style="color:#e2e8f0;">kalman_route</strong> 254 &middot;
+            <strong style="color:#e2e8f0;">stretch_hour</strong> 10 &nbsp;|&nbsp;
+            Reproduce: <code>uv run python -m delhi_transit.data.fallback_check --reconstruct</code>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <span>PR #28 · feat(planner): add scalar Kalman ratio filter for unmodelled routes</span>
+      <span>+9.2% over previous observed-only chain · +15.0% over static median</span>
+    </footer>
+  </section>
+
+  <!-- SLIDE 3: OUTRO -->
+  <section id="outro" class="slide">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-title">Real-World Verification &amp; Summary</span>
+      </div>
+      <span class="pill amber">2026-11-25 Live Check · 5-Hour Morning Window</span>
+    </header>
+
+    <div>
+      <h2>Measured in Production, <span>Honest About Its Boundaries</span></h2>
+      <div class="outro-grid">
+        <div class="card">
+          <div class="card-title">Live Check · 2026-11-25 (06:29–11:30 IST)</div>
+          <div class="stat-row"><span>Recording window &amp; polls</span><strong>300.4 min · 722/722 ok</strong></div>
+          <div class="stat-row"><span>Live /journeys responses</span><strong>396 / 396 ok</strong></div>
+          <div class="stat-row"><span>All matched 717A legs (n = 177)</span><strong>227.5 s vs 393.3 s sched</strong></div>
+          <div class="stat-row"><span>Observed-only legs (n = 67)</span><strong>300.5 s vs 492.4 s sched</strong></div>
+          <div class="stat-row"><span>[p10, p90] live interval coverage</span><strong>96.6% all · 94.0% obs-only</strong></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Complete System Guarantees</div>
+          <ul class="bullets">
+            <li><strong>Google Routes comparator (Nov 24):</strong> 94.7% of Google bus-only durations fall inside our door-to-door <code>[p10, p90]</code> window.</li>
+            <li><strong>Joint transfer risk:</strong> never sums per-leg p90s; catches missed transfers before riders board.</li>
+            <li><strong>Strict provenance:</strong> response mode (<code>live</code> / <code>replay</code>) is always independent from per-leg source tags.</li>
+            <li><strong>Reproducible stack:</strong> Docker Compose + <code>uv</code> Python 3.12 + <code>bun</code> React 19 + 114 passing pytest checks.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <span>Team DROIDERS · Shivam Bansal · github.com/ShivamB25/Transport-Stack-Hackathon</span>
+      <span>Causal · Calibrated · Honest Abstention</span>
+    </footer>
+  </section>
+
+  <script>
+    function showSlide() {
+      const id = (window.location.hash || '#intro').replace(/^#/, '');
+      document.querySelectorAll('.slide').forEach((el) => {
+        el.classList.toggle('active', el.id === id);
+      });
+    }
+    window.addEventListener('hashchange', showSlide);
+    showSlide();
+  </script>
+</body>
+</html>

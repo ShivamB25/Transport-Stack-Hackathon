@@ -1,0 +1,82 @@
+{
+  "01_intro": {
+    "fingerprint": "c4f13ba4123bd860",
+    "duration_s": 19.034,
+    "chars": 259,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "01_intro.wav"
+  },
+  "02_live_query": {
+    "fingerprint": "8f03c6371439bc04",
+    "duration_s": 12.86,
+    "chars": 199,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "02_live_query.wav"
+  },
+  "03_replay_717a": {
+    "fingerprint": "d4995f2675e51d12",
+    "duration_s": 16.043,
+    "chars": 177,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "03_replay_717a.wav"
+  },
+  "04_replay_abstain": {
+    "fingerprint": "cec42e2cee8db903",
+    "duration_s": 10.126,
+    "chars": 148,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "04_replay_abstain.wav"
+  },
+  "05_kalman_pr28": {
+    "fingerprint": "0863d8ca06f185e6",
+    "duration_s": 23.777,
+    "chars": 282,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "05_kalman_pr28.wav"
+  },
+  "06_transfer_s1_s2": {
+    "fingerprint": "45bcf6ba013c08a2",
+    "duration_s": 12.362,
+    "chars": 167,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "06_transfer_s1_s2.wav"
+  },
+  "07_transfer_s3_s4": {
+    "fingerprint": "0186eafa4cf484ce",
+    "duration_s": 13.129,
+    "chars": 180,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "07_transfer_s3_s4.wav"
+  },
+  "08_stale_feed": {
+    "fingerprint": "06453f5dc09888d2",
+    "duration_s": 8.321,
+    "chars": 135,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "08_stale_feed.wav"
+  },
+  "09_recovery": {
+    "fingerprint": "e3e95bd549afd674",
+    "duration_s": 4.597,
+    "chars": 75,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "09_recovery.wav"
+  },
+  "10_outro": {
+    "fingerprint": "9caf008df4b8853f",
+    "duration_s": 20.993,
+    "chars": 247,
+    "speaker": "svc-f9222829-efc9-446a-92b4-02bcbebd94af",
+    "model": "voice_cloning",
+    "file": "10_outro.wav"
+  }
+}

@@ -28,3 +28,6 @@ venv/
 *.osm.pbf
 graph.obj
 graphs/
+
+# temporary per-segment demo captures (final MP4/WebM + pre-generated WAVs live under demo/)
+demo/segments/
