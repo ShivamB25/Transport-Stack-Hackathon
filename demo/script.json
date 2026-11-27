@@ -77,7 +77,7 @@
       "source_clip": "seg_04_transfer_late.webm",
       "fallback_slice": [28.0, 35.8],
       "caption": "At Tuglaqabad, advice flips to the direct 717A bus before boarding. Stage 4 reveals the true Oct 22 GPS outcome: the connecting bus left 27m 43s before 717A arrived.",
-      "tts_text": "By the time the bus reaches Tuglaqabad, our planner flips its advice to the direct route seven seventeen A bus before the rider commits. And stage four reveals what truly happened that evening: the connecting bus had already departed twenty seven minutes and forty three seconds before route seven seventeen A arrived."
+      "tts_text": "By the time the bus reaches Tuglaqabad, our planner flips its advice to the direct seven seventeen A bus before the rider commits. Stage four reveals what truly happened that evening: the connecting bus had already departed twenty-seven minutes and forty-three seconds before the seven seventeen A bus arrived."
     },
     {
       "id": "08_stale_feed",
@@ -85,7 +85,7 @@
       "source_clip": "seg_05_stale.webm",
       "fallback_slice": [38.2, 43.8],
       "caption": "Pausing the poller past the 45 s demo threshold triggers a stale-GPS abstention, blocking outdated estimates with exact provenance.",
-      "tts_text": "A trustworthy planner also knows when its own telemetry goes stale. Here we pause the background poller past our forty five second freshness threshold, and the interface immediately blocks outdated predictions with the exact abstention code and timestamp."
+      "tts_text": "A trustworthy planner also knows when its own GPS feed goes stale. Here we pause the background poller past our forty five second freshness threshold, and the interface immediately blocks outdated predictions with the exact abstention code and timestamp."
     },
     {
       "id": "09_recovery",
