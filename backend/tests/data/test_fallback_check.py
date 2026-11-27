@@ -1,4 +1,4 @@
-"""Tests for the rung-1 fallback measurement on routes with no learned model."""
+"""Tests for the causal Kalman ratio fallback measurement on routes with no learned model."""
 from __future__ import annotations
 
 from delhi_transit.data.fallback_check import measure

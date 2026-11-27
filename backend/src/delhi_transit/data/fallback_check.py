@@ -1,4 +1,4 @@
-"""Measure the rung-1 fallback against the timetable on routes with no learned model.
+"""Measure the causal Kalman ratio fallback against the timetable on routes with no learned model.
 
 The README says only route 717A has a trained model. This reports what the *fallback*
 actually achieves on other routes, so that limitation carries a number instead of an

@@ -1,4 +1,4 @@
-"""Ride timing: the selected-rung artifact on covered routes, then the causal rung-1 fallback chain."""
+"""Ride timing: selected-rung artifact on covered routes, then live speed or causal Kalman ratio filter."""
 from __future__ import annotations
 
 import time
@@ -528,11 +528,11 @@ class RetimeModel:
             if estimate is not None:
                 return estimate
 
-        # Uncovered and ineligible-artifact routes use the causal rung-1 fallback chain.
+        # Uncovered and ineligible-artifact routes use the live speed tier or causal Kalman ratio filter.
         if artifact_covers_route and not artifact_eligible:
             fallback_suffix = (
                 f" (selected artifact ineligible as of {observation_cutoff.isoformat()}; "
-                "causal rung 1 fallback)"
+                "causal Kalman fallback)"
             )
         elif self.selected_rung != "1" and not artifact_eligible:
             fallback_suffix = f" (route {route_id} outside rung {self.selected_rung} model scope)"
